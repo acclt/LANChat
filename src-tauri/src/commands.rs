@@ -899,10 +899,10 @@ pub async fn share_file_to_other_app(
 pub async fn read_clipboard_files() -> Result<Vec<String>, String> {
     println!("[Command] 读取剪贴板文件");
     
-    #[cfg(not(target_os = "android"))]
+    #[cfg(all(not(target_os = "android"), feature = "clipboard-rs"))]
     {
         // 1. 优先尝试 Wayland (仅 Linux)
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "wl-clipboard-rs"))]
         {
             if let Ok(files) = try_read_wayland_clipboard().await {
                 if !files.is_empty() {
@@ -926,14 +926,14 @@ pub async fn read_clipboard_files() -> Result<Vec<String>, String> {
         Ok(files)
     }
     
-    #[cfg(target_os = "android")]
+    #[cfg(not(all(not(target_os = "android"), feature = "clipboard-rs")))]
     {
-        Err("Android 不支持此功能".to_string())
+        Err("剪贴板功能不可用".to_string())
     }
 }
 
-// Wayland 剪贴板读取（仅 Linux）
-#[cfg(all(feature = "desktop", target_os = "linux"))]
+// Wayland 剪贴板读取（仅 Linux 且有 wl-clipboard-rs feature）
+#[cfg(all(feature = "desktop", target_os = "linux", feature = "wl-clipboard-rs"))]
 async fn try_read_wayland_clipboard() -> Result<Vec<String>, String> {
     use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType, Seat};
     use std::io::Read;
@@ -985,12 +985,6 @@ async fn try_read_wayland_clipboard() -> Result<Vec<String>, String> {
             Err(format!("Wayland 读取失败: {:?}", e))
         }
     }
-}
-
-// 非 Linux 桌面平台的空实现
-#[cfg(all(feature = "desktop", not(target_os = "linux"), not(target_os = "android")))]
-async fn try_read_wayland_clipboard() -> Result<Vec<String>, String> {
-    Err("Wayland 仅在 Linux 上可用".to_string())
 }
 
 // Web 端的空实现
