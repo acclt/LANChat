@@ -16,6 +16,7 @@ pub struct Message {
 // API 响应用的消息结构体（字段名适配前端）
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MessageResponse {
+    pub id: i64,
     pub from_id: String,
     pub content: String,
     pub timestamp: i64,
@@ -35,6 +36,7 @@ pub struct MessageResponse {
 impl From<Message> for MessageResponse {
     fn from(msg: Message) -> Self {
         let mut response = MessageResponse {
+            id: msg.id,
             from_id: msg.sender_id,
             content: msg.content.clone(),
             timestamp: msg.timestamp,

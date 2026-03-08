@@ -50,7 +50,9 @@
                 <div id="theme-error-msg" class="error-msg"></div>
             </div>
         </div>
-        <div id="android-path-panel" class="android-path-panel" style="display: none;">
+        <div id="android-path-panel"
+             class="android-path-panel"
+             style="display: none">
             <h2>选择下载路径</h2>
             <div class="android-path-content">
                 <div class="path-option" data-path="/storage/emulated/0/Download/LANChat">
@@ -82,8 +84,31 @@
                 </div>
                 <div class="chat-container" id="chat-container" style="display: none;">
                     <div class="chat-header">
-                        <span id="chat-with-name">选择用户开始聊天</span>
-                        <button id="close-chat-btn">✕</button>
+                        <button id="close-chat-btn" title="返回">
+                            <svg viewBox="0 0 24 24"
+                                 width="24"
+                                 height="24"
+                                 stroke="currentColor"
+                                 stroke-width="2"
+                                 fill="none"
+                                 stroke-linecap="round"
+                                 stroke-linejoin="round">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                            </svg>
+                        </button>
+                        <h3 id="chat-with-name">用户名</h3>
+                        <button id="select-mode-btn" title="多选">
+                            <svg viewBox="0 0 24 24"
+                                 width="20"
+                                 height="20"
+                                 stroke="currentColor"
+                                 stroke-width="2"
+                                 fill="none"
+                                 stroke-linecap="round"
+                                 stroke-linejoin="round">
+                                <line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>
+                            </svg>
+                        </button>
                     </div>
                     <div class="chat-messages" id="chat-messages"></div>
                     <div class="chat-input-container">

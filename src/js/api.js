@@ -272,10 +272,10 @@ async function apiGetChatHistory(peerId, limit = 10, offset = 0) {
 		try {
 			if (offset > 0) {
 				// 使用带偏移量的版本
-				return await tauri.core.invoke('get_chat_history_with_offset', { 
-					peerId, 
-					limit, 
-					offset 
+				return await tauri.core.invoke('get_chat_history_with_offset', {
+					peerId,
+					limit,
+					offset
 				});
 			} else {
 				// 使用默认版本
@@ -290,7 +290,7 @@ async function apiGetChatHistory(peerId, limit = 10, offset = 0) {
 		try {
 			// 始终传递 limit 和 offset 参数
 			const url = `/api/chat_history/${peerId}?limit=${limit}&offset=${offset}`;
-			
+
 			const resp = await fetch(url);
 
 			if (!resp.ok) {
@@ -587,9 +587,9 @@ async function apiGetCurrentTheme() {
 // Android 分享相关 API
 async function apiGetAndroidSharedFiles() {
 	console.log("[JS-API] apiGetAndroidSharedFiles 被调用");
-	
+
 	const tauri = getTauri();
-	
+
 	if (tauri) {
 		// 使用 Tauri 命令获取分享文件
 		try {
@@ -601,10 +601,10 @@ async function apiGetAndroidSharedFiles() {
 			console.error("[JS-API] Tauri 命令失败:", e);
 		}
 	}
-	
+
 	// 降级方案：使用 window.Android
 	console.log("[JS-API] window.Android 存在:", !!window.Android);
-	
+
 	if (window.Android && window.Android.getPendingSharedFiles) {
 		try {
 			console.log("[JS-API] 调用 window.Android.getPendingSharedFiles()");
@@ -624,7 +624,7 @@ async function apiGetAndroidSharedFiles() {
 
 async function apiClearAndroidSharedFiles() {
 	const tauri = getTauri();
-	
+
 	if (tauri) {
 		try {
 			await tauri.core.invoke('clear_android_shared_files');
@@ -633,7 +633,7 @@ async function apiClearAndroidSharedFiles() {
 			console.error("[JS-API] 清除分享文件失败:", e);
 		}
 	}
-	
+
 	if (window.Android && window.Android.clearPendingSharedFiles) {
 		window.Android.clearPendingSharedFiles();
 	}
@@ -641,7 +641,7 @@ async function apiClearAndroidSharedFiles() {
 
 async function apiSendFileFromAndroidUri(peerId, peerAddr, fileInfo) {
 	const tauri = getTauri();
-	
+
 	if (!tauri) {
 		throw new Error("Tauri 不可用");
 	}
@@ -663,7 +663,7 @@ async function apiSendFileFromAndroidUri(peerId, peerAddr, fileInfo) {
 		// 检查是否有文件描述符
 		if (fileInfo.fd && fileInfo.fd >= 0) {
 			console.log("[JS-API] 使用文件描述符发送: fd=" + fileInfo.fd);
-			
+
 			// 使用 FD 发送文件
 			const params = {
 				peerId: peerId,
@@ -673,9 +673,9 @@ async function apiSendFileFromAndroidUri(peerId, peerAddr, fileInfo) {
 				fd: fileInfo.fd,
 				originalUri: fileInfo.uri || null  // 传递原始 URI
 			};
-			
+
 			console.log("[JS-API] 调用 send_file_from_fd，参数:", JSON.stringify(params));
-			
+
 			const result = await tauri.core.invoke('send_file_from_fd', params);
 			console.log("[JS-API] 文件发送成功:", result);
 			return result;
@@ -693,11 +693,11 @@ async function apiSendFileFromAndroidUri(peerId, peerAddr, fileInfo) {
 // 分享文件到其他应用（仅 Android）
 async function apiShareFileToOtherApp(filePath) {
 	const tauri = getTauri();
-	
+
 	if (!tauri) {
 		throw new Error("仅支持 Android 端");
 	}
-	
+
 	try {
 		console.log("[JS-API] 分享文件到其他应用:", filePath);
 		await tauri.core.invoke('share_file_to_other_app', { filePath });
@@ -712,11 +712,11 @@ async function apiShareFileToOtherApp(filePath) {
 // 分享文件到其他应用（仅 Android）
 async function apiShareFileToOtherApp(filePath) {
 	const tauri = getTauri();
-	
+
 	if (!tauri) {
 		throw new Error("仅支持 Android 端");
 	}
-	
+
 	try {
 		console.log("[JS-API] 分享文件到其他应用:", filePath);
 		await tauri.core.invoke('share_file_to_other_app', { filePath });
@@ -724,5 +724,32 @@ async function apiShareFileToOtherApp(filePath) {
 	} catch (e) {
 		console.error("[JS-API] 分享文件失败:", e);
 		throw e;
+	}
+}
+
+
+// 批量删除消息
+async function apiDeleteMessages(msgIds) {
+	const tauri = getTauri();
+
+	if (tauri) {
+		// 桌面端
+		try {
+			await tauri.core.invoke('delete_messages', { msgIds });
+		} catch (e) {
+			console.error("[JS-API] 删除消息失败:", e);
+			throw e;
+		}
+	} else {
+		// Web 端
+		const resp = await fetch('/api/delete_messages', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ msg_ids: msgIds })
+		});
+
+		if (!resp.ok) {
+			throw new Error('删除消息失败: ' + resp.status);
+		}
 	}
 }

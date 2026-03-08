@@ -109,10 +109,13 @@ cargo build --release --bin lanchat-web --features web --no-default-features
 - [x] 桌面端支持粘贴文件发送（零拷贝，Wayland 优先）
 - [x] Web 端支持粘贴文件发送
 - [x] 图片消息自动预览
+- [x] 存在未读消息时红点标注
+- [x] 历史消息懒加载（滚动时触发加载历史消息）
 
 ### 🚧 进行中
 - [ ] 删除历史聊天记录
-- [ ] 标注未读消息
+- [ ] 消息加上年月
+- [ ] 新消息系统通知（linux使用notify，windows使用powershell）
 - [ ] 更换默认图标
 
 ### 📋 计划中

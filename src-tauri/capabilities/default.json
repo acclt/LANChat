@@ -37,6 +37,7 @@
     "allow-save-file-message",
     "allow-open-file-location",
     "allow-read-clipboard-files",
+    "allow-delete-messages",
     {
       "identifier": "opener:allow-reveal-item-in-dir",
       "allow": [

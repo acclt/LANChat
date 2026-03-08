@@ -42,7 +42,8 @@
     "allow-get-android-shared-files",
     "allow-clear-android-shared-files",
     "allow-send-file-from-fd",
-    "allow-share-file-to-other-app"
+    "allow-share-file-to-other-app",
+    "allow-delete-messages"
   ],
   "scope": {
     "allow": [

@@ -351,37 +351,24 @@ h2::before {
 }
 
 .chat-header {
-	flex-shrink: 0;
-	background: rgba(40, 42, 54, 0.9);
-	padding: 15px 20px;
-	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+	/* 确保 flex 布局能正确两端对齐 */
 	display: flex;
+	align-items: center;
 	justify-content: space-between;
-	align-items: center;
-	font-weight: 600;
+	padding: 10px 15px;
+	/* 根据需要微调 */
+	gap: 10px;
 }
 
-/* [修复2] 关闭按钮：任何时候都显示，方便关闭聊天 */
-#close-chat-btn {
-	display: flex;
-	/* 改为 Flex 以便居中图标 */
-	align-items: center;
-	justify-content: center;
-	background: transparent;
-	border: 1px solid rgba(255, 85, 85, 0.2);
-	color: #ff5555;
-	font-size: 16px;
-	width: 30px;
-	height: 30px;
-	border-radius: 8px;
-	cursor: pointer;
-	transition: all 0.3s;
-}
-
-#close-chat-btn:hover {
-	background: #ff5555;
-	color: white;
-	box-shadow: 0 0 10px rgba(255, 85, 85, 0.4);
+#chat-with-name {
+	flex: 1;
+	/* 让标题占据中间剩余空间 */
+	margin: 0;
+	text-align: left;
+	/* 或者 center，看你喜好 */
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .chat-messages {
@@ -1676,4 +1663,148 @@ h2::before {
 .message-file:has(.image-preview):hover {
 	background: transparent !important;
 	border: none !important;
+}
+
+/* 1. 基础消息容器设置 */
+.message {
+	position: relative;
+	/* 关键：为了让复选框绝对定位 */
+	transition: padding 0.2s ease, transform 0.2s ease;
+}
+
+.message.selectable .message-file {
+	pointer-events: none;
+}
+
+/* 2. 进入多选模式时，给消息整体左侧腾出空间 */
+.message.selectable {
+	/* 不使用 margin，改用 padding 防止布局塌陷 */
+	padding-left: 45px !important;
+	cursor: pointer;
+	/* 确保鼠标在整行都能触发点击 */
+	pointer-events: auto;
+}
+
+/* 针对发送的消息（在右边），也需要左侧腾出空间 */
+.message.sent.selectable {
+	/* 保持原有的右对齐，但左侧增加 padding 放复选框 */
+	padding-left: 45px !important;
+}
+
+/* 3. 自定义复选框样式 */
+.message .select-checkbox {
+	/* 绝对定位 */
+	position: absolute;
+	/* 放在 padding 腾出的空间里 */
+	left: 10px;
+	/* 垂直居中 */
+	top: 50%;
+	transform: translateY(-50%);
+
+	appearance: none;
+	/* 去除原生样式 */
+	-webkit-appearance: none;
+
+	width: 22px;
+	height: 22px;
+	border: 2px solid var(--text-dim, #888);
+	/* 默认灰色边框 */
+	border-radius: 50%;
+	/* 改成圆形更现代，或者 6px 圆角矩形 */
+	background-color: transparent;
+	cursor: pointer;
+	transition: all 0.2s;
+	z-index: 10;
+	/* 确保在最上层 */
+}
+
+/* 选中状态的复选框 */
+.message .select-checkbox:checked {
+	background-color: var(--primary, #bd93f9);
+	border-color: var(--primary, #bd93f9);
+	/* 使用 SVG 对号图标 */
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
+	background-size: 70%;
+	background-position: center;
+	background-repeat: no-repeat;
+}
+
+/* 4. 选中消息的气泡高亮 */
+.message.selected .message-content {
+	/* 使用主题变量的半透明色 */
+	background: rgba(189, 147, 249, 0.2) !important;
+	box-shadow: 0 0 0 1px var(--primary, #bd93f9);
+	/* 细微的紫色描边 */
+	color: #fff;
+	/* 确保文字颜色 */
+}
+
+/* 针对发送消息的选中状态 */
+.message.sent.selected .message-content {
+	background: rgba(189, 147, 249, 0.4) !important;
+}
+
+/* 5. 鼠标悬停时的反馈 (仅在多选模式下) */
+.message.selectable:hover .select-checkbox {
+	border-color: var(--primary, #bd93f9);
+}
+
+/* --- 按钮通用基础样式 (包括左边的返回和右边的多选) --- */
+#select-mode-btn,
+#close-chat-btn {
+	display: flex;
+	/* Flex 布局居中图标 */
+	align-items: center;
+	justify-content: center;
+
+	/* 核心尺寸调整：严格恢复到 30px */
+	width: 30px;
+	height: 30px;
+
+	border-radius: 8px;
+	/* 圆角 */
+	cursor: pointer;
+	transition: all 0.3s;
+
+	/* 默认状态：透明背景，无边框 */
+	background: transparent;
+	border: 1px solid transparent;
+	color: var(--text-dim, #b3b3b3);
+}
+
+/* --- 左侧返回按钮 (close-chat-btn) --- */
+/* 悬停时稍微变亮即可 */
+#close-chat-btn:hover,
+#select-mode-btn:hover {
+	background: rgba(255, 255, 255, 0.1);
+	color: #fff;
+}
+
+#select-mode-btn.active {
+	/* 核心复刻：红色文字，红色半透明边框 */
+	color: #ff5555;
+	border: 1px solid rgba(255, 85, 85, 0.2);
+	background: transparent;
+
+	/* 确保尺寸还是 30px */
+	width: 30px;
+	height: 30px;
+
+	/* 移除之前的紫色阴影 */
+	box-shadow: none;
+}
+
+/* 状态 B 的悬停效果: 变成实心红 */
+#select-mode-btn.active:hover {
+	background: #ff5555;
+	color: white;
+	border-color: #ff5555;
+	box-shadow: 0 0 10px rgba(255, 85, 85, 0.4);
+}
+
+/* 禁用状态的样式 */
+#chat-input:disabled,
+#attach-file-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
 }

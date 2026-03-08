@@ -90,6 +90,7 @@ pub async fn start_server(
         .route("/api/create_upload_record", post(create_upload_record_http))
         .route("/api/update_upload_status", post(update_upload_status_http))
         .route("/api/delete_upload_record", post(delete_upload_record_http))
+        .route("/api/delete_messages", post(delete_messages_http))
         .route("/api/get_theme_list", get(get_theme_list_http))
         .route("/api/get_theme_css/:theme_name", get(get_theme_css_http))
         .route("/api/save_current_theme", post(save_current_theme_http))
@@ -1152,5 +1153,33 @@ async fn get_current_theme_http(State(state): State<Arc<AppState>>) -> impl Into
             )
                 .into_response()
         }
+    }
+}
+
+// 批量删除消息
+async fn delete_messages_http(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let msg_ids: Vec<i64> = match payload.get("msg_ids").and_then(|v| v.as_array()) {
+        Some(arr) => arr.iter().filter_map(|v| v.as_i64()).collect(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "缺少 msg_ids 参数".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+    
+    match crate::db::delete_messages_by_ids(&state.pool, msg_ids).await {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+            .into_response(),
     }
 }

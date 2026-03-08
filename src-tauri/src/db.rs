@@ -638,3 +638,31 @@ pub async fn create_received_file_record(
     );
     Ok(msg_id)
 }
+
+/// 批量删除消息（通过消息ID列表）
+pub async fn delete_messages_by_ids(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    msg_ids: Vec<i64>,
+) -> Result<(), String> {
+    if msg_ids.is_empty() {
+        return Ok(());
+    }
+    
+    println!("[DB] 批量删除消息: {} 条", msg_ids.len());
+    
+    // 构建 IN 子句的占位符
+    let placeholders = msg_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let query_str = format!("DELETE FROM messages WHERE id IN ({})", placeholders);
+    
+    let mut query = sqlx::query(&query_str);
+    for id in msg_ids {
+        query = query.bind(id);
+    }
+    
+    query.execute(pool)
+        .await
+        .map_err(|e| format!("批量删除消息失败: {}", e))?;
+    
+    println!("[DB] 消息已批量删除");
+    Ok(())
+}

@@ -1014,3 +1014,13 @@ impl AndroidShareState {
         Self
     }
 }
+
+// 批量删除消息
+#[tauri::command]
+pub async fn delete_messages(
+    state: tauri::State<'_, crate::db::DbState>,
+    msg_ids: Vec<i64>,
+) -> Result<(), String> {
+    println!("[Command] 批量删除消息: {:?}", msg_ids);
+    crate::db::delete_messages_by_ids(&state.pool, msg_ids).await
+}

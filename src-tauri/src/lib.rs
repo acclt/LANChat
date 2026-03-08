@@ -45,7 +45,8 @@ pub fn run() {
             commands::get_android_shared_files,
             commands::clear_android_shared_files,
             commands::send_file_from_fd,
-            commands::share_file_to_other_app
+            commands::share_file_to_other_app,
+            commands::delete_messages
         ])
         .setup(|app| {
             let handle = app.handle().clone();

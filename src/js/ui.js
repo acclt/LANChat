@@ -1,4 +1,6 @@
-// UI 交互逻辑
+// 图标 SVG 常量
+const ICON_SELECT_LIST = `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>`;
+const ICON_CANCEL_X = `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
 
 // 初始化改名功能
 function initNameEditor() {
@@ -185,6 +187,10 @@ function initChat() {
 
 	// 关闭聊天窗口
 	closeChatBtn.addEventListener('click', () => {
+		// 如果在多选模式，先退出
+		if (window.selectMode && window.selectMode.active) {
+			exitSelectMode();
+		}
 		closeChat();
 	});
 
@@ -238,8 +244,8 @@ function initChat() {
 	// 粘贴文件功能
 	initPasteFile();
 
-	// 初始化回到底部按钮
-	initScrollToBottomBtn();
+	// 初始化多选模式
+	initSelectMode();
 }
 
 // 打开聊天
@@ -292,6 +298,11 @@ function closeChat() {
 
 // 3. 真正的 UI 隐藏逻辑（只管藏，不管历史记录）
 function performCloseChatUI() {
+	// 如果在多选模式，先退出
+	if (window.selectMode && window.selectMode.active) {
+		exitSelectMode();
+	}
+
 	const chatContainer = document.getElementById('chat-container');
 	if (chatContainer) chatContainer.style.display = 'none';
 	window.currentChatPeer = null;
@@ -310,13 +321,70 @@ function updateListHighlight(activeId) {
 	});
 }
 
-// 5. [最关键的手术] 全局监听器：处理物理返回键和手动后退
+// 5. 全局监听器：处理物理返回键和手动后退
 window.addEventListener('popstate', function(event) {
-	const chatContainer = document.getElementById('chat-container');
-	// 如果检测到 URL 里没有 #chat 了，但窗口还开着，强制关掉它
-	if (window.location.hash !== '#chat') {
-		performCloseChatUI();
-	}
+    const chatContainer = document.getElementById('chat-container');
+    
+    // 【场景 A】如果当前处于多选模式
+    if (window.selectMode && window.selectMode.active) {
+        console.log('[UI] 拦截返回键：退出多选模式');
+        
+        // 手动执行退出多选的 UI 恢复逻辑
+        window.selectMode.active = false;
+        window.selectMode.selectedMessages.clear();
+
+        const selectModeBtn = document.getElementById('select-mode-btn');
+        const sendBtn = document.getElementById('send-btn');
+        const chatInput = document.getElementById('chat-input');
+        const attachFileBtn = document.getElementById('attach-file-btn');
+
+        // 恢复图标
+        if(selectModeBtn) {
+             selectModeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>';
+             selectModeBtn.classList.remove('active');
+        }
+        
+        if(sendBtn) {
+            sendBtn.textContent = '发送';
+            sendBtn.style.backgroundColor = '';
+            sendBtn.style.borderColor = '';
+            sendBtn.style.color = '';
+        }
+
+        if(chatInput) chatInput.disabled = false;
+        if(attachFileBtn) attachFileBtn.disabled = false;
+
+        const messages = document.querySelectorAll('.message');
+        messages.forEach(msg => {
+            // 简单清理
+            const checkbox = msg.querySelector('.select-checkbox');
+            if (checkbox) checkbox.remove();
+            msg.classList.remove('selectable', 'selected');
+        });
+        
+        const fileContainers = document.querySelectorAll('.message-file');
+        fileContainers.forEach(container => container.style.pointerEvents = 'auto');
+        
+        // 【核心修复 1】平板/手机 URL 状态修正
+        // 如果是手机端，且当前不是 #chat，补回 #chat 以保持聊天窗口打开
+        if (window.innerWidth <= 768 && window.location.hash !== '#chat') {
+             window.history.replaceState({ chatOpen: true }, "", "#chat");
+        }
+        
+        return; 
+    }
+
+    // 【场景 B】正常关闭聊天窗口逻辑
+    // 如果 URL 已经不是 #chat 了
+    if (window.location.hash !== '#chat') {
+        // 【核心修复 2】关键判断！
+        // 只有在“手机模式”下 (<=768px)，URL 变空才代表“关闭聊天返回列表”。
+        // 在平板/桌面端 (>768px)，URL 变空是正常现象（因为打开聊天时不推入 #chat），
+        // 所以平板端绝对不能在这里关闭聊天窗口。
+        if (window.innerWidth <= 768) {
+            performCloseChatUI();
+        }
+    }
 });
 
 // 发送消息
@@ -699,6 +767,11 @@ function createMessageElement(message, isSent) {
 	const messageDiv = document.createElement('div');
 	messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
 
+	// 添加消息ID作为data属性
+	if (message.id) {
+		messageDiv.dataset.msgId = message.id;
+	}
+
 	const contentDiv = document.createElement('div');
 	contentDiv.className = 'message-content';
 
@@ -812,6 +885,26 @@ function createMessageElement(message, isSent) {
 
 	messageDiv.appendChild(contentDiv);
 	messageDiv.appendChild(timeDiv);
+
+	// ============================================================
+	// 适配懒加载和新消息的多选模式
+	// ============================================================
+	if (window.selectMode && window.selectMode.active) {
+		// 1. 给新生成的消息添加 selectable 类
+		messageDiv.classList.add('selectable');
+
+		// 2. 立即添加复选框和监听器
+		addSelectCheckbox(messageDiv);
+
+		// 3. 保持选中状态（比如这是刚刚加载出来的历史消息，
+		//    但在逻辑上它之前被选中过），可以在这里判断 id 是否在 selectedMessages 里
+		if (message.id && window.selectMode.selectedMessages.has(parseInt(message.id))) {
+			messageDiv.classList.add('selected');
+			const checkbox = messageDiv.querySelector('.select-checkbox');
+			if (checkbox) checkbox.checked = true;
+		}
+	}
+	// ============================================================
 
 	return messageDiv;
 }
@@ -1813,3 +1906,270 @@ function initScrollToBottomBtn() {
 		}
 	});
 }
+
+
+// 多选模式相关
+window.selectMode = {
+	active: false,
+	selectedMessages: new Set()
+};
+
+// 初始化多选模式
+function initSelectMode() {
+	const selectModeBtn = document.getElementById('select-mode-btn');
+	const sendBtn = document.getElementById('send-btn');
+
+	// 确保按钮存在
+	if (!selectModeBtn) return;
+
+	// 点击多选按钮
+	selectModeBtn.addEventListener('click', () => {
+		if (window.selectMode.active) {
+			exitSelectMode();
+		} else {
+			enterSelectMode();
+		}
+	});
+
+	// 修改发送按钮的点击事件 (保持不变)
+	const originalSendHandler = sendBtn.onclick;
+	sendBtn.onclick = () => {
+		if (window.selectMode.active) {
+			deleteSelectedMessages();
+		} else {
+			sendMessage();
+		}
+	};
+}
+
+// 进入多选模式
+function enterSelectMode(initialMessageId = null) {
+	console.log('[UI] 进入多选模式');
+	window.selectMode.active = true;
+	window.selectMode.selectedMessages.clear();
+
+	// 只要是移动端（包括安卓平板）或者屏幕够小，都写入历史记录，防止物理返回键直接退出 App
+	const isMobile = navigator.userAgent.includes('Android') || window.innerWidth <= 768;
+	if (isMobile) {
+		window.history.pushState({ selectMode: true }, "", "#chat-select");
+	}
+
+	// 更新UI
+	const selectModeBtn = document.getElementById('select-mode-btn');
+	const sendBtn = document.getElementById('send-btn');
+	const chatInput = document.getElementById('chat-input');
+	const attachFileBtn = document.getElementById('attach-file-btn');
+
+	// 切换为取消图标，并添加激活样式
+	selectModeBtn.innerHTML = ICON_CANCEL_X;
+	selectModeBtn.classList.add('active');
+
+	// 发送按钮变为删除，改为红色警告色
+	sendBtn.textContent = '删除';
+	sendBtn.style.backgroundColor = '#ff5555'; // Dracula Red
+	sendBtn.style.borderColor = '#ff5555';
+	sendBtn.style.color = '#fff';
+
+	chatInput.disabled = true;
+	attachFileBtn.disabled = true;
+	// 给所有消息添加复选框和点击事件
+	const messages = document.querySelectorAll('.message');
+	messages.forEach(msg => {
+		addSelectCheckbox(msg);
+		msg.classList.add('selectable');
+
+		if (initialMessageId && msg.dataset.msgId === String(initialMessageId)) {
+			msg.classList.add('selected');
+			const checkbox = msg.querySelector('.select-checkbox');
+			if (checkbox) checkbox.checked = true;
+			// 立即将初始消息加入集合
+			window.selectMode.selectedMessages.add(parseInt(initialMessageId));
+		}
+	});
+	disableFileMessageClicks();
+}
+
+// 退出多选模式
+function exitSelectMode() {
+	console.log('[UI] 退出多选模式');
+	window.selectMode.active = false;
+	window.selectMode.selectedMessages.clear();
+
+	// 如果当前 URL 是 #chat-select，说明是移动端通过按钮退出的，需要后退一步恢复到 #chat
+	// 如果是按返回键触发的 popstate，URL 已经变了，就不需要 back()
+	if (window.location.hash === '#chat-select') {
+		window.history.back();
+	}
+
+	// 恢复UI
+	const selectModeBtn = document.getElementById('select-mode-btn');
+	const sendBtn = document.getElementById('send-btn');
+	const chatInput = document.getElementById('chat-input');
+	const attachFileBtn = document.getElementById('attach-file-btn');
+
+	// 恢复列表图标
+	selectModeBtn.innerHTML = ICON_SELECT_LIST;
+	selectModeBtn.classList.remove('active');
+
+	// 恢复发送按钮
+	sendBtn.textContent = '发送';
+	sendBtn.style.backgroundColor = ''; // 恢复 CSS 中的默认值
+	sendBtn.style.borderColor = '';
+	sendBtn.style.color = '';
+
+	chatInput.disabled = false;
+	attachFileBtn.disabled = false;
+
+	// 移除复选框逻辑保持不变
+	const messages = document.querySelectorAll('.message');
+	messages.forEach(msg => {
+		removeSelectCheckbox(msg);
+		msg.classList.remove('selectable', 'selected');
+	});
+}
+
+// 添加复选框到消息
+function addSelectCheckbox(messageElement) {
+	if (messageElement.querySelector('.select-checkbox')) return;
+
+	const checkbox = document.createElement('input');
+	checkbox.type = 'checkbox';
+	checkbox.className = 'select-checkbox';
+
+	// 点击复选框
+	checkbox.addEventListener('change', (e) => {
+		e.stopPropagation();
+		toggleMessageSelection(messageElement);
+	});
+
+	// 点击消息本身
+	messageElement.addEventListener('click', handleMessageClick);
+
+	messageElement.insertBefore(checkbox, messageElement.firstChild);
+}
+
+// 移除复选框
+function removeSelectCheckbox(messageElement) {
+	const checkbox = messageElement.querySelector('.select-checkbox');
+	if (checkbox) {
+		checkbox.remove();
+	}
+	messageElement.removeEventListener('click', handleMessageClick);
+}
+
+// 处理消息点击
+function handleMessageClick(e) {
+	if (!window.selectMode.active) return;
+
+	// 如果点击的是复选框，不处理（复选框自己会处理）
+	if (e.target.classList.contains('select-checkbox')) return;
+
+	const messageElement = e.currentTarget;
+	toggleMessageSelection(messageElement);
+}
+
+// 切换消息选中状态
+function toggleMessageSelection(messageElement) {
+	const msgId = parseInt(messageElement.dataset.msgId);
+	console.log('[UI] toggleMessageSelection - msgId:', msgId, 'dataset:', messageElement.dataset);
+
+	if (!msgId) {
+		console.warn('[UI] 消息没有 msgId，无法选中');
+		return;
+	}
+
+	const checkbox = messageElement.querySelector('.select-checkbox');
+
+	if (window.selectMode.selectedMessages.has(msgId)) {
+		window.selectMode.selectedMessages.delete(msgId);
+		messageElement.classList.remove('selected');
+		if (checkbox) checkbox.checked = false;
+		console.log('[UI] 取消选中消息:', msgId);
+	} else {
+		window.selectMode.selectedMessages.add(msgId);
+		messageElement.classList.add('selected');
+		if (checkbox) checkbox.checked = true;
+		console.log('[UI] 选中消息:', msgId);
+	}
+
+	console.log('[UI] 已选中消息:', Array.from(window.selectMode.selectedMessages));
+}
+
+// 删除选中的消息
+async function deleteSelectedMessages() {
+	const selectedIds = Array.from(window.selectMode.selectedMessages);
+
+	if (selectedIds.length === 0) {
+		alert('请先选择要删除的消息');
+		return;
+	}
+
+	try {
+		console.log('[UI] 删除消息:', selectedIds);
+
+		// 调用API删除
+		await apiDeleteMessages(selectedIds);
+
+		// 从DOM中移除
+		selectedIds.forEach(msgId => {
+			const msgElement = document.querySelector(`.message[data-msg-id="${msgId}"]`);
+			if (msgElement) {
+				msgElement.remove();
+			}
+		});
+
+		// 更新已加载数量
+		if (window.currentChatMessages) {
+			window.currentChatMessages.loadedCount -= selectedIds.length;
+			window.currentChatMessages.totalCount -= selectedIds.length;
+		}
+
+		console.log('[UI] 消息删除成功');
+
+		// 退出多选模式
+		exitSelectMode();
+	} catch (e) {
+		console.error('[UI] 删除消息失败:', e);
+		alert('删除消息失败: ' + e.message);
+	}
+}
+
+// 长按进入多选模式（移动端）
+function initLongPressSelectMode() {
+	let longPressTimer = null;
+	let longPressTarget = null;
+
+	document.addEventListener('touchstart', (e) => {
+		// 只在聊天消息上触发
+		const messageElement = e.target.closest('.message');
+		if (!messageElement || window.selectMode.active) return;
+
+		longPressTarget = messageElement;
+		longPressTimer = setTimeout(() => {
+			const msgId = parseInt(messageElement.dataset.msgId);
+			if (msgId) {
+				enterSelectMode(msgId);
+			}
+		}, 500); // 500ms 长按
+	});
+
+	document.addEventListener('touchend', () => {
+		if (longPressTimer) {
+			clearTimeout(longPressTimer);
+			longPressTimer = null;
+			longPressTarget = null;
+		}
+	});
+
+	document.addEventListener('touchmove', () => {
+		if (longPressTimer) {
+			clearTimeout(longPressTimer);
+			longPressTimer = null;
+			longPressTarget = null;
+		}
+	});
+}
+
+// 初始化长按功能
+initLongPressSelectMode();
+

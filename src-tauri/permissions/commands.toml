@@ -98,3 +98,9 @@ commands.allow = ["open_file_location"]
 identifier = "allow-read-clipboard-files"
 description = "Allows reading file paths from system clipboard"
 commands.allow = ["read_clipboard_files"]
+
+
+[[permission]]
+identifier = "allow-delete-messages"
+description = "Allows deleting messages from chat history"
+commands.allow = ["delete_messages"]
