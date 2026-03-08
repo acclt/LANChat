@@ -34,10 +34,6 @@ paru -S lanchat-bin
 
 [https://github.com/cap153/LANChat/releases](https://github.com/cap153/LANChat/releases) 
 
-### b友编译的iOS版本
-
-[https://github.com/cap153/LANChat/releases/download/v0.1.1/LANChat_0.1.1_aarch64.dmg](https://github.com/cap153/LANChat/releases/download/v0.1.1/LANChat_0.1.1_aarch64.dmg) 
-
 ### 编译
 
 前置要求：
