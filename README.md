@@ -111,10 +111,10 @@ cargo build --release --bin lanchat-web --features web --no-default-features
 - [x] 图片消息自动预览
 - [x] 存在未读消息时红点标注
 - [x] 历史消息懒加载（滚动时触发加载历史消息）
+- [x] 删除历史聊天记录
 
 ### 🚧 进行中
-- [ ] 删除历史聊天记录
-- [ ] 消息加上年月
+- [ ] 消息时间加上年月
 - [ ] 新消息系统通知（linux使用notify，windows使用powershell）
 - [ ] 更换默认图标
 
