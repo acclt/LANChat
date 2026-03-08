@@ -136,84 +136,199 @@ body {
 	background: var(--bg);
 }
 
-/* 1. 头部容器：作为高度的唯一仲裁者 */
+/* =========================================
+   VS Code 伪装主题：完美标签页版 (Seamless Tab)
+   ========================================= */
+
+/* 1. 聊天头部容器 -> "编辑器标签栏轨道" */
 .chat-header {
-	height: 35px !important;       /* 强制固定高度 */
-	display: flex !important;
-	align-items: stretch !important; /* 【核心修复】强制所有子元素高度拉伸至 100% */
-	justify-content: flex-start !important;
-	padding: 0 !important;
-	background: #2d2d2d !important; /* 确保背景色统一 */
-	gap: 0 !important;
-	border: none !important;
+    height: 35px !important;
+    background: #252526 !important; /* 深色的空白轨道背景 */
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important; /* 全部靠左对齐，不拉伸 */
+    padding: 0 !important;
+    border-bottom: 1px solid #252526 !important;
+    gap: 0 !important;
+    overflow: hidden !important;
 }
 
-/* 2. 文件名区域 */
-#chat-with-name {
-	/* 布局与尺寸 */
-	flex: 0 1 auto !important;     /* 宽度自适应 */
-	width: auto !important;
-	height: auto !important;       /* 高度交给父级 stretch 控制 */
-	
-	/* 内部对齐 */
-	display: flex !important;
-	align-items: center !important; /* 只有里面的文字垂直居中 */
-	
-	/* 样式伪装 */
-	background: var(--bg) !important; 
-	border: none !important;       /* 移除边框 */
-	box-shadow: inset 0 1px 0 0 #007acc !important; /* 顶部蓝线 */
-	
-	/* 间距 */
-	margin: 0 !important;
-	padding-left: 10px !important;
-	padding-right: 2px !important; /* 紧贴右侧关闭按钮 */
+/* --- 2. 核心伪装：将三个元素融合成一个 "Active Tab" --- */
+
+/* 通用设置：所有元素共享背景，消除缝隙 */
+#close-chat-btn,
+#chat-with-name,
+#select-mode-btn {
+    background: #1e1e1e !important; /* 激活标签的背景色 */
+    height: 100% !important;        /* 填满高度 */
+    box-sizing: border-box !important;
+    
+    /* 核心修复 1：用内阴影代替 border-top，保证蓝线绝对笔直、粗细100%一致 */
+    box-shadow: inset 0 1px 0 0 #007acc !important; 
+    
+    /* 核心修复 2：彻底清除中间的垂直线条和间距 */
+    border: none !important; 
+    border-radius: 0 !important;    
+    margin: 0 !important;
 }
 
-#chat-with-name::after {
-	content: ".rs";
-	margin-left: 2px;
-}
-
-#chat-with-name::before {
-	content: "R ";
-	color: #dea584;
-	margin-right: 5px;
-	font-family: serif;
-}
-
-/* 3. 关闭按钮 */
+/* [A] 左侧返回按钮 -> 伪装成 "Rust 文件图标" */
 #close-chat-btn {
-	/* 布局与尺寸 */
-	flex: 0 0 35px !important;     /* 固定宽度 */
-	height: auto !important;       /* 高度交给父级 stretch 控制 */
-	
-	/* 内部对齐 */
-	display: flex !important;
-	align-items: center !important;
-	justify-content: center !important;
-	
-	/* 样式伪装 */
-	background: var(--bg) !important;
-	color: #999 !important;
-	border: none !important;       /* 移除边框 */
-	outline: none !important;
-	border-radius: 0 !important;
-	box-shadow: inset 0 1px 0 0 #007acc !important; /* 顶部蓝线 */
-	
-	/* 间距 */
-	margin: 0 !important;
-	padding: 0 !important;
+    width: 32px !important; /* 缩小占位，更紧凑 */
+    padding: 0 !important;
+    justify-content: center !important;
+    order: -1 !important; /* 保证在最左边 */
+    
+    /* 伪装样式 */
+    color: #dea584 !important; /* Rust Logo 橙色 */
+    font-family: serif !important;
+    font-weight: bold !important;
+    font-size: 14px !important; /* 核心修复 3：R 缩小，比例更协调 */
+    cursor: pointer !important;
 }
 
-/* 4. 关闭按钮悬停态 */
+/* 隐藏原有的 SVG 图标 */
+#close-chat-btn svg { display: none !important; }
+#close-chat-btn::after { content: "R"; }
+
 #close-chat-btn:hover {
-	background-color: #e81123 !important; /* 红色背景 */
-	color: #ffffff !important;
-	/* 悬停时，顶部的蓝线也要变成红色，保证视觉整体性 */
-	box-shadow: inset 0 1px 0 0 #e81123 !important; 
+    filter: brightness(1.2); /* 悬停仅图标发亮，背景不动 */
 }
 
+/* [B] 中间标题 -> "文件名" */
+#chat-with-name {
+    flex: 0 1 auto !important; /* 核心修复 4：取消 flex: 1，不再向右无限拉伸 */
+    padding: 0 4px !important;
+    color: #ffffff !important;
+    font-size: 13px !important;
+    font-family: var(--font) !important;
+    display: flex !important;
+    align-items: center !important;
+    font-weight: normal !important;
+    white-space: nowrap !important;
+}
+
+#chat-with-name::before { display: none !important; }
+#chat-with-name::after {
+    content: ".rs" !important;
+    color: #999 !important;
+    margin-left: 2px !important;
+}
+
+/* [C] 右侧多选按钮 -> 伪装成 "标签页关闭 X" */
+#select-mode-btn {
+    width: 32px !important; 
+    justify-content: center !important;
+    align-items: center !important;
+    color: #cccccc !important;
+    padding: 0 !important;
+    position: relative !important;
+    z-index: 10 !important;
+    
+    /* 仅在这里加一条右侧暗色边框，作为标签页结束的边界 */
+    border-right: 1px solid #252526 !important; 
+}
+
+/* 隐藏原有的 SVG */
+#select-mode-btn svg { display: none !important; }
+
+/* 注入 "×" 字符 */
+#select-mode-btn::after {
+    content: "×"; 
+    font-size: 18px !important; 
+    font-weight: 300 !important;
+    line-height: 1 !important;
+    
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px; /* VS Code 的微小圆角 */
+    transition: all 0.1s !important;
+}
+
+/* 状态 1：默认悬停 (像要关闭标签页) */
+#select-mode-btn:hover::after {
+    background-color: #353535 !important; /* 深灰背景 */
+    color: #ffffff !important;
+}
+
+/* 状态 2：激活状态 (多选模式开启) -> 伪装成 "红色的关闭按钮" */
+#select-mode-btn.active {
+    background: #1e1e1e !important; 
+}
+
+#select-mode-btn.active::after {
+    content: "×" !important; 
+    background-color: #e81123 !important; /* 警示红 */
+    color: #ffffff !important;
+    font-weight: bold !important;
+}
+
+#select-mode-btn.active:hover::after {
+    background-color: #ff4d4d !important; 
+}
+
+
+/* =========================================
+   多选交互伪装 -> "文本选中高亮"
+   ========================================= */
+
+/* 1. 彻底隐藏复选框 */
+.message .select-checkbox {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* 2. 移除左侧留白 (覆盖默认主题的 padding-left) */
+.message.selectable,
+.message.sent.selectable {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    cursor: text !important;
+}
+
+/* 3. 禁用文件消息点击 */
+.message.selectable .message-file {
+    pointer-events: none !important;
+    cursor: default !important;
+}
+
+/* 4. 选中高亮 -> 伪装成 VS Code 文本选中色 */
+.message.selected {
+    background-color: #264f78 !important; /* 深蓝选中色 */
+    border: none !important;
+    pointer-events: none !important; 
+}
+
+/* 修正选中时的文字颜色 */
+.message.selected .message-content,
+.message.selected .message-text,
+.message.selected .file-name {
+    color: #ffffff !important;
+}
+
+.message.selected::before {
+    color: #aaaaaa !important; /* 行号颜色 */
+}
+
+.message.sent.selected {
+    background-color: #264f78 !important;
+    border: none !important;
+}
+
+/* 确保 hover 效果自然 */
+.message.selectable:hover {
+    background-color: #2a2d2e !important;
+}
+
+.message.selected:hover {
+    background-color: #264f78 !important;
+}
 /* --- 4. 消息区域 (关键修复) --- */
 .chat-messages {
 	flex: 1;
