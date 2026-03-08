@@ -901,7 +901,7 @@ pub async fn read_clipboard_files() -> Result<Vec<String>, String> {
     
     #[cfg(all(not(target_os = "android"), feature = "clipboard-rs"))]
     {
-        // 1. 优先尝试 Wayland (仅 Linux)
+        // 1. 优先尝试 Wayland (仅 Linux 桌面端)
         #[cfg(all(target_os = "linux", feature = "wl-clipboard-rs"))]
         {
             if let Ok(files) = try_read_wayland_clipboard().await {
@@ -932,7 +932,7 @@ pub async fn read_clipboard_files() -> Result<Vec<String>, String> {
     }
 }
 
-// Wayland 剪贴板读取（仅 Linux 且有 wl-clipboard-rs feature）
+// Wayland 剪贴板读取（仅 Linux 桌面端）
 #[cfg(all(feature = "desktop", target_os = "linux", feature = "wl-clipboard-rs"))]
 async fn try_read_wayland_clipboard() -> Result<Vec<String>, String> {
     use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType, Seat};

@@ -68,6 +68,9 @@ sysinfo = { version = "0.30", optional = true }
 # 剪贴板 - 仅非 Android 的桌面端
 [target.'cfg(not(target_os = "android"))'.dependencies]
 clipboard-rs = { version = "0.3.3", optional = true }
+
+# Wayland 剪贴板 - 仅 Linux
+[target.'cfg(target_os = "linux")'.dependencies]
 wl-clipboard-rs = { version = "0.9", optional = true }
 
 # Android平台需要vendored OpenSSL
