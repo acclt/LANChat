@@ -84,7 +84,7 @@ function initNameEditor() {
 }
 
 // 添加新用户到列表
-function addUserToList(id, name, addr, isOffline = false) {
+async function addUserToList(id, name, addr, isOffline = false) {
 	const list = document.getElementById('user-list');
 	if (!list) return;
 
@@ -121,6 +121,29 @@ function addUserToList(id, name, addr, isOffline = false) {
 	});
 
 	list.appendChild(li);
+
+	// 初始化新用户的时间戳，避免误报未读消息
+	if (!window.userLastMessageTimestamps) {
+		window.userLastMessageTimestamps = {};
+	}
+	
+	if (!window.userLastMessageTimestamps[id]) {
+		try {
+			const messages = await apiGetChatHistory(id, 1, 0);
+			if (messages && messages.length > 0) {
+				window.userLastMessageTimestamps[id] = messages[0].timestamp;
+				console.log('[UI] 初始化新用户', name, '的时间戳:', messages[0].timestamp);
+			} else {
+				// 没有历史消息，设置为当前时间
+				window.userLastMessageTimestamps[id] = Date.now() / 1000;
+				console.log('[UI] 新用户', name, '没有历史消息，设置时间戳为当前时间');
+			}
+		} catch (e) {
+			console.warn('[UI] 初始化用户时间戳失败:', e);
+			// 失败时也设置为当前时间，避免误报
+			window.userLastMessageTimestamps[id] = Date.now() / 1000;
+		}
+	}
 
 	console.log('[UI] 添加用户到列表:', name, id, isOffline ? '(离线)' : '(在线)');
 }
@@ -194,9 +217,13 @@ function initChat() {
 		closeChat();
 	});
 
-	// 发送消息
+	// 发送消息 - 统一处理发送和删除
 	sendBtn.addEventListener('click', () => {
-		sendMessage();
+		if (window.selectMode && window.selectMode.active) {
+			deleteSelectedMessages();
+		} else {
+			sendMessage();
+		}
 	});
 
 	// 自动调整 textarea 高度
@@ -246,6 +273,9 @@ function initChat() {
 
 	// 初始化多选模式
 	initSelectMode();
+
+	// 初始化回到底部按钮
+	initScrollToBottomBtn();
 }
 
 // 打开聊天
@@ -323,68 +353,68 @@ function updateListHighlight(activeId) {
 
 // 5. 全局监听器：处理物理返回键和手动后退
 window.addEventListener('popstate', function(event) {
-    const chatContainer = document.getElementById('chat-container');
-    
-    // 【场景 A】如果当前处于多选模式
-    if (window.selectMode && window.selectMode.active) {
-        console.log('[UI] 拦截返回键：退出多选模式');
-        
-        // 手动执行退出多选的 UI 恢复逻辑
-        window.selectMode.active = false;
-        window.selectMode.selectedMessages.clear();
+	const chatContainer = document.getElementById('chat-container');
 
-        const selectModeBtn = document.getElementById('select-mode-btn');
-        const sendBtn = document.getElementById('send-btn');
-        const chatInput = document.getElementById('chat-input');
-        const attachFileBtn = document.getElementById('attach-file-btn');
+	// 【场景 A】如果当前处于多选模式
+	if (window.selectMode && window.selectMode.active) {
+		console.log('[UI] 拦截返回键：退出多选模式');
 
-        // 恢复图标
-        if(selectModeBtn) {
-             selectModeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>';
-             selectModeBtn.classList.remove('active');
-        }
-        
-        if(sendBtn) {
-            sendBtn.textContent = '发送';
-            sendBtn.style.backgroundColor = '';
-            sendBtn.style.borderColor = '';
-            sendBtn.style.color = '';
-        }
+		// 手动执行退出多选的 UI 恢复逻辑
+		window.selectMode.active = false;
+		window.selectMode.selectedMessages.clear();
 
-        if(chatInput) chatInput.disabled = false;
-        if(attachFileBtn) attachFileBtn.disabled = false;
+		const selectModeBtn = document.getElementById('select-mode-btn');
+		const sendBtn = document.getElementById('send-btn');
+		const chatInput = document.getElementById('chat-input');
+		const attachFileBtn = document.getElementById('attach-file-btn');
 
-        const messages = document.querySelectorAll('.message');
-        messages.forEach(msg => {
-            // 简单清理
-            const checkbox = msg.querySelector('.select-checkbox');
-            if (checkbox) checkbox.remove();
-            msg.classList.remove('selectable', 'selected');
-        });
-        
-        const fileContainers = document.querySelectorAll('.message-file');
-        fileContainers.forEach(container => container.style.pointerEvents = 'auto');
-        
-        // 【核心修复 1】平板/手机 URL 状态修正
-        // 如果是手机端，且当前不是 #chat，补回 #chat 以保持聊天窗口打开
-        if (window.innerWidth <= 768 && window.location.hash !== '#chat') {
-             window.history.replaceState({ chatOpen: true }, "", "#chat");
-        }
-        
-        return; 
-    }
+		// 恢复图标
+		if (selectModeBtn) {
+			selectModeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>';
+			selectModeBtn.classList.remove('active');
+		}
 
-    // 【场景 B】正常关闭聊天窗口逻辑
-    // 如果 URL 已经不是 #chat 了
-    if (window.location.hash !== '#chat') {
-        // 【核心修复 2】关键判断！
-        // 只有在“手机模式”下 (<=768px)，URL 变空才代表“关闭聊天返回列表”。
-        // 在平板/桌面端 (>768px)，URL 变空是正常现象（因为打开聊天时不推入 #chat），
-        // 所以平板端绝对不能在这里关闭聊天窗口。
-        if (window.innerWidth <= 768) {
-            performCloseChatUI();
-        }
-    }
+		if (sendBtn) {
+			sendBtn.textContent = '发送';
+			sendBtn.style.backgroundColor = '';
+			sendBtn.style.borderColor = '';
+			sendBtn.style.color = '';
+		}
+
+		if (chatInput) chatInput.disabled = false;
+		if (attachFileBtn) attachFileBtn.disabled = false;
+
+		const messages = document.querySelectorAll('.message');
+		messages.forEach(msg => {
+			// 简单清理
+			const checkbox = msg.querySelector('.select-checkbox');
+			if (checkbox) checkbox.remove();
+			msg.classList.remove('selectable', 'selected');
+		});
+
+		const fileContainers = document.querySelectorAll('.message-file');
+		fileContainers.forEach(container => container.style.pointerEvents = 'auto');
+
+		// 【核心修复 1】平板/手机 URL 状态修正
+		// 如果是手机端，且当前不是 #chat，补回 #chat 以保持聊天窗口打开
+		if (window.innerWidth <= 768 && window.location.hash !== '#chat') {
+			window.history.replaceState({ chatOpen: true }, "", "#chat");
+		}
+
+		return;
+	}
+
+	// 【场景 B】正常关闭聊天窗口逻辑
+	// 如果 URL 已经不是 #chat 了
+	if (window.location.hash !== '#chat') {
+		// 【核心修复 2】关键判断！
+		// 只有在“手机模式”下 (<=768px)，URL 变空才代表“关闭聊天返回列表”。
+		// 在平板/桌面端 (>768px)，URL 变空是正常现象（因为打开聊天时不推入 #chat），
+		// 所以平板端绝对不能在这里关闭聊天窗口。
+		if (window.innerWidth <= 768) {
+			performCloseChatUI();
+		}
+	}
 });
 
 // 发送消息
@@ -404,15 +434,46 @@ async function sendMessage() {
 		chatInput.value = '';
 		chatInput.style.height = 'auto';
 
-		// 显示消息
-		addMessageToChat({
-			from_id: 'me',
-			content: content,
-			timestamp: Date.now() / 1000
-		}, true);
+		// 轮询获取最新消息并显示（等待有效ID）
+		const maxRetries = 10; // 最多重试10次
+		const retryInterval = 100; // 每次间隔100ms
+		let retryCount = 0;
 
-		// 发送消息后滚动到底部
-		await scrollToBottom();
+		const pollForMessage = async () => {
+			try {
+				const latestMessages = await apiGetChatHistory(window.currentChatPeer.id, 1, 0);
+				if (latestMessages && latestMessages.length > 0) {
+					const latestMsg = latestMessages[0];
+					// 检查是否是刚发送的消息（时间戳接近且是自己发的）
+					const timeDiff = Math.abs(latestMsg.timestamp - Date.now() / 1000);
+					if (latestMsg.from_id === 'me' && latestMsg.id && timeDiff < 5) {
+						// 显示带有有效ID的消息
+						addMessageToChat(latestMsg, true);
+						await scrollToBottom();
+						console.log('[UI] 已显示发送的消息，ID:', latestMsg.id, '重试次数:', retryCount);
+						return true;
+					}
+				}
+
+				// 如果还没找到，继续重试
+				retryCount++;
+				if (retryCount < maxRetries) {
+					setTimeout(pollForMessage, retryInterval);
+				} else {
+					console.error('[UI] 获取消息ID超时，已重试', maxRetries, '次');
+					// 超时后刷新整个聊天历史
+					await loadChatHistory(window.currentChatPeer.id, true);
+				}
+			} catch (e) {
+				console.warn('[UI] 获取最新消息失败:', e);
+				retryCount++;
+				if (retryCount < maxRetries) {
+					setTimeout(pollForMessage, retryInterval);
+				}
+			}
+		};
+
+		setTimeout(pollForMessage, retryInterval);
 
 		console.log('[UI] 发送消息:', content);
 	} catch (e) {
@@ -423,6 +484,12 @@ async function sendMessage() {
 
 // 添加消息到聊天窗口
 function addMessageToChat(message, isSent) {
+	// 如果消息没有有效的ID，不渲染
+	if (!message.id || isNaN(parseInt(message.id))) {
+		console.warn('[UI] 消息没有有效的 msgId，跳过渲染:', message);
+		return;
+	}
+
 	const chatMessages = document.getElementById('chat-messages');
 	const messageDiv = createMessageElement(message, isSent);
 	chatMessages.appendChild(messageDiv);
@@ -925,7 +992,7 @@ function onReceiveMessage(message) {
 			console.log('[UI] 文件状态更新 (' + message.file_status + ')，刷新聊天历史');
 			loadChatHistory(window.currentChatPeer.id, true);
 		} else {
-			// 直接显示新消息
+			// 直接显示新消息（增量添加）
 			console.log('[UI] 直接显示新消息 (msg_type=' + message.msg_type + ', file_status=' + message.file_status + ')');
 
 			const chatMessages = document.getElementById('chat-messages');
@@ -940,12 +1007,17 @@ function onReceiveMessage(message) {
 					await scrollToBottom();
 				}, 50);
 			} else {
-				// 【新增逻辑】如果用户往上翻看历史记录时来新消息了，点亮小红点
+				// 如果用户往上翻看历史记录时来新消息了，点亮小红点
+				console.log('[UI] 用户不在底部，显示未读红点');
 				const unreadDot = document.getElementById('unread-dot');
 				const scrollBtn = document.getElementById('scroll-to-bottom-btn');
+				console.log('[UI] unreadDot:', unreadDot, 'scrollBtn:', scrollBtn);
 				if (unreadDot && scrollBtn) {
-					scrollBtn.classList.add('show'); // 确保按钮显示出来
-					unreadDot.classList.add('show'); // 亮起红点
+					scrollBtn.classList.add('show');
+					unreadDot.classList.add('show');
+					console.log('[UI] 已添加 show 类到按钮和红点');
+				} else {
+					console.warn('[UI] 找不到未读红点或滚动按钮元素');
 				}
 			}
 		}
@@ -963,8 +1035,6 @@ function onReceiveMessage(message) {
 	}
 
 	console.log('[UI] ==========================================');
-
-	// TODO: 显示未读消息提示
 }
 
 
@@ -1860,14 +1930,25 @@ function initPasteFile() {
 }
 
 // 初始化“回到底部”悬浮按钮
+// 初始化"回到底部"悬浮按钮
 function initScrollToBottomBtn() {
-	const chatContainer = document.querySelector('.chat-container');
 	const chatMessages = document.getElementById('chat-messages');
+	const inputContainer = document.querySelector('.chat-input-container');
 
-	if (!chatContainer || !chatMessages) return;
+	if (!chatMessages || !inputContainer) {
+		console.warn('[UI] 无法初始化回到底部按钮：找不到必要的元素');
+		return;
+	}
+
+	// 检查是否已经创建过按钮，避免重复创建
+	let btn = document.getElementById('scroll-to-bottom-btn');
+	if (btn) {
+		console.log('[UI] 回到底部按钮已存在，跳过创建');
+		return;
+	}
 
 	// 1. 动态创建按钮 DOM
-	const btn = document.createElement('div');
+	btn = document.createElement('div');
 	btn.id = 'scroll-to-bottom-btn';
 	btn.className = 'scroll-bottom-btn';
 	// 注入一个向下箭头的 SVG 图标 和 未读小红点
@@ -1880,8 +1961,8 @@ function initScrollToBottomBtn() {
     `;
 
 	// 将按钮插入到 chat-messages 的平级，输入框的上方
-	const inputContainer = document.querySelector('.chat-input-container');
 	inputContainer.appendChild(btn);
+	console.log('[UI] 回到底部按钮已创建');
 
 	// 2. 绑定点击事件：平滑滚动到底部
 	btn.addEventListener('click', () => {
@@ -1890,7 +1971,11 @@ function initScrollToBottomBtn() {
 			behavior: 'smooth' // 增加平滑滚动效果
 		});
 		// 隐藏未读红点
-		document.getElementById('unread-dot').classList.remove('show');
+		const unreadDot = document.getElementById('unread-dot');
+		if (unreadDot) {
+			unreadDot.classList.remove('show');
+			console.log('[UI] 已隐藏未读红点');
+		}
 	});
 
 	// 3. 监听滚动事件，控制显示/隐藏
@@ -1900,7 +1985,10 @@ function initScrollToBottomBtn() {
 
 		if (isAtBottom) {
 			btn.classList.remove('show');
-			document.getElementById('unread-dot').classList.remove('show'); // 到达底部自动消除红点
+			const unreadDot = document.getElementById('unread-dot');
+			if (unreadDot) {
+				unreadDot.classList.remove('show'); // 到达底部自动消除红点
+			}
 		} else {
 			btn.classList.add('show');
 		}
@@ -1917,7 +2005,6 @@ window.selectMode = {
 // 初始化多选模式
 function initSelectMode() {
 	const selectModeBtn = document.getElementById('select-mode-btn');
-	const sendBtn = document.getElementById('send-btn');
 
 	// 确保按钮存在
 	if (!selectModeBtn) return;
@@ -1930,16 +2017,6 @@ function initSelectMode() {
 			enterSelectMode();
 		}
 	});
-
-	// 修改发送按钮的点击事件 (保持不变)
-	const originalSendHandler = sendBtn.onclick;
-	sendBtn.onclick = () => {
-		if (window.selectMode.active) {
-			deleteSelectedMessages();
-		} else {
-			sendMessage();
-		}
-	};
 }
 
 // 进入多选模式
@@ -1986,7 +2063,6 @@ function enterSelectMode(initialMessageId = null) {
 			window.selectMode.selectedMessages.add(parseInt(initialMessageId));
 		}
 	});
-	disableFileMessageClicks();
 }
 
 // 退出多选模式
@@ -2071,10 +2147,9 @@ function handleMessageClick(e) {
 // 切换消息选中状态
 function toggleMessageSelection(messageElement) {
 	const msgId = parseInt(messageElement.dataset.msgId);
-	console.log('[UI] toggleMessageSelection - msgId:', msgId, 'dataset:', messageElement.dataset);
 
-	if (!msgId) {
-		console.warn('[UI] 消息没有 msgId，无法选中');
+	if (!msgId || isNaN(msgId)) {
+		// 这种情况理论上不应该发生，因为没有ID的消息不会被渲染
 		return;
 	}
 
