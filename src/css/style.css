@@ -636,11 +636,13 @@ h2::before {
 /* --- 附件选择按钮 --- */
 #attach-file-btn {
 	position: absolute;
-	top: auto;     /* 清除之前的 top */
-	bottom: 29px;  /* 容器bottom padding(15) + (输入框高度60-按钮高度32)/2(14) = 29px */
+	top: auto;
+	/* 清除之前的 top */
+	bottom: 29px;
+	/* 容器bottom padding(15) + (输入框高度60-按钮高度32)/2(14) = 29px */
 	left: 35px;
 	z-index: 10;
-	
+
 	width: 32px;
 	height: 32px;
 	border-radius: 50%;
@@ -698,18 +700,20 @@ h2::before {
 /* --- 发送按钮 --- */
 #send-btn {
 	position: absolute;
-	top: auto;     /* 清除之前的 top */
-	bottom: 27px;  /* 容器bottom padding(15) + (输入框高度60-按钮高度36)/2(12) = 27px */
+	top: auto;
+	/* 清除之前的 top */
+	bottom: 27px;
+	/* 容器bottom padding(15) + (输入框高度60-按钮高度36)/2(12) = 27px */
 	right: 40px;
 	z-index: 10;
-	
+
 	/* 放弃用 padding 撑开高度，改为固定高度 + Flex 居中，保证各种设备完全一致 */
-	height: 36px; 
-	padding: 0 18px; 
+	height: 36px;
+	padding: 0 18px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	
+
 	background: rgba(98, 114, 164, 0.2);
 	color: var(--primary);
 	border: 1px solid rgba(189, 147, 249, 0.3);
@@ -1283,8 +1287,8 @@ h2::before {
 		padding-bottom: calc(10px + env(safe-area-inset-bottom));
 	}
 
-#attach-file-btn {
-		top: auto !important; 
+	#attach-file-btn {
+		top: auto !important;
 		/* 容器padding(10) + (输入框54-按钮30)/2(12) = 22px，同时兼容全面屏黑条 */
 		bottom: calc(22px + env(safe-area-inset-bottom)) !important;
 		left: 18px;
@@ -1300,20 +1304,20 @@ h2::before {
 		min-height: 54px;
 	}
 
-#send-btn {
-		top: auto !important; 
+	#send-btn {
+		top: auto !important;
 		/* 容器padding(10) + (输入框54-按钮32)/2(11) = 21px */
 		bottom: calc(21px + env(safe-area-inset-bottom)) !important;
 		right: 18px;
-		
+
 		/* 固定尺寸与居中 */
 		min-width: 60px !important;
-		height: 32px !important; 
+		height: 32px !important;
 		padding: 0 12px !important;
 		display: flex !important;
 		align-items: center;
 		justify-content: center;
-		
+
 		font-size: 13px;
 		border-radius: 8px;
 	}
