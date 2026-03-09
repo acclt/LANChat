@@ -23,6 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
+            commands::close_android_fd,
             commands::get_my_name,
             commands::get_my_id,
             commands::update_my_name,
@@ -72,7 +73,7 @@ pub fn run() {
                 handle.manage(commands::PeerState {
                     manager: peer_manager.clone(),
                 });
-                
+
                 // 注册 Android 分享状态
                 handle.manage(commands::AndroidShareState::new());
 

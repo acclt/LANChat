@@ -25,7 +25,7 @@ class ShareActivity : Activity() {
         
         // 处理分享数据
         if (!handleShareIntent(intent)) {
-            finish()
+            finishAndRemoveTask()
             return
         }
         
@@ -37,12 +37,12 @@ class ShareActivity : Activity() {
             println("[ShareActivity] 主应用正在运行，直接传递数据")
             // 主应用在运行，直接通知它
             notifyMainActivity()
-            finish()
+            finishAndRemoveTask()
         } else {
             println("[ShareActivity] 主应用未运行，启动主应用")
             // 主应用未运行，启动它
             launchMainApp()
-            finish()
+            finishAndRemoveTask()
         }
     }
     
@@ -211,4 +211,3 @@ class ShareActivity : Activity() {
 object ShareDataHolder {
     var sharedFiles: List<ShareActivity.ShareFileInfo>? = null
 }
-

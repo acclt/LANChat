@@ -269,6 +269,24 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
     }))
 }
 
+#[cfg(target_os = "android")]
+use std::os::unix::io::FromRawFd;
+
+#[tauri::command]
+pub async fn close_android_fd(fd: i32) {
+    #[cfg(target_os = "android")]
+    {
+        if fd >= 0 {
+            // 在 Rust 中，使用 from_raw_fd 接管 FD 的所有权。
+            // 当这个 block 结束时，_file 会被 drop，Rust 会自动安全地调用底层的 close(fd)
+            unsafe {
+                let _file = std::fs::File::from_raw_fd(fd);
+            }
+            println!("[Rust] 成功释放被取消的共享文件描述符: {}", fd);
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn get_my_name(state: State<'_, DbState>) -> Result<String, String> {
     crate::db::get_username(&state.pool).await

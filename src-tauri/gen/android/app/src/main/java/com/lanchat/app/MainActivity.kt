@@ -33,79 +33,95 @@ class MainActivity : TauriActivity() {
         
         // 注册广播接收器
         registerShareReceiver()
-        
-        // 延迟注册 JavaScript 接口，等待 WebView 初始化
-        window.decorView.post {
-            setupJavaScriptInterface()
-            // 只在首次启动时检查分享数据（处理冷启动场景）
-            checkShareData()
-        }
     }
-    
+
     private fun registerShareReceiver() {
         shareReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 println("[MainActivity] 收到分享广播")
-                checkShareData()
+                checkAndPushSharedFiles()
             }
         }
-        
         val filter = IntentFilter("com.lanchat.app.SHARE_RECEIVED")
         registerReceiver(shareReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        println("[MainActivity] 广播接收器已注册")
     }
-    
+
+    // 核心推送函数
+    private fun checkAndPushSharedFiles() {
+        val files = ShareDataHolder.sharedFiles
+        if (files == null || files.isEmpty()) return
+
+        println("[MainActivity] 准备推送 ${files.size} 个文件到前端")
+        val jsonArray = JSONArray()
+        files.forEach { file ->
+            val jsonObj = JSONObject().apply {
+                put("uri", file.uri)
+                put("fileName", file.fileName)
+                put("fileSize", file.fileSize)
+                put("mimeType", file.mimeType)
+                put("fd", file.fd) // 极为关键：原生层的 fd 直接塞给前端
+            }
+            jsonArray.put(jsonObj)
+        }
+        val jsonString = jsonArray.toString()
+        
+        injectDataIntoWebView(jsonString, 0)
+    }
+
+    // 智能重试空投机制
+    private fun injectDataIntoWebView(jsonString: String, attempt: Int) {
+        val maxAttempts = 20 // 允许重试20次（10秒），彻底防住冷启动慢的问题
+        if (attempt >= maxAttempts) {
+            println("[MainActivity] 放弃注入分享数据，重试次数过多")
+            return
+        }
+
+        if (webView == null) {
+            webView = findWebView(window.decorView)
+        }
+
+        if (webView != null) {
+            runOnUiThread {
+                webView?.evaluateJavascript(
+                    """
+                    (function() {
+                        // 确保 JS 运行环境已存在
+                        if (typeof window !== 'undefined') {
+                            // 直接把数据空投进 window 全局变量
+                            window.__ANDROID_SHARED_FILES__ = $jsonString;
+                            console.log('[MainActivity->JS] 数据已成功空投到 window.__ANDROID_SHARED_FILES__');
+                            // 触发事件通知前端
+                            if (window.dispatchEvent) {
+                                window.dispatchEvent(new CustomEvent('android-share-received'));
+                            }
+                            return "success";
+                        }
+                        return "not_ready";
+                    })();
+                    """.trimIndent()
+                ) { result ->
+                    if (result == "\"success\"") {
+                        println("[MainActivity] 数据成功推送到前端 (尝试 ${attempt + 1})")
+                        // 确保只推送一次，推送成功后立刻清空原生层保险箱
+                        ShareDataHolder.sharedFiles = null 
+                    } else {
+                        println("[MainActivity] 前端 window 未就绪，500ms 后重试...")
+                        window.decorView.postDelayed({ injectDataIntoWebView(jsonString, attempt + 1) }, 500)
+                    }
+                }
+            }
+        } else {
+            println("[MainActivity] 找不到 WebView，500ms 后重试...")
+            window.decorView.postDelayed({ injectDataIntoWebView(jsonString, attempt + 1) }, 500)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         // 注销广播接收器
         shareReceiver?.let {
             unregisterReceiver(it)
             println("[MainActivity] 广播接收器已注销")
-        }
-    }
-
-    private fun setupJavaScriptInterface() {
-        try {
-            // 查找 WebView
-            webView = findWebView(window.decorView)
-            if (webView != null) {
-                // 启用 JavaScript
-                webView?.settings?.javaScriptEnabled = true
-                // 添加 JavaScript 接口
-                webView?.addJavascriptInterface(this, "Android")
-                println("[MainActivity] JavaScript 接口已注册，WebView: ${webView?.javaClass?.name}")
-                
-                // 验证接口是否可用
-                webView?.evaluateJavascript(
-                    "typeof window.Android !== 'undefined'",
-                    { result ->
-                        println("[MainActivity] window.Android 可用性检查: $result")
-                    }
-                )
-            } else {
-                println("[MainActivity] 无法找到 WebView，延迟重试")
-                // 延迟重试
-                window.decorView.postDelayed({
-                    webView = findWebView(window.decorView)
-                    if (webView != null) {
-                        webView?.settings?.javaScriptEnabled = true
-                        webView?.addJavascriptInterface(this, "Android")
-                        println("[MainActivity] JavaScript 接口已注册（延迟），WebView: ${webView?.javaClass?.name}")
-                        
-                        webView?.evaluateJavascript(
-                            "typeof window.Android !== 'undefined'",
-                            { result ->
-                                println("[MainActivity] window.Android 可用性检查（延迟）: $result")
-                            }
-                        )
-                    } else {
-                        println("[MainActivity] 仍无法找到 WebView")
-                    }
-                }, 1000)
-            }
-        } catch (e: Exception) {
-            println("[MainActivity] 注册 JavaScript 接口失败: ${e.message}")
-            e.printStackTrace()
         }
     }
 
@@ -136,87 +152,9 @@ class MainActivity : TauriActivity() {
     override fun onResume() {
         super.onResume()
         println("[MainActivity] onResume 被调用")
-        // 只在启动时检查分享数据，不在每次 resume 时检查
-        // 因为广播接收器会处理运行时的分享
-        checkShareData()
+        checkAndPushSharedFiles()
     }
     
-    private fun checkShareData() {
-        val sharedFiles = ShareDataHolder.sharedFiles
-        if (sharedFiles != null && sharedFiles.isNotEmpty()) {
-            println("[MainActivity] 检测到分享数据: ${sharedFiles.size} 个文件")
-            
-            // 转换为 MainActivity 的数据格式
-            val fileInfos = sharedFiles.map { file ->
-                SharedFileInfo(
-                    Uri.parse(file.uri),
-                    file.fileName,
-                    file.fileSize,
-                    file.mimeType
-                )
-            }
-            
-            pendingSharedFiles = fileInfos
-            println("[MainActivity] 已保存 ${fileInfos.size} 个文件到 pendingSharedFiles")
-            
-            // 将数据发送到 Rust 层
-            sendFilesToRust(sharedFiles)
-            
-            // 清除全局数据
-            ShareDataHolder.sharedFiles = null
-            
-            // 通知 WebView
-            notifyWebView()
-        } else {
-            println("[MainActivity] 没有分享数据或数据为空")
-        }
-    }
-    
-    private fun sendFilesToRust(files: List<ShareActivity.ShareFileInfo>) {
-        println("[MainActivity] 准备发送文件到 Rust 层")
-        
-        // 构造 JSON 数组
-        val jsonArray = JSONArray()
-        files.forEach { file ->
-            val jsonObj = JSONObject().apply {
-                put("uri", file.uri)
-                put("fileName", file.fileName)
-                put("fileSize", file.fileSize)
-                put("mimeType", file.mimeType)
-                put("fd", file.fd)  // 添加文件描述符
-            }
-            jsonArray.put(jsonObj)
-        }
-        
-        val jsonString = jsonArray.toString()
-        println("[MainActivity] 发送 JSON 到 Rust: $jsonString")
-        
-        // 通过 JavaScript 调用 Tauri 命令
-        runOnUiThread {
-            webView?.evaluateJavascript(
-                """
-                (async function() {
-                    try {
-                        const files = $jsonString;
-                        console.log('[MainActivity->Rust] 设置分享文件:', files);
-                        
-                        if (window.__TAURI__) {
-                            await window.__TAURI__.core.invoke('set_android_shared_files', { files: files });
-                            console.log('[MainActivity->Rust] 文件已发送到 Rust');
-                        } else {
-                            console.error('[MainActivity->Rust] Tauri 不可用');
-                        }
-                    } catch (e) {
-                        console.error('[MainActivity->Rust] 发送失败:', e);
-                    }
-                })();
-                """.trimIndent(),
-                null
-            )
-        }
-    }
-
-
 
     private fun notifyWebView() {
         println("[MainActivity] 准备通知 WebView")
@@ -265,56 +203,6 @@ class MainActivity : TauriActivity() {
                 notifyWebViewWithRetry(attempt + 1)
             }
         }, delayMs)
-    }
-
-    @JavascriptInterface
-    fun getPendingSharedFiles(): String {
-        val files = pendingSharedFiles
-        println("[MainActivity] getPendingSharedFiles 被调用，文件数: ${files?.size ?: 0}")
-        
-        if (files == null || files.isEmpty()) {
-            println("[MainActivity] 返回空数组")
-            return "[]"
-        }
-        
-        val jsonArray = JSONArray()
-        files.forEach { file ->
-            val jsonObj = JSONObject().apply {
-                put("uri", file.uri.toString())
-                put("fileName", file.fileName)
-                put("fileSize", file.fileSize)
-                put("mimeType", file.mimeType ?: "application/octet-stream")
-            }
-            jsonArray.put(jsonObj)
-        }
-        
-        val result = jsonArray.toString()
-        println("[MainActivity] 返回 JSON: $result")
-        return result
-    }
-
-    @JavascriptInterface
-    fun clearPendingSharedFiles() {
-        pendingSharedFiles = null
-    }
-
-    @JavascriptInterface
-    fun getFileDescriptor(uriString: String): Int {
-        return try {
-            val uri = Uri.parse(uriString)
-            val pfd = contentResolver.openFileDescriptor(uri, "r")
-            if (pfd != null) {
-                val fd = pfd.detachFd() // 分离 FD，由 Rust 负责关闭
-                println("[MainActivity] 获取文件描述符成功: fd=$fd, uri=$uriString")
-                fd
-            } else {
-                println("[MainActivity] 无法打开文件描述符: $uriString")
-                -1
-            }
-        } catch (e: Exception) {
-            println("[MainActivity] 获取文件描述符失败: ${e.message}")
-            -1
-        }
     }
 
     // 分享文件到其他应用

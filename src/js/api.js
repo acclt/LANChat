@@ -584,59 +584,45 @@ async function apiGetCurrentTheme() {
 	}
 }
 
-// Android 分享相关 API
+// 获取分享文件
 async function apiGetAndroidSharedFiles() {
 	console.log("[JS-API] apiGetAndroidSharedFiles 被调用");
 
-	const tauri = getTauri();
-
-	if (tauri) {
-		// 使用 Tauri 命令获取分享文件
-		try {
-			console.log("[JS-API] 通过 Tauri 命令获取分享文件");
-			const files = await tauri.core.invoke('get_android_shared_files');
-			console.log("[JS-API] Tauri 返回的文件:", files);
-			return files;
-		} catch (e) {
-			console.error("[JS-API] Tauri 命令失败:", e);
-		}
+	// 直接从全局保险箱里拿数据！(不仅有数据，还完美自带原生层分配好的 fd)
+	if (window.__ANDROID_SHARED_FILES__ && window.__ANDROID_SHARED_FILES__.length > 0) {
+		console.log("[JS-API] 成功截获原生层空投的分享数据:", window.__ANDROID_SHARED_FILES__);
+		// 返回深拷贝的数据，避免引用污染
+		return JSON.parse(JSON.stringify(window.__ANDROID_SHARED_FILES__));
 	}
 
-	// 降级方案：使用 window.Android
-	console.log("[JS-API] window.Android 存在:", !!window.Android);
-
-	if (window.Android && window.Android.getPendingSharedFiles) {
-		try {
-			console.log("[JS-API] 调用 window.Android.getPendingSharedFiles()");
-			const jsonStr = window.Android.getPendingSharedFiles();
-			console.log("[JS-API] 返回的 JSON 字符串:", jsonStr);
-			const files = JSON.parse(jsonStr);
-			console.log("[JS-API] 解析后的文件:", files);
-			return files;
-		} catch (e) {
-			console.error("[JS-API] 获取 Android 分享文件失败:", e);
-			return [];
-		}
-	}
-	console.log("[JS-API] 所有方法都不可用，返回空数组");
-	return [];
+	console.log("[JS-API] 全局变量为空，没有分享文件");
+	return[];
 }
 
+// 清理分享文件（并安全释放底层资源）
 async function apiClearAndroidSharedFiles() {
-	const tauri = getTauri();
-
-	if (tauri) {
-		try {
-			await tauri.core.invoke('clear_android_shared_files');
-			return;
-		} catch (e) {
-			console.error("[JS-API] 清除分享文件失败:", e);
+	console.log("[JS-API] 准备清除前端分享缓存...");
+	
+	if (window.__ANDROID_SHARED_FILES__ && window.__ANDROID_SHARED_FILES__.length > 0) {
+		const tauri = getTauri();
+		if (tauri) {
+			// 遍历所有待发送的文件，通知 Rust 释放文件描述符
+			for (const file of window.__ANDROID_SHARED_FILES__) {
+				if (file.fd !== undefined && file.fd >= 0) {
+					try {
+						await tauri.core.invoke('close_android_fd', { fd: file.fd });
+						console.log("[JS-API] 已通知 Rust 安全关闭 FD:", file.fd);
+					} catch (e) {
+						console.error("[JS-API] 通知 Rust 关闭 FD 失败:", e);
+					}
+				}
+			}
 		}
 	}
-
-	if (window.Android && window.Android.clearPendingSharedFiles) {
-		window.Android.clearPendingSharedFiles();
-	}
+	
+	// 释放完毕，彻底清空前端全局变量
+	window.__ANDROID_SHARED_FILES__ = null;
+	console.log("[JS-API] 前端分享缓存已清空");
 }
 
 async function apiSendFileFromAndroidUri(peerId, peerAddr, fileInfo) {

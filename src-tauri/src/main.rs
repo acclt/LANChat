@@ -27,6 +27,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         // --- 重点：添加下面这段代码 ---
         .invoke_handler(tauri::generate_handler![
+            lanchat::commands::close_android_fd,
             lanchat::commands::get_my_name,
             lanchat::commands::get_my_id,
             lanchat::commands::update_my_name,
