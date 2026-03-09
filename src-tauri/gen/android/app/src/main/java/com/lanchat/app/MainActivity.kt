@@ -10,6 +10,7 @@ import android.provider.OpenableColumns
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.Keep
 import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
@@ -206,6 +207,7 @@ class MainActivity : TauriActivity() {
     }
 
     // 分享文件到其他应用
+    @Keep   // <--- 就是这块免死金牌！告诉混淆器绝对不要动这个函数
     fun shareFile(filePath: String) {
         try {
             println("[MainActivity] 准备分享文件: $filePath")
