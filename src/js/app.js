@@ -50,6 +50,24 @@ async function renderPage() {
         console.log("[JS-App] 启动未读消息检查（Web 端）");
         startUnreadMessageCheck();
     }
+
+    // ==========================================
+    // 冷启动分享数据补偿机制
+    // ==========================================
+    // 延迟 1000 毫秒执行，确保此时用户列表(peerList)已经通过轮询获取到了数据，
+    // 否则直接弹窗会导致列表中显示 "暂无在线用户"。
+    setTimeout(async () => {
+        try {
+            console.log("[JS-App] 执行冷启动分享检测...");
+            const sharedFiles = await apiGetAndroidSharedFiles();
+            if (sharedFiles && sharedFiles.length > 0) {
+                console.log("[JS-App] 冷启动检测到分享文件，准备弹窗:", sharedFiles);
+                showShareDialog(sharedFiles);
+            }
+        } catch (e) {
+            console.error("[JS-App] 冷启动检查分享文件失败:", e);
+        }
+    }, 1000);
 }
 
 // Web 端轮询用户列表
@@ -114,11 +132,17 @@ window.addEventListener('android-share-received', async () => {
 
 console.log("[JS-App] Android 分享事件监听器已注册");
 
+// 全局变量保存分享弹窗的定时器
+window.shareDialogInterval = null;
+
 // 显示分享对话框
 function showShareDialog(sharedFiles) {
     console.log("[JS-App] showShareDialog 被调用，文件数:", sharedFiles.length);
     
-    // 创建弹窗
+    // 防止重复弹窗，先尝试清理旧的
+    closeShareDialog();
+    
+    // 创建弹窗 DOM
     const dialog = document.createElement('div');
     dialog.className = 'share-dialog';
     dialog.innerHTML = `
@@ -133,40 +157,87 @@ function showShareDialog(sharedFiles) {
     document.body.appendChild(dialog);
     console.log("[JS-App] 对话框已添加到 DOM");
     
-    // 填充在线用户列表（只显示非 offline 的用户）
+    // 首次立刻渲染列表
+    syncShareUserList(sharedFiles);
+    
+    // 开启定时器，每秒无感同步一次主界面的在线用户
+    window.shareDialogInterval = setInterval(() => {
+        // 如果弹窗已被移除（比如用户点击了取消），自动停止并清理定时器
+        if (!document.getElementById('share-user-list')) {
+            clearInterval(window.shareDialogInterval);
+            window.shareDialogInterval = null;
+            return;
+        }
+        syncShareUserList(sharedFiles);
+    }, 1000);
+}
+
+// ================= 弹窗内用户列表的增量同步魔法 =================
+function syncShareUserList(sharedFiles) {
     const userList = document.getElementById('share-user-list');
+    if (!userList) return;
+    
+    // 获取主界面上最新的用户列表
     const allUsers = document.querySelectorAll('#user-list li');
-    
-    console.log("[JS-App] 找到用户列表项:", allUsers.length);
-    
     let onlineCount = 0;
+    const currentOnlineIds = new Set();
+    
     allUsers.forEach(userItem => {
         const isOffline = userItem.classList.contains('offline');
-        console.log("[JS-App] 用户:", userItem.dataset.name, "offline:", isOffline);
         
+        // 只挑选在线的用户
         if (!isOffline) {
             onlineCount++;
             const userId = userItem.dataset.id;
             const userName = userItem.dataset.name;
             const userAddr = userItem.dataset.addr;
             
-            const li = document.createElement('li');
+            currentOnlineIds.add(userId);
+            
+            // 查找弹窗中是否已经渲染过这个用户
+            let li = userList.querySelector(`li[data-id="${userId}"]`);
+            if (!li) {
+                // 如果是新上线的用户，动态创建并插入（不影响其他正在显示的节点）
+                li = document.createElement('li');
+                li.dataset.id = userId;
+                userList.appendChild(li);
+            }
+            
+            // 实时更新名称和点击事件（防止对方期间改名或 IP 变更）
             li.textContent = userName;
             li.onclick = () => handleShareToUser(userId, userName, userAddr, sharedFiles);
-            userList.appendChild(li);
         }
     });
     
-    console.log("[JS-App] 在线用户数:", onlineCount);
+    // 找出已离线或消失的用户并移除
+    const currentItems = userList.querySelectorAll('li:not(.no-users)');
+    currentItems.forEach(item => {
+        if (!currentOnlineIds.has(item.dataset.id)) {
+            item.remove(); // 对方掉线，立刻从弹窗列表中剔除
+        }
+    });
     
-    if (userList.children.length === 0) {
-        userList.innerHTML = '<li class="no-users">暂无在线用户</li>';
-        console.log("[JS-App] 没有在线用户");
+    // 处理空状态提示（如果没有在线用户）
+    const noUsersLi = userList.querySelector('.no-users');
+    if (onlineCount === 0) {
+        if (!noUsersLi) {
+            userList.innerHTML = '<li class="no-users">暂无在线用户</li>';
+        }
+    } else {
+        if (noUsersLi) {
+            noUsersLi.remove(); // 有人上线了，移除“暂无用户”的提示
+        }
     }
 }
 
 // 关闭分享对话框
 function closeShareDialog() {
+    // 关闭时精准切断定时器，绝不浪费一点手机性能
+    if (window.shareDialogInterval) {
+        clearInterval(window.shareDialogInterval);
+        window.shareDialogInterval = null;
+    }
+    
     const dialog = document.querySelector('.share-dialog');
     if (dialog) {
         dialog.remove();

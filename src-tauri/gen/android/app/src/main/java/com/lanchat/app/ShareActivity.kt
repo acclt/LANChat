@@ -67,9 +67,13 @@ class ShareActivity : Activity() {
         val intent = Intent("com.lanchat.app.SHARE_RECEIVED")
         sendBroadcast(intent)
         
-        // 同时尝试将 MainActivity 带到前台
+        // 【修复】Android 14 跨任务栈拉起 Activity 需要正确的 Flags
         val mainIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            // NEW_TASK: 找到 LANChat 原本的任务栈并拉到前台
+            // CLEAR_TOP + SINGLE_TOP: 确保不会重复创建 MainActivity 实例
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or 
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or 
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         startActivity(mainIntent)
     }
@@ -207,5 +211,4 @@ class ShareActivity : Activity() {
 object ShareDataHolder {
     var sharedFiles: List<ShareActivity.ShareFileInfo>? = null
 }
-
 

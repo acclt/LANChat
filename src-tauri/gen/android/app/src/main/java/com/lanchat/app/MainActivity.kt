@@ -138,6 +138,7 @@ class MainActivity : TauriActivity() {
         println("[MainActivity] onResume 被调用")
         // 只在启动时检查分享数据，不在每次 resume 时检查
         // 因为广播接收器会处理运行时的分享
+        checkShareData()
     }
     
     private fun checkShareData() {
