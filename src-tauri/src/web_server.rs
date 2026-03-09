@@ -1021,11 +1021,20 @@ async fn delete_upload_record_http(
 async fn get_theme_list_http() -> impl IntoResponse {
     println!("[Web Server] 收到获取主题列表请求");
 
-    let mut themes = vec![serde_json::json!({
-        "name": "default",
-        "display_name": "默认主题",
-        "is_custom": false
-    })];
+    let mut themes = vec![
+        serde_json::json!({
+            "name": "default",
+            "display_name": "默认主题",
+            "is_custom": false,
+            "is_builtin": true
+        }),
+        serde_json::json!({
+            "name": "vscode",
+            "display_name": "VSCode 主题",
+            "is_custom": false,
+            "is_builtin": true
+        }),
+    ];
 
     // 检查自定义主题目录
     if let Some(home_dir) = dirs::home_dir() {
@@ -1044,6 +1053,7 @@ async fn get_theme_list_http() -> impl IntoResponse {
                                     "name": file_name,
                                     "display_name": file_name,
                                     "is_custom": true,
+                                    "is_builtin": false,
                                     "path": path.to_string_lossy()
                                 }));
                             }
@@ -1069,6 +1079,26 @@ async fn get_theme_css_http(Path(theme_name): Path<String>) -> impl IntoResponse
             .into_response();
     }
 
+    // 检查是否是内置主题 vscode
+    if theme_name == "vscode" {
+        // 从嵌入的资源中读取 vscode.css
+        if let Some(content) = Asset::get("css/vscode.css") {
+            let css_content = String::from_utf8_lossy(&content.data).to_string();
+            println!(
+                "[Web Server] 加载内置主题: vscode ({} 字节)",
+                css_content.len()
+            );
+            return Response::builder()
+                .header(header::CONTENT_TYPE, "text/css")
+                .body(Body::from(css_content))
+                .unwrap()
+                .into_response();
+        } else {
+            eprintln!("[Web Server] 内置主题 vscode.css 未找到");
+        }
+    }
+
+    // 自定义主题从用户目录读取
     if let Some(home_dir) = dirs::home_dir() {
         let theme_path = home_dir
             .join(".config")

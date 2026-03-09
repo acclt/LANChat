@@ -1567,11 +1567,6 @@ function initSettings() {
 	});
 }
 
-
-
-
-
-
 // 初始化主题功能
 function initTheme() {
 	const themeBtn = document.getElementById('theme-btn');
