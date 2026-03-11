@@ -115,6 +115,7 @@ cargo build --release --bin lanchat-web --features web --no-default-features
 
 ### 🚧 进行中
 - [ ] 消息时间加上年月
+- [ ] 聊天室功能
 - [ ] 新消息系统通知（linux使用notify，windows使用powershell）
 - [ ] 更换默认图标
 
