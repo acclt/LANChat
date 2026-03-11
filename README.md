@@ -56,6 +56,7 @@ cargo xwin build --release --bin lanchat --target x86_64-pc-windows-msvc
 # Web 端（精简版，无 GUI 依赖）
 cd src-tauri
 cargo build --release --bin lanchat-web --features web --no-default-features
+cargo build --no-default-features --features web --release --target x86_64-pc-windows-gnu # windows网页端
 ```
 
 ## 主题
