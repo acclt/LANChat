@@ -241,8 +241,19 @@ class MainActivity : TauriActivity() {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
-            startActivity(intent)
-            println("[MainActivity] 打开文件 Intent 已启动")
+            try {
+                startActivity(intent)
+                println("[MainActivity] 打开文件 Intent 已启动")
+            } catch (e: SecurityException) {
+                // content URI 权限过期，降级为 */* 再试一次
+                println("[MainActivity] 权限异常，降级为 */* 重试: ${e.message}")
+                val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "*/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(fallbackIntent)
+                println("[MainActivity] 降级打开文件 Intent 已启动")
+            }
         } catch (e: Exception) {
             println("[MainActivity] 打开文件失败: ${e.message}")
             e.printStackTrace()

@@ -1800,33 +1800,46 @@ h2::before {
 	cursor: not-allowed;
 }
 
-/* 文件卡片分享按钮（仅 Android 端渲染） */
-.file-share-btn {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	width: 32px;
-	height: 32px;
-	margin-left: 8px;
-	border-radius: 8px;
-	border: 1px solid rgba(255, 255, 255, 0.15);
-	background: rgba(255, 255, 255, 0.1);
-	color: var(--text-dim, #b3b3b3);
-	cursor: pointer;
-	transition: background 0.2s, color 0.2s;
-}
-
-.file-share-btn:hover {
-	background: rgba(255, 255, 255, 0.2);
-	color: #fff;
-}
+/* =========================================
+   文件消息与分享按钮高级美化
+   ========================================= */
 
 /* 文件卡片内：文件信息 + 分享按钮横向排列 */
 .file-action-row {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
 	width: 100%;
+	gap: 12px; /* 拉开文件内容与按钮的间距 */
 }
+
+/* 基础分享按钮（普通文件卡片使用） */
+.file-share-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 34px;
+	height: 34px;
+	border-radius: 10px; /* 圆角矩形，彻底告别头像的错觉 */
+	border: none; /* 去掉边框，更加扁平化 */
+	background: rgba(255, 255, 255, 0.08); /* 极弱的背景色 */
+	color: var(--text-main);
+	cursor: pointer;
+	transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+	box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* 发送方（深色气泡）里的按钮，底色稍微亮一点 */
+.message.sent .file-share-btn {
+	background: rgba(255, 255, 255, 0.15);
+}
+
+/* 按钮点击/悬停反馈 */
+.file-share-btn:hover,
+.file-share-btn:active {
+	background: var(--primary);
+	color: #fff;
+	transform: scale(1.05);
+	box-shadow: 0 4px 12px rgba(189, 147, 249, 0.4);
+}
+
