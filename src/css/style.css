@@ -1799,3 +1799,34 @@ h2::before {
 	opacity: 0.5;
 	cursor: not-allowed;
 }
+
+/* 文件卡片分享按钮（仅 Android 端渲染） */
+.file-share-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 32px;
+	height: 32px;
+	margin-left: 8px;
+	border-radius: 8px;
+	border: 1px solid rgba(255, 255, 255, 0.15);
+	background: rgba(255, 255, 255, 0.1);
+	color: var(--text-dim, #b3b3b3);
+	cursor: pointer;
+	transition: background 0.2s, color 0.2s;
+}
+
+.file-share-btn:hover {
+	background: rgba(255, 255, 255, 0.2);
+	color: #fff;
+}
+
+/* 文件卡片内：文件信息 + 分享按钮横向排列 */
+.file-action-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	width: 100%;
+}

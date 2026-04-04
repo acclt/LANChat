@@ -858,9 +858,17 @@ function createMessageElement(message, isSent) {
 
 			const tauri = window.__TAURI__;
 			if (tauri) {
-				// 桌面端：使用 convertFileSrc
-				const assetUrl = tauri.core.convertFileSrc(message.file_path);
-				img.src = assetUrl;
+				const isAndroid = navigator.userAgent.includes('Android');
+				if (isAndroid && message.file_path && message.file_path.startsWith('content://')) {
+					// Android content URI：通过本地媒体代理服务获取
+					apiGetMediaToken().then(token => {
+						img.src = `http://127.0.0.1:8888/api/media?uri=${encodeURIComponent(message.file_path)}&token=${token}`;
+					});
+				} else {
+					// 桌面端或普通路径：使用 convertFileSrc
+					const assetUrl = tauri.core.convertFileSrc(message.file_path);
+					img.src = assetUrl;
+				}
 			} else {
 				// Web 端：使用下载 API
 				if (message.file_id) {
@@ -918,14 +926,38 @@ function createMessageElement(message, isSent) {
 					const isAndroid = navigator.userAgent.includes('Android');
 
 					if (isAndroid) {
-						// Android 端：所有文件都支持分享到其他应用
+						// Android 端：点击主体打开文件，右侧分享按钮分享到其他应用
 						fileContainer.addEventListener('click', async () => {
+							try {
+								await apiOpenFileInAndroid(message.file_path);
+							} catch (e) {
+								alert('打开失败: ' + e.message);
+							}
+						});
+
+						// 分享按钮（仅 Android），与文件信息并排
+						const shareBtn = document.createElement('button');
+						shareBtn.className = 'file-share-btn';
+						shareBtn.title = '分享到其他应用';
+						shareBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>`;
+						shareBtn.addEventListener('click', async (e) => {
+							e.stopPropagation();
 							try {
 								await apiShareFileToOtherApp(message.file_path);
 							} catch (e) {
 								alert('分享失败: ' + e.message);
 							}
 						});
+
+						// 用横向 row 包住文件信息和分享按钮
+						const row = document.createElement('div');
+						row.className = 'file-action-row';
+						// 把 fileContainer 现有的第一个子节点（file-info-wrapper）移入 row
+						while (fileContainer.firstChild) {
+							row.appendChild(fileContainer.firstChild);
+						}
+						row.appendChild(shareBtn);
+						fileContainer.appendChild(row);
 					} else {
 						// 桌面端：点击打开文件位置
 						fileContainer.addEventListener('click', () => openFileLocation(message.file_path));

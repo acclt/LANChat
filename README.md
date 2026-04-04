@@ -113,8 +113,10 @@ cargo build --no-default-features --features web --release --target x86_64-pc-wi
 - [x] 存在未读消息时红点标注
 - [x] 历史消息懒加载（滚动时触发加载历史消息）
 - [x] 删除历史聊天记录
+- [x] Android 端文件消息点击打开
 
 ### 🚧 进行中
+- [ ] 重复文件智能去重（已存在的文件相同且完整，直接引用）
 - [ ] 消息时间加上年月
 - [ ] 聊天室功能
 - [ ] 新消息系统通知（linux使用notify，windows使用powershell）

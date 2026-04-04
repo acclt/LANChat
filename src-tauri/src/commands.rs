@@ -416,31 +416,39 @@ pub async fn send_file(
             let std_file = android_file.into_file();
             let file = tokio::fs::File::from_std(std_file);
             
-            // 从 URI 中提取文件名
-            let file_name = actual_path
-                .split('/')
-                .last()
-                .and_then(|s| urlencoding::decode(s).ok())
-                .map(|s| {
-                    let decoded = s.to_string();
-                    if let Some(idx) = decoded.rfind(':') {
-                        decoded[idx + 1..].to_string()
-                    } else {
-                        decoded
-                    }
-                })
-                .unwrap_or_else(|| format!("file_{}.dat", chrono::Utc::now().timestamp()));
-            
-            // 获取文件大小
-            let file_size = match tokio::fs::metadata(&actual_path).await {
-                Ok(metadata) => metadata.len() as usize,
-                Err(_) => {
-                    // 如果无法通过 metadata 获取，尝试通过 stat 系统调用
-                    println!("[Command] 无法通过 metadata 获取文件大小，使用默认值");
-                    0
+            // 通过 ContentResolver 查询真实文件名和大小（OpenableColumns）
+            let (mut file_name, file_size) =
+                AndroidFile::query_content_uri_info(&actual_path).unwrap_or_default();
+
+            // 兜底：文件名为空时从 URI 末段 + MIME 类型推断
+            if file_name.is_empty() {
+                println!("[Command] ContentResolver 未返回文件名，尝试从 URI 推断");
+                let raw_seg = actual_path
+                    .split('/')
+                    .last()
+                    .and_then(|s| urlencoding::decode(s).ok())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+
+                // 去掉 "image:1000019507" 这类无意义前缀
+                file_name = if let Some(idx) = raw_seg.rfind(':') {
+                    raw_seg[idx + 1..].to_string()
+                } else {
+                    raw_seg
+                };
+
+                // 如果还是没有扩展名，用时间戳兜底
+                if !file_name.contains('.') || file_name.is_empty() {
+                    file_name = format!("file_{}.dat", chrono::Utc::now().timestamp());
                 }
-            };
-            
+            }
+
+            // 兜底：大小为 0 时尝试 fstat
+            if file_size == 0 {
+                println!("[Command] ContentResolver 未返回文件大小，尝试 fstat");
+                // file 已经 move 进 tokio，无法再 stat；大小保持 0，上传完成后接收端会知道真实大小
+            }
+
             println!("[Command] 文件名: {}, 大小: {} 字节", file_name, file_size);
             
             // 使用统一的上传函数
@@ -452,7 +460,7 @@ pub async fn send_file(
                 peer_id,
                 peer_addr,
                 file_name,
-                file_size,
+                file_size as usize,
                 actual_path,
                 file,
             )
@@ -909,6 +917,56 @@ pub async fn share_file_to_other_app(
 ) -> Result<(), String> {
     let _ = filePath;
     Err("此功能仅在 Android 上可用".to_string())
+}
+
+// 用对应应用打开文件（仅 Android）
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn open_file_in_android(
+    #[allow(non_snake_case)]
+    filePath: String,
+) -> Result<(), String> {
+    println!("[Command] 准备打开文件: {}", filePath);
+
+    use jni::objects::JValue;
+
+    let context = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
+        .map_err(|e| format!("获取 JavaVM 失败: {}", e))?;
+
+    let mut env = vm.attach_current_thread()
+        .map_err(|e| format!("附加线程失败: {}", e))?;
+
+    let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
+
+    let file_path_jstring = env.new_string(&filePath)
+        .map_err(|e| format!("创建字符串失败: {}", e))?;
+
+    env.call_method(
+        activity,
+        "openFile",
+        "(Ljava/lang/String;)V",
+        &[JValue::Object(&file_path_jstring)]
+    ).map_err(|e| format!("调用 openFile 失败: {}", e))?;
+
+    println!("[Command] 打开文件命令已发送到 Android");
+    Ok(())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub async fn open_file_in_android(
+    #[allow(non_snake_case)]
+    filePath: String,
+) -> Result<(), String> {
+    let _ = filePath;
+    Err("此功能仅在 Android 上可用".to_string())
+}
+
+/// 获取媒体代理 Token（前端用于构造 /api/media 请求 URL）
+#[tauri::command]
+pub async fn get_media_token() -> String {
+    crate::web_server::get_media_token()
 }
 
 // 读取剪贴板中的文件路径（桌面端）

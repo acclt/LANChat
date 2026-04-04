@@ -206,6 +206,49 @@ class MainActivity : TauriActivity() {
         }, delayMs)
     }
 
+    // 打开文件（用对应的应用打开）
+    @Keep
+    fun openFile(filePath: String) {
+        try {
+            println("[MainActivity] 准备打开文件: $filePath")
+
+            val uri: Uri
+            val mimeType: String
+
+            if (filePath.startsWith("content://")) {
+                uri = Uri.parse(filePath)
+                mimeType = contentResolver.getType(uri) ?: "*/*"
+                println("[MainActivity] 使用 content URI: $uri")
+            } else {
+                val file = File(filePath)
+                if (!file.exists()) {
+                    println("[MainActivity] 文件不存在: $filePath")
+                    return
+                }
+                uri = FileProvider.getUriForFile(
+                    this,
+                    "${applicationContext.packageName}.fileprovider",
+                    file
+                )
+                mimeType = contentResolver.getType(uri) ?: "*/*"
+                println("[MainActivity] FileProvider URI: $uri")
+            }
+
+            println("[MainActivity] MIME 类型: $mimeType")
+
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mimeType)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            startActivity(intent)
+            println("[MainActivity] 打开文件 Intent 已启动")
+        } catch (e: Exception) {
+            println("[MainActivity] 打开文件失败: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
     // 分享文件到其他应用
     @Keep   // <--- 就是这块免死金牌！告诉混淆器绝对不要动这个函数
     fun shareFile(filePath: String) {

@@ -1,7 +1,7 @@
 use axum::extract::ws::{Message, WebSocket};
 use axum::{
     body::Body,
-    extract::{Json, Multipart, Path, Query, State, WebSocketUpgrade},
+    extract::{ConnectInfo, Json, Multipart, Path, Query, State, WebSocketUpgrade},
     http::{header, Response, StatusCode},
     response::IntoResponse,
     routing::{get, post},
@@ -11,11 +11,15 @@ use futures_util::StreamExt;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
-use std::sync::Arc;
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 use tokio::fs;
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::peers::PeerManager;
+
+// 全局媒体 Token（仅 Android 使用）
+static MEDIA_TOKEN: Mutex<String> = Mutex::new(String::new());
 
 #[derive(RustEmbed)]
 #[folder = "../src/"]
@@ -48,6 +52,7 @@ struct SendMessageRequest {
 pub struct AppState {
     pub pool: Pool<Sqlite>,
     pub peer_manager: Arc<PeerManager>,
+    pub media_token: String,
     #[cfg(feature = "desktop")]
     pub app_handle: Option<tauri::AppHandle>,
 }
@@ -59,9 +64,20 @@ pub async fn start_server(
     peer_manager: Arc<PeerManager>,
     #[cfg(feature = "desktop")] app_handle: Option<tauri::AppHandle>,
 ) {
+    let media_token = uuid::Uuid::new_v4().to_string();
+    println!("[Web Server] 媒体访问 Token: {}", media_token);
+
+    // 将 token 存入全局，供 Tauri command 读取（仅 Android）
+    #[cfg(target_os = "android")]
+    {
+        let mut guard = MEDIA_TOKEN.lock().unwrap();
+        *guard = media_token.clone();
+    }
+
     let state = Arc::new(AppState {
         pool,
         peer_manager,
+        media_token,
         #[cfg(feature = "desktop")]
         app_handle,
     });
@@ -95,10 +111,12 @@ pub async fn start_server(
         .route("/api/get_theme_css/:theme_name", get(get_theme_css_http))
         .route("/api/save_current_theme", post(save_current_theme_http))
         .route("/api/get_current_theme", get(get_current_theme_http))
+        .route("/api/media", get(serve_media_http))
         .route("/ws", get(websocket_handler))
         .layer(cors)
         .layer(axum::extract::DefaultBodyLimit::disable()) // 无限制
-        .with_state(state);
+        .with_state(state)
+        .into_make_service_with_connect_info::<SocketAddr>();
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
@@ -602,6 +620,7 @@ async fn upload_file_http(
             sender_id.clone(),
             file_name.clone(),
             path.to_str().unwrap_or("").to_string(),
+            file_size,
             timestamp,
         )
         .await
@@ -1212,4 +1231,78 @@ async fn delete_messages_http(
         )
             .into_response(),
     }
+}
+
+/// 获取媒体访问 Token（供 Tauri command 读取后传给前端）
+pub fn get_media_token() -> String {
+    MEDIA_TOKEN.lock().unwrap().clone()
+}
+
+/// 媒体代理请求参数
+#[derive(Deserialize)]
+struct MediaQuery {
+    uri: String,
+    token: String,
+}
+
+/// GET /api/media?uri=<content_uri>&token=<token>
+/// 仅允许本机（127.0.0.1）访问，并校验 token
+#[cfg(target_os = "android")]
+async fn serve_media_http(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<MediaQuery>,
+) -> impl IntoResponse {
+    // 防线 A：IP 白名单，只允许本机回环地址
+    if !addr.ip().is_loopback() {
+        println!("[Media] 拒绝非本机请求: {}", addr.ip());
+        return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+    }
+
+    // 防线 B：Token 校验
+    if params.token != state.media_token {
+        println!("[Media] Token 校验失败");
+        return (StatusCode::FORBIDDEN, "Invalid token").into_response();
+    }
+
+    println!("[Media] 请求媒体: {}", params.uri);
+
+    // 通过 JNI 获取 content URI 的文件描述符
+    use crate::android_fd::AndroidFile;
+    let android_file = match AndroidFile::from_content_uri(&params.uri) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("[Media] 获取 FD 失败（权限过期或文件不存在）: {}", e);
+            return (StatusCode::FORBIDDEN, e).into_response();
+        }
+    };
+
+    // 获取 MIME 类型（用于 Content-Type header）
+    let mime = mime_guess::from_path(
+        params.uri.split('/').last().unwrap_or("file")
+    ).first_or_octet_stream();
+
+    // 转为 tokio 异步文件，流式返回
+    let std_file = android_file.into_file();
+    let tokio_file = tokio::fs::File::from_std(std_file);
+    let stream = tokio_util::io::ReaderStream::new(tokio_file);
+    let body = Body::from_stream(stream);
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime.as_ref())
+        .header(header::CACHE_CONTROL, "private, max-age=3600")
+        .body(body)
+        .unwrap()
+        .into_response()
+}
+
+/// 非 Android 平台的空实现
+#[cfg(not(target_os = "android"))]
+async fn serve_media_http(
+    ConnectInfo(_addr): ConnectInfo<SocketAddr>,
+    State(_state): State<Arc<AppState>>,
+    Query(_params): Query<MediaQuery>,
+) -> impl IntoResponse {
+    (StatusCode::NOT_FOUND, "仅 Android 支持").into_response()
 }

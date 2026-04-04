@@ -2588,6 +2588,7 @@ dependencies = [
  "tauri-plugin-sql",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "tower-http 0.5.2",
  "urlencoding",
  "uuid",

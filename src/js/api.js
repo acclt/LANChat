@@ -694,9 +694,24 @@ async function apiShareFileToOtherApp(filePath) {
 	}
 }
 
+// 媒体 Token 缓存（避免每次渲染图片都 invoke）
+let _mediaTokenCache = null;
+async function apiGetMediaToken() {
+	if (_mediaTokenCache) return _mediaTokenCache;
+	const tauri = getTauri();
+	if (!tauri) return '';
+	try {
+		_mediaTokenCache = await tauri.core.invoke('get_media_token');
+		console.log("[JS-API] 获取媒体 Token 成功");
+	} catch (e) {
+		console.error("[JS-API] 获取媒体 Token 失败:", e);
+		_mediaTokenCache = '';
+	}
+	return _mediaTokenCache;
+}
 
-// 分享文件到其他应用（仅 Android）
-async function apiShareFileToOtherApp(filePath) {
+// 用对应应用打开文件（仅 Android）
+async function apiOpenFileInAndroid(filePath) {
 	const tauri = getTauri();
 
 	if (!tauri) {
@@ -704,15 +719,14 @@ async function apiShareFileToOtherApp(filePath) {
 	}
 
 	try {
-		console.log("[JS-API] 分享文件到其他应用:", filePath);
-		await tauri.core.invoke('share_file_to_other_app', { filePath });
-		console.log("[JS-API] 分享成功");
+		console.log("[JS-API] 打开文件:", filePath);
+		await tauri.core.invoke('open_file_in_android', { filePath });
+		console.log("[JS-API] 打开文件成功");
 	} catch (e) {
-		console.error("[JS-API] 分享文件失败:", e);
+		console.error("[JS-API] 打开文件失败:", e);
 		throw e;
 	}
 }
-
 
 // 批量删除消息
 async function apiDeleteMessages(msgIds) {

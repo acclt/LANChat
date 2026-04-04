@@ -2,3 +2,18 @@
 identifier = "allow-share-file-to-other-app"
 description = "允许分享文件到其他应用"
 commands.allow = ["share_file_to_other_app"]
+
+[[permission]]
+identifier = "allow-open-file-in-android"
+description = "允许用对应应用打开文件"
+commands.allow = ["open_file_in_android"]
+
+[[permission]]
+identifier = "allow-get-media-token"
+description = "允许获取媒体代理 Token"
+commands.allow = ["get_media_token"]
+
+[[permission]]
+identifier = "allow-close-android-fd"
+description = "允许关闭 Android 文件描述符"
+commands.allow = ["close_android_fd"]

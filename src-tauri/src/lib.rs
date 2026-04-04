@@ -47,6 +47,8 @@ pub fn run() {
             commands::clear_android_shared_files,
             commands::send_file_from_fd,
             commands::share_file_to_other_app,
+            commands::open_file_in_android,
+            commands::get_media_token,
             commands::delete_messages
         ])
         .setup(|app| {

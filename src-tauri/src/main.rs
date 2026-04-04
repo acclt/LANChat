@@ -51,6 +51,8 @@ fn main() {
             lanchat::commands::clear_android_shared_files,
             lanchat::commands::send_file_from_fd,
             lanchat::commands::share_file_to_other_app,
+            lanchat::commands::open_file_in_android,
+            lanchat::commands::get_media_token,
             lanchat::commands::read_clipboard_files,
             lanchat::commands::delete_messages
         ])

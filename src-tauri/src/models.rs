@@ -3,14 +3,15 @@ use serde::{Deserialize, Serialize};
 // 消息结构体 - 对应 messages 表
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Message {
-    pub id: i64, // SQLite 的 INTEGER PRIMARY KEY 是 i64
+    pub id: i64,
     pub sender_id: String,
-    pub receiver_id: Option<String>, // 新增接收者ID字段
+    pub receiver_id: Option<String>,
     pub content: String,
     pub msg_type: String,
     pub timestamp: i64,
     pub file_path: Option<String>,
     pub file_status: Option<String>,
+    pub file_size: Option<i64>,
 }
 
 // API 响应用的消息结构体（字段名适配前端）
@@ -62,8 +63,10 @@ impl From<Message> for MessageResponse {
                 response.file_path = Some(path.clone());
                 response.file_status = msg.file_status.clone();
 
-                // 尝试获取文件大小
-                if let Ok(metadata) = std::fs::metadata(path) {
+                // 优先使用数据库中存储的文件大小，fallback 到 stat
+                if let Some(sz) = msg.file_size.filter(|&s| s > 0) {
+                    response.file_size = Some(sz as u64);
+                } else if let Ok(metadata) = std::fs::metadata(path) {
                     response.file_size = Some(metadata.len());
                 }
             }

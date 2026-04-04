@@ -43,6 +43,9 @@
     "allow-clear-android-shared-files",
     "allow-send-file-from-fd",
     "allow-share-file-to-other-app",
+    "allow-open-file-in-android",
+    "allow-get-media-token",
+    "allow-close-android-fd",
     "allow-delete-messages"
   ],
   "scope": {

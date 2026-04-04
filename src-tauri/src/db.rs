@@ -184,6 +184,11 @@ async fn init_db_with_path(app_dir: PathBuf) -> Result<Pool<Sqlite>, sqlx::Error
         .execute(&pool)
         .await; // 忽略错误，因为字段可能已经存在
 
+    // 数据库迁移：为现有的messages表添加file_size字段（如果不存在）
+    let _ = sqlx::query("ALTER TABLE messages ADD COLUMN file_size INTEGER")
+        .execute(&pool)
+        .await;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -290,13 +295,14 @@ pub async fn save_file_message(
             .as_secs() as i64;
 
         let result = sqlx::query(
-            "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status) VALUES ('me', ?, ?, 'file', ?, ?, ?)"
+            "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size) VALUES ('me', ?, ?, 'file', ?, ?, ?, ?)"
         )
         .bind(&peer_id)
         .bind(&file_name)
         .bind(timestamp)
         .bind(&file_path)
         .bind(&status)
+        .bind(file_size as i64)
         .execute(pool)
         .await
         .map_err(|e| format!("保存消息失败: {}", e))?;
@@ -614,19 +620,21 @@ pub async fn create_received_file_record(
     sender_id: String,
     file_name: String,
     file_path: String,
+    file_size: u64,
     timestamp: i64,
 ) -> Result<i64, String> {
     // 获取当前用户ID作为接收者
     let my_id = get_user_id(pool).await?;
 
     let result = sqlx::query(
-        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status) VALUES (?, ?, ?, 'file', ?, ?, 'downloading')"
+        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size) VALUES (?, ?, ?, 'file', ?, ?, 'downloading', ?)"
     )
     .bind(&sender_id)
     .bind(&my_id)
     .bind(&file_name)
     .bind(timestamp)
     .bind(&file_path)
+    .bind(file_size as i64)
     .execute(pool)
     .await
     .map_err(|e| format!("创建记录失败: {}", e))?;

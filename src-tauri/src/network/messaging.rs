@@ -285,9 +285,9 @@ pub async fn get_chat_history_with_offset(
     // 3. 兼容旧数据：sender_id = 'me' 的消息
     // 使用子查询先排序再分页，确保获取最新的消息
     let messages = sqlx::query_as::<_, crate::models::Message>(
-        "SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status 
+        "SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size 
          FROM (
-            SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status 
+            SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size 
             FROM messages 
             WHERE 
                 (sender_id = ? AND receiver_id = ?) OR 
