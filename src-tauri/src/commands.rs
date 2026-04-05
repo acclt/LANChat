@@ -224,6 +224,26 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
             return Err(format!("上传分块失败: {}", error_text));
         }
 
+        // 检查是否秒传命中（接收端已有完整文件）
+        if chunk_index == 0 {
+            let resp_text = response.text().await.unwrap_or_default();
+            if let Ok(resp_json) = serde_json::from_str::<serde_json::Value>(&resp_text) {
+                if resp_json.get("status").and_then(|s| s.as_str()) == Some("already_exists") {
+                    println!("[Command] ✓ 秒传命中，接收端已有完整文件，停止上传");
+                    // 更新本地数据库状态为 sent
+                    if let Some(id) = message_id {
+                        let _ = crate::db::update_file_status_by_id(&state.pool, id, "sent").await;
+                    }
+                    return Ok(serde_json::json!({
+                        "success": true,
+                        "file_name": file_name,
+                        "file_size": file_size,
+                        "instant_transfer": true,
+                    }));
+                }
+            }
+        }
+
         offset += n;
         chunk_index += 1;
 
@@ -273,7 +293,7 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
 use std::os::unix::io::FromRawFd;
 
 #[tauri::command]
-pub async fn close_android_fd(fd: i32) {
+pub async fn close_android_fd(#[allow(unused_variables)] fd: i32) {
     #[cfg(target_os = "android")]
     {
         if fd >= 0 {

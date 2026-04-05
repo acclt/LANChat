@@ -483,6 +483,20 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
 					throw new Error(`HTTP ${resp.status}: ${errorText}`);
 				}
 
+				// 检查秒传命中（仅第一块）
+				if (chunkIndex === 0) {
+					const respData = await resp.json();
+					if (respData.status === 'already_exists') {
+						console.log("[JS-API] ✓ 秒传命中，接收端已有完整文件，停止上传");
+						return {
+							success: true,
+							file_name: fileName,
+							file_size: fileSize,
+							instant_transfer: true,
+						};
+					}
+				}
+
 				offset += size;
 				chunkIndex++;
 

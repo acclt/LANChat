@@ -296,10 +296,13 @@ class MainActivity : TauriActivity() {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = mimeType
                 putExtra(Intent.EXTRA_STREAM, uri)
-                // 添加读写权限标志
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             }
+
+            // 附加 ClipData，让系统 UI（分享面板缩略图）也能合法访问 URI，消除 SecurityException 日志
+            val clipData = android.content.ClipData.newUri(contentResolver, "share_file", uri)
+            intent.clipData = clipData
             
             // 创建分享选择器并授予权限
             val chooser = Intent.createChooser(intent, "分享文件").apply {

@@ -417,7 +417,6 @@ async fn upload_file_http(
     let mut file_size: u64 = 0;
     let mut chunk_index: usize = 0;
     let mut chunk_total: usize = 0;
-    let mut _file_path: Option<std::path::PathBuf> = None;
     let mut chunk_data: Option<Vec<u8>> = None;
 
     // 获取下载目录
@@ -511,67 +510,152 @@ async fn upload_file_http(
             .into_response();
     }
 
-    // 对于后续块，如果 file_name 为空，从数据库查询
-    if chunk_index > 0 && file_name.is_empty() {
-        println!(
-            "[Web Server] 第 {} 块，file_name 为空，从数据库查询 (sender_id={})",
-            chunk_index + 1,
-            sender_id
-        );
-        // 从数据库查询该发送者最近的 downloading 状态的文件
-        match crate::db::get_downloading_file(&state.pool, &sender_id).await {
-            Ok(Some(name)) => {
-                file_name = name;
-                println!(
-                    "[Web Server] 从数据库查询到文件名: {} (sender_id={})",
-                    file_name, sender_id
-                );
-            }
-            Ok(None) => {
-                eprintln!("[Web Server] ✗ 无法确定文件名 (sender_id={})", sender_id);
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse {
-                        error: "无法确定文件名".to_string(),
-                    }),
+    let chunk_data = chunk_data.unwrap();
+
+    // ── 第一块：智能命名协商 ──────────────────────────────────────────────
+    // 最终写入的文件名（可能因重命名而与 file_name 不同）
+    let final_file_name: String;
+
+    if chunk_index == 0 {
+        // 拆分主文件名和扩展名
+        let (stem, ext) = {
+            let p = std::path::Path::new(&file_name);
+            let s = p.file_stem().and_then(|s| s.to_str()).unwrap_or(&file_name).to_string();
+            let e = p.extension().and_then(|s| s.to_str())
+                .map(|e| format!(".{}", e))
+                .unwrap_or_default();
+            (s, e)
+        };
+
+        // 检查目标路径是否存在完整文件（无 .downloading 后缀）
+        let candidate = download_dir.join(&file_name);
+        let downloading_path = download_dir.join(format!("{}.downloading", file_name));
+
+        if candidate.exists() && !downloading_path.exists() {
+            // 目标文件存在且完整，比较大小
+            let existing_size = tokio::fs::metadata(&candidate).await
+                .map(|m| m.len())
+                .unwrap_or(0);
+
+            if existing_size == file_size {
+                // 大小完全相同 → 秒传：直接复用已有文件，写入数据库记录
+                println!("[Web Server] ✓ 秒传命中: {:?} (大小相同: {} 字节)", candidate, file_size);
+
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64;
+
+                match crate::db::create_received_file_record(
+                    &state.pool,
+                    sender_id.clone(),
+                    file_name.clone(),
+                    candidate.to_str().unwrap_or("").to_string(),
+                    file_size,
+                    timestamp,
                 )
-                    .into_response();
+                .await
+                {
+                    Ok(msg_id) => {
+                        // 立即标记为 accepted（文件已完整）
+                        let _ = crate::db::update_file_status_by_id(&state.pool, msg_id, "accepted").await;
+                        println!("[Web Server] ✓ 秒传记录已创建并标记为 accepted，ID: {}", msg_id);
+                    }
+                    Err(e) => {
+                        eprintln!("[Web Server] ✗ 秒传记录创建失败: {}", e);
+                    }
+                }
+
+                println!("[Web Server] ========== 秒传完成，通知发送端停止 ==========");
+                return Json(serde_json::json!({
+                    "status": "already_exists",
+                    "file_name": file_name,
+                    "file_size": file_size,
+                    "message": "文件已存在且完整，秒传成功",
+                }))
+                .into_response();
+            } else {
+                // 大小不同 → 冲突，需要重命名
+                println!("[Web Server] 同名文件大小不同 (已有: {}, 新: {})，触发重命名", existing_size, file_size);
             }
-            Err(e) => {
-                eprintln!("[Web Server] ✗ 数据库查询失败: {}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: format!("数据库查询失败: {}", e),
-                    }),
-                )
-                    .into_response();
+        }
+
+        // 需要找一个不冲突的文件名（原名冲突 或 存在 .downloading 残留）
+        let mut resolved_name = file_name.clone();
+        if candidate.exists() || downloading_path.exists() {
+            let mut i = 1usize;
+            loop {
+                let candidate_name = format!("{}({}){}", stem, i, ext);
+                let candidate_path = download_dir.join(&candidate_name);
+                let candidate_dl = download_dir.join(format!("{}.downloading", candidate_name));
+                if !candidate_path.exists() && !candidate_dl.exists() {
+                    resolved_name = candidate_name;
+                    println!("[Web Server] 重命名为: {}", resolved_name);
+                    break;
+                }
+                i += 1;
+                if i > 9999 {
+                    // 极端情况兜底
+                    resolved_name = format!("{}_{}{}", stem, chrono::Utc::now().timestamp(), ext);
+                    break;
+                }
+            }
+        }
+
+        final_file_name = resolved_name;
+    } else {
+        // 后续块：从数据库查询正在下载的文件名（已经是 resolved 后的名字）
+        if file_name.is_empty() {
+            match crate::db::get_downloading_file(&state.pool, &sender_id).await {
+                Ok(Some(name)) => {
+                    final_file_name = name;
+                    println!("[Web Server] 后续块从数据库查询到文件名: {}", final_file_name);
+                }
+                Ok(None) => {
+                    eprintln!("[Web Server] ✗ 无法确定后续块文件名 (sender_id={})", sender_id);
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse { error: "无法确定文件名".to_string() }),
+                    ).into_response();
+                }
+                Err(e) => {
+                    eprintln!("[Web Server] ✗ 数据库查询失败: {}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse { error: format!("数据库查询失败: {}", e) }),
+                    ).into_response();
+                }
+            }
+        } else {
+            // 发送端传来了 file_name，但后续块应以数据库中的 resolved 名为准
+            match crate::db::get_downloading_file(&state.pool, &sender_id).await {
+                Ok(Some(name)) => final_file_name = name,
+                _ => final_file_name = file_name.clone(),
             }
         }
     }
 
-    let chunk_data = chunk_data.unwrap();
-    let path = download_dir.join(&file_name);
+    // 临时文件路径（写入期间使用 .downloading 后缀）
+    let temp_path = download_dir.join(format!("{}.downloading", final_file_name));
+    let final_path = download_dir.join(&final_file_name);
 
-    // 第一块时创建文件
+    // 第一块：创建/截断临时文件（不触碰已有的完整文件）
     if chunk_index == 0 {
-        _file_path = Some(path.clone());
-        println!("[Web Server] 创建新文件: {:?}", path);
-
-        // 删除旧文件（如果存在）
-        let _ = tokio::fs::remove_file(&path).await;
+        println!("[Web Server] 创建临时文件: {:?}", temp_path);
+        // 清理可能残留的旧临时文件
+        let _ = tokio::fs::remove_file(&temp_path).await;
     }
 
-    // 以追加模式打开文件并写入
+    // 以追加模式写入临时文件
     let file = match tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path)
+        .open(&temp_path)
         .await
     {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("[Web Server] ✗ 打开文件失败: {}", e);
+            eprintln!("[Web Server] ✗ 打开临时文件失败: {}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -584,7 +668,6 @@ async fn upload_file_http(
 
     let mut writer = tokio::io::BufWriter::new(file);
 
-    // 写入分块数据
     if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut writer, &chunk_data).await {
         eprintln!("[Web Server] ✗ 写入文件失败: {}", e);
         return (
@@ -596,20 +679,19 @@ async fn upload_file_http(
             .into_response();
     }
 
-    // 刷新缓冲区
     if let Err(e) = tokio::io::AsyncWriteExt::flush(&mut writer).await {
         eprintln!("[Web Server] ✗ 刷新缓冲区失败: {}", e);
     }
 
     println!(
-        "[Web Server] ✓ 分块 {}/{} 已保存，大小: {} 字节",
+        "[Web Server] ✓ 分块 {}/{} 已写入临时文件，大小: {} 字节",
         chunk_index + 1,
         chunk_total,
         chunk_data.len()
     );
 
-    // 只在第一块时创建数据库记录
-    if chunk_index == 0 && !file_name.is_empty() {
+    // 第一块时创建数据库记录（状态 downloading，路径指向最终路径）
+    if chunk_index == 0 {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -618,8 +700,8 @@ async fn upload_file_http(
         match crate::db::create_received_file_record(
             &state.pool,
             sender_id.clone(),
-            file_name.clone(),
-            path.to_str().unwrap_or("").to_string(),
+            final_file_name.clone(),
+            final_path.to_str().unwrap_or("").to_string(),
             file_size,
             timestamp,
         )
@@ -627,48 +709,41 @@ async fn upload_file_http(
         {
             Ok(msg_id) => {
                 println!(
-                    "[Web Server] ✓ 第一块数据：文件消息已创建，ID: {}, 状态: downloading",
-                    msg_id
+                    "[Web Server] ✓ 文件消息已创建，ID: {}, 最终名: {}",
+                    msg_id, final_file_name
                 );
             }
             Err(e) => {
-                eprintln!("[Web Server] ✗ 第一块数据：创建文件消息失败: {}", e);
+                eprintln!("[Web Server] ✗ 创建文件消息失败: {}", e);
             }
         }
     }
 
-    // 检查是否是最后一块：已接收的数据大小 + 当前块大小 >= 文件总大小
-    let received_size = if chunk_index == 0 {
-        chunk_data.len() as u64
-    } else {
-        // 对于后续块，我们需要从数据库查询已接收的大小
-        // 简单方案：检查文件大小是否匹配
-        let file_metadata = match tokio::fs::metadata(&path).await {
-            Ok(m) => m.len(),
-            Err(_) => 0,
-        };
-        file_metadata
-    };
+    // 检查是否是最后一块
+    let temp_size = tokio::fs::metadata(&temp_path).await
+        .map(|m| m.len())
+        .unwrap_or(0);
 
-    // 如果已接收的数据大小 >= 文件总大小，说明是最后一块
-    if received_size >= file_size && !file_name.is_empty() {
-        match crate::db::update_file_status(&state.pool, &file_name, "accepted").await {
+    if temp_size >= file_size && file_size > 0 {
+        // 最后一块写完：将临时文件重命名为最终文件（原子操作，绕过 Android 覆盖限制）
+        match tokio::fs::rename(&temp_path, &final_path).await {
             Ok(_) => {
-                println!(
-                    "[Web Server] ✓ 最后一块数据：文件状态已更新为 accepted (已接收: {} 字节)",
-                    received_size
-                );
+                println!("[Web Server] ✓ 临时文件已重命名为最终文件: {:?}", final_path);
+                match crate::db::update_file_status(&state.pool, &final_file_name, "accepted").await {
+                    Ok(_) => println!("[Web Server] ✓ 文件状态已更新为 accepted"),
+                    Err(e) => eprintln!("[Web Server] ✗ 更新文件状态失败: {}", e),
+                }
             }
             Err(e) => {
-                eprintln!("[Web Server] ✗ 最后一块数据：更新文件状态失败: {}", e);
+                eprintln!("[Web Server] ✗ 重命名临时文件失败: {}", e);
             }
         }
     }
 
     println!("[Web Server] ========== 文件上传处理完成 ==========");
     Json(serde_json::json!({
-        "success": true,
-        "file_name": file_name,
+        "status": "success",
+        "file_name": final_file_name,
         "file_size": file_size,
         "chunk_index": chunk_index,
         "chunk_total": chunk_total,
@@ -1240,6 +1315,7 @@ pub fn get_media_token() -> String {
 
 /// 媒体代理请求参数
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct MediaQuery {
     uri: String,
     token: String,
