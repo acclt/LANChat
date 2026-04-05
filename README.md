@@ -59,6 +59,19 @@ cargo build --release --bin lanchat-web --features web --no-default-features
 cargo build --no-default-features --features web --release --target x86_64-pc-windows-gnu # windows网页端
 ```
 
+也可以使用 Makefile 一键构建：
+
+```bash
+make all          # 构建测试过的所有平台
+make deb          # Linux .deb
+make rpm          # Linux .rpm
+make apk          # Android APK（自动签名）
+make windows-desktop  # Windows 桌面端（需要 cargo-xwin）
+make web          # Web 端 Linux
+make web-windows  # Web 端 Windows
+make help         # 查看帮助
+```
+
 ## 主题
 
 支持自定义`css`，文件名称随意，存储路径：
