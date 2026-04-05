@@ -185,3 +185,17 @@ MIT License
 - [Tauri](https://tauri.app/) - 跨平台应用框架
 - [Axum](https://github.com/tokio-rs/axum) - Web 框架
 - [SQLx](https://github.com/launchbadge/sqlx) - 异步 SQL 工具包
+
+## 赞助
+
+如果你觉得这个项目对你有帮助，可以请作者喝杯咖啡 ☕️
+
+<details>
+  <summary><b>点击展开赞赏码 (WeChat Pay)</b></summary>
+  <br />
+  <p align="center">
+    <img src=".github/wechat_sponsor.png" width="250" />
+    <br />
+  </p>
+  <p align="center">感谢您的支持！您的名字将被记录在 <a href="./SPONSOR.md">赞助者名单</a> 中。</p>
+</details>
