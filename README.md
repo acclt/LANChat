@@ -197,5 +197,5 @@ MIT License
     <img src=".github/wechat_sponsor.png" width="250" />
     <br />
   </p>
-  <p align="center">感谢您的支持！您的名字将被记录在 <a href="./SPONSOR.md">赞助者名单</a> 中。</p>
+  <p align="center">感谢您的支持！您的名字将被记录在 <a href="https://github.com/cap153/LANChat/blob/main/.github/SPONSOR.md#-%E6%84%9F%E8%B0%A2%E5%90%8D%E5%8D%95-backers">赞助者名单</a> 中。</p>
 </details>
