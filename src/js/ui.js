@@ -849,6 +849,12 @@ function createMessageElement(message, isSent) {
 		// 检查是否是图片文件
 		const isImage = isImageFile(message.file_name || message.content);
 
+		console.log('[Image-Debug] 消息ID:', message.id,
+			'file_name:', message.file_name || message.content,
+			'isImage:', isImage,
+			'file_path:', message.file_path,
+			'file_status:', message.file_status);
+
 		if (isImage && message.file_path && (message.file_status === 'sent' || message.file_status === 'accepted')) {
 			// 图片预览
 			const imgPreview = document.createElement('div');
@@ -862,11 +868,14 @@ function createMessageElement(message, isSent) {
 				if (isAndroid && message.file_path && message.file_path.startsWith('content://')) {
 					// Android content URI：通过本地媒体代理服务获取
 					apiGetMediaToken().then(token => {
-						img.src = `http://127.0.0.1:8888/api/media?uri=${encodeURIComponent(message.file_path)}&token=${token}`;
+						const url = `http://127.0.0.1:8888/api/media?uri=${encodeURIComponent(message.file_path)}&token=${token}`;
+						console.log('[Image] Android content URI 预览, url:', url, 'file_path:', message.file_path);
+						img.src = url;
 					});
 				} else {
 					// 桌面端或普通路径：使用 convertFileSrc
 					const assetUrl = tauri.core.convertFileSrc(message.file_path);
+					console.log('[Image] convertFileSrc 预览, assetUrl:', assetUrl, 'file_path:', message.file_path);
 					img.src = assetUrl;
 				}
 			} else {
@@ -879,8 +888,13 @@ function createMessageElement(message, isSent) {
 			img.alt = message.file_name || message.content;
 			img.loading = 'lazy';
 
+			img.onload = () => {
+				console.log('[Image] 加载成功:', img.src);
+			};
+
 			// 图片加载失败时显示文件图标
 			img.onerror = () => {
+				console.error('[Image] 加载失败:', img.src, 'file_path:', message.file_path, 'file_status:', message.file_status);
 				imgPreview.innerHTML = '';
 				imgPreview.appendChild(createFileIcon(message));
 			};

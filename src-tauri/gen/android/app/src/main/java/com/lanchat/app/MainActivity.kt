@@ -32,6 +32,9 @@ class MainActivity : TauriActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         
+        // 开启 WebView 调试（方便 adb logcat 看到 JS console 输出）
+        android.webkit.WebView.setWebContentsDebuggingEnabled(true)
+        
         // 注册广播接收器
         registerShareReceiver()
     }
