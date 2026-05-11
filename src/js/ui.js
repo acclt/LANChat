@@ -1979,7 +1979,6 @@ function initPasteFile() {
 	console.log('[UI] Ctrl+V 粘贴文件功能已启用（支持零拷贝）');
 }
 
-// 初始化“回到底部”悬浮按钮
 // 初始化"回到底部"悬浮按钮
 function initScrollToBottomBtn() {
 	const chatMessages = document.getElementById('chat-messages');

@@ -58,7 +58,7 @@ fn calculate_optimal_chunk_size(_file_size: usize) -> usize {
 
         chunk_size
     }
-    
+
     #[cfg(not(feature = "desktop"))]
     {
         // Web 端：使用保守的固定值
@@ -200,15 +200,20 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
             n
         );
 
-        let response = client.post(&upload_url).multipart(form).send().await.map_err(|e| {
-            if let Some(id) = message_id {
-                let pool = state.pool.clone();
-                tokio::spawn(async move {
-                    let _ = crate::db::delete_message_by_id(&pool, id).await;
-                });
-            }
-            format!("上传分块失败: {}", e)
-        })?;
+        let response = client
+            .post(&upload_url)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| {
+                if let Some(id) = message_id {
+                    let pool = state.pool.clone();
+                    tokio::spawn(async move {
+                        let _ = crate::db::delete_message_by_id(&pool, id).await;
+                    });
+                }
+                format!("上传分块失败: {}", e)
+            })?;
 
         if !response.status().is_success() {
             let error_text = response
@@ -393,7 +398,8 @@ pub async fn get_chat_history_with_offset(
     limit: i32,
     offset: i32,
 ) -> Result<Vec<serde_json::Value>, String> {
-    crate::network::messaging::get_chat_history_with_offset(&state.pool, &peer_id, limit, offset).await
+    crate::network::messaging::get_chat_history_with_offset(&state.pool, &peer_id, limit, offset)
+        .await
 }
 
 #[tauri::command]
@@ -427,15 +433,15 @@ pub async fn send_file(
         #[cfg(target_os = "android")]
         {
             println!("[Command] 检测到 Android content URI，使用 FD 方式");
-            
+
             // 使用 JNI 调用 Android ContentResolver 获取 FD
             use crate::android_fd::AndroidFile;
-            
+
             // 从 content URI 获取文件描述符
             let android_file = AndroidFile::from_content_uri(&actual_path)?;
             let std_file = android_file.into_file();
             let file = tokio::fs::File::from_std(std_file);
-            
+
             // 通过 ContentResolver 查询真实文件名和大小（OpenableColumns）
             let (mut file_name, file_size) =
                 AndroidFile::query_content_uri_info(&actual_path).unwrap_or_default();
@@ -470,7 +476,7 @@ pub async fn send_file(
             }
 
             println!("[Command] 文件名: {}, 大小: {} 字节", file_name, file_size);
-            
+
             // 使用统一的上传函数
             let peer_state = app.try_state::<PeerState>();
             return upload_file_internal(
@@ -486,7 +492,7 @@ pub async fn send_file(
             )
             .await;
         }
-        
+
         #[cfg(not(target_os = "android"))]
         {
             return Err("content:// URI 仅在 Android 上支持".to_string());
@@ -696,14 +702,14 @@ pub async fn save_file_message(
 #[tauri::command]
 pub async fn open_file_location(app: tauri::AppHandle, file_path: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    
+
     println!("[Command] 打开文件位置: {}", file_path);
-    
+
     // 使用 opener 插件打开文件所在目录
     app.opener()
         .reveal_item_in_dir(&file_path)
         .map_err(|e| format!("打开文件位置失败: {}", e))?;
-    
+
     println!("[Command] ✓ 文件位置已打开");
     Ok(())
 }
@@ -714,18 +720,21 @@ pub async fn set_android_shared_files(
     app: tauri::AppHandle,
     files: Vec<serde_json::Value>,
 ) -> Result<(), String> {
-    println!("[Command] set_android_shared_files 被调用，文件数: {}", files.len());
-    
+    println!(
+        "[Command] set_android_shared_files 被调用，文件数: {}",
+        files.len()
+    );
+
     #[cfg(target_os = "android")]
     {
         use tauri::Manager;
-        
+
         if let Some(share_state) = app.try_state::<AndroidShareState>() {
             share_state.set_files(files);
             println!("[Command] 文件已保存到状态");
             return Ok(());
         }
-        
+
         println!("[Command] 没有找到分享状态");
         Err("分享状态未初始化".to_string())
     }
@@ -738,24 +747,26 @@ pub async fn set_android_shared_files(
 }
 
 #[tauri::command]
-pub async fn get_android_shared_files(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+pub async fn get_android_shared_files(
+    app: tauri::AppHandle,
+) -> Result<Vec<serde_json::Value>, String> {
     println!("[Command] get_android_shared_files 被调用");
-    
+
     #[cfg(target_os = "android")]
     {
         // 在 Android 上，从 MainActivity 获取分享文件
         // 通过 Tauri 的事件系统或状态管理获取
         // 这里我们使用一个全局状态来存储分享文件
-        
+
         use tauri::Manager;
-        
+
         // 尝试从应用状态获取分享文件
         if let Some(share_state) = app.try_state::<AndroidShareState>() {
             let files = share_state.get_files();
             println!("[Command] 从状态获取到 {} 个文件", files.len());
             return Ok(files);
         }
-        
+
         println!("[Command] 没有找到分享状态");
         Ok(vec![])
     }
@@ -770,16 +781,16 @@ pub async fn get_android_shared_files(app: tauri::AppHandle) -> Result<Vec<serde
 #[tauri::command]
 pub async fn clear_android_shared_files(app: tauri::AppHandle) -> Result<(), String> {
     println!("[Command] clear_android_shared_files 被调用");
-    
+
     #[cfg(target_os = "android")]
     {
         use tauri::Manager;
-        
+
         if let Some(share_state) = app.try_state::<AndroidShareState>() {
             share_state.clear_files();
             println!("[Command] 已清除分享文件");
         }
-        
+
         Ok(())
     }
 
@@ -803,14 +814,14 @@ impl AndroidShareState {
             files: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
-    
+
     pub fn set_files(&self, files: Vec<serde_json::Value>) {
         if let Ok(mut f) = self.files.lock() {
             *f = files;
             println!("[AndroidShareState] 已设置 {} 个文件", f.len());
         }
     }
-    
+
     pub fn get_files(&self) -> Vec<serde_json::Value> {
         if let Ok(f) = self.files.lock() {
             println!("[AndroidShareState] 获取 {} 个文件", f.len());
@@ -819,7 +830,7 @@ impl AndroidShareState {
             Vec::new()
         }
     }
-    
+
     pub fn clear_files(&self) {
         if let Ok(mut f) = self.files.lock() {
             f.clear();
@@ -842,17 +853,12 @@ impl AndroidShareState {
 pub async fn send_file_from_fd(
     app: tauri::AppHandle,
     state: State<'_, DbState>,
-    #[allow(non_snake_case)]
-    peerId: String,
-    #[allow(non_snake_case)]
-    peerAddr: String,
-    #[allow(non_snake_case)]
-    fileName: String,
-    #[allow(non_snake_case)]
-    fileSize: usize,
+    #[allow(non_snake_case)] peerId: String,
+    #[allow(non_snake_case)] peerAddr: String,
+    #[allow(non_snake_case)] fileName: String,
+    #[allow(non_snake_case)] fileSize: usize,
     fd: i32,
-    #[allow(non_snake_case)]
-    originalUri: Option<String>,
+    #[allow(non_snake_case)] originalUri: Option<String>,
 ) -> Result<serde_json::Value, String> {
     println!(
         "[Command] 收到从 FD 发送文件请求: fd={}, name={}, size={}, uri={:?}, to={}",
@@ -889,7 +895,16 @@ pub async fn send_file_from_fd(
 
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (app, state, peerId, peerAddr, fileName, fileSize, fd, originalUri);
+        let _ = (
+            app,
+            state,
+            peerId,
+            peerAddr,
+            fileName,
+            fileSize,
+            fd,
+            originalUri,
+        );
         Err("此功能仅在 Android 上可用".to_string())
     }
 }
@@ -898,32 +913,34 @@ pub async fn send_file_from_fd(
 #[cfg(target_os = "android")]
 #[tauri::command]
 pub async fn share_file_to_other_app(
-    #[allow(non_snake_case)]
-    filePath: String,
+    #[allow(non_snake_case)] filePath: String,
 ) -> Result<(), String> {
     println!("[Command] 准备分享文件到其他应用: {}", filePath);
-    
+
     use jni::objects::JValue;
-    
+
     let context = ndk_context::android_context();
     let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
         .map_err(|e| format!("获取 JavaVM 失败: {}", e))?;
-    
-    let mut env = vm.attach_current_thread()
+
+    let mut env = vm
+        .attach_current_thread()
         .map_err(|e| format!("附加线程失败: {}", e))?;
-    
+
     let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
-    
-    let file_path_jstring = env.new_string(&filePath)
+
+    let file_path_jstring = env
+        .new_string(&filePath)
         .map_err(|e| format!("创建字符串失败: {}", e))?;
-    
+
     env.call_method(
         activity,
         "shareFile",
         "(Ljava/lang/String;)V",
-        &[JValue::Object(&file_path_jstring)]
-    ).map_err(|e| format!("调用 shareFile 失败: {}", e))?;
-    
+        &[JValue::Object(&file_path_jstring)],
+    )
+    .map_err(|e| format!("调用 shareFile 失败: {}", e))?;
+
     println!("[Command] 分享文件命令已发送到 Android");
     Ok(())
 }
@@ -932,8 +949,7 @@ pub async fn share_file_to_other_app(
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 pub async fn share_file_to_other_app(
-    #[allow(non_snake_case)]
-    filePath: String,
+    #[allow(non_snake_case)] filePath: String,
 ) -> Result<(), String> {
     let _ = filePath;
     Err("此功能仅在 Android 上可用".to_string())
@@ -942,10 +958,7 @@ pub async fn share_file_to_other_app(
 // 用对应应用打开文件（仅 Android）
 #[cfg(target_os = "android")]
 #[tauri::command]
-pub async fn open_file_in_android(
-    #[allow(non_snake_case)]
-    filePath: String,
-) -> Result<(), String> {
+pub async fn open_file_in_android(#[allow(non_snake_case)] filePath: String) -> Result<(), String> {
     println!("[Command] 准备打开文件: {}", filePath);
 
     use jni::objects::JValue;
@@ -954,20 +967,23 @@ pub async fn open_file_in_android(
     let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
         .map_err(|e| format!("获取 JavaVM 失败: {}", e))?;
 
-    let mut env = vm.attach_current_thread()
+    let mut env = vm
+        .attach_current_thread()
         .map_err(|e| format!("附加线程失败: {}", e))?;
 
     let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
 
-    let file_path_jstring = env.new_string(&filePath)
+    let file_path_jstring = env
+        .new_string(&filePath)
         .map_err(|e| format!("创建字符串失败: {}", e))?;
 
     env.call_method(
         activity,
         "openFile",
         "(Ljava/lang/String;)V",
-        &[JValue::Object(&file_path_jstring)]
-    ).map_err(|e| format!("调用 openFile 失败: {}", e))?;
+        &[JValue::Object(&file_path_jstring)],
+    )
+    .map_err(|e| format!("调用 openFile 失败: {}", e))?;
 
     println!("[Command] 打开文件命令已发送到 Android");
     Ok(())
@@ -975,10 +991,7 @@ pub async fn open_file_in_android(
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-pub async fn open_file_in_android(
-    #[allow(non_snake_case)]
-    filePath: String,
-) -> Result<(), String> {
+pub async fn open_file_in_android(#[allow(non_snake_case)] filePath: String) -> Result<(), String> {
     let _ = filePath;
     Err("此功能仅在 Android 上可用".to_string())
 }
@@ -993,8 +1006,9 @@ pub async fn get_media_token() -> String {
 #[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn read_clipboard_files() -> Result<Vec<String>, String> {
+    use clipboard_rs::common::RustImage;
     println!("[Command] 读取剪贴板文件");
-    
+
     #[cfg(all(not(target_os = "android"), feature = "clipboard-rs"))]
     {
         // 1. 优先尝试 Wayland (仅 Linux 桌面端)
@@ -1007,21 +1021,50 @@ pub async fn read_clipboard_files() -> Result<Vec<String>, String> {
                 }
             }
         }
-        
+
         // 2. Fallback: 使用 clipboard-rs
         println!("[Command] 尝试使用 clipboard-rs");
         use clipboard_rs::{Clipboard, ClipboardContext};
-        
-        let ctx = ClipboardContext::new()
-            .map_err(|e| format!("创建剪贴板上下文失败: {}", e))?;
-        
-        let files = ctx.get_files()
-            .map_err(|e| format!("读取剪贴板文件失败: {}", e))?;
-        
-        println!("[Command] ✓ 通过 clipboard-rs 读取到 {} 个文件", files.len());
-        Ok(files)
+
+        let ctx = ClipboardContext::new().map_err(|e| format!("创建剪贴板上下文失败: {}", e))?;
+
+        // 优先尝试读取本地文件路径
+        if let Ok(files) = ctx.get_files() {
+            if !files.is_empty() {
+                println!(
+                    "[Command] ✓ 通过 clipboard-rs 读取到 {} 个文件",
+                    files.len()
+                );
+                return Ok(files);
+            }
+        }
+
+        // 如果没有文件，尝试读取纯图片(截图)
+        if let Ok(img) = ctx.get_image() {
+            println!("[Command] 发现剪贴板图片，尝试生成临时文件...");
+
+            let temp_dir = std::env::temp_dir();
+            // 生成唯一文件名
+            let file_name = format!(
+                "screenshot_{}.png",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+            );
+            let temp_path = temp_dir.join(file_name);
+            let path_str = temp_path.to_string_lossy().to_string();
+
+            // 借助 clipboard-rs 的 RustImageData 的 save_to_path 写入磁盘
+            if img.save_to_path(&path_str).is_ok() {
+                println!("[Command] ✓ 图片已保存至临时路径: {}", path_str);
+                return Ok(vec![path_str]);
+            }
+        }
+
+        Ok(vec![])
     }
-    
+
     #[cfg(not(all(not(target_os = "android"), feature = "clipboard-rs")))]
     {
         Err("剪贴板功能不可用".to_string())
@@ -1031,56 +1074,57 @@ pub async fn read_clipboard_files() -> Result<Vec<String>, String> {
 // Wayland 剪贴板读取（仅 Linux 桌面端）
 #[cfg(all(feature = "desktop", target_os = "linux", feature = "wl-clipboard-rs"))]
 async fn try_read_wayland_clipboard() -> Result<Vec<String>, String> {
-    use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType, Seat};
     use std::io::Read;
-    
+    use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType, Seat};
+
     println!("[Command] 尝试通过 Wayland 读取剪贴板");
-    
-    // 尝试读取 text/uri-list MIME 类型（文件列表）
-    let result = get_contents(
+    // 1. 尝试读取 text/uri-list MIME 类型（文件列表）
+    let uri_result = get_contents(
         ClipboardType::Regular,
         Seat::Unspecified,
-        MimeType::Specific("text/uri-list")
+        MimeType::Specific("text/uri-list"),
     );
-    
-    match result {
-        Ok((mut pipe, _mime_type)) => {
-            let mut contents = String::new();
-            pipe.read_to_string(&mut contents)
-                .map_err(|e| format!("读取管道失败: {}", e))?;
-            
-            // 解析 URI 列表
+    if let Ok((mut pipe, _)) = uri_result {
+        let mut contents = String::new();
+        if pipe.read_to_string(&mut contents).is_ok() {
             let files: Vec<String> = contents
                 .lines()
                 .filter(|line| !line.is_empty() && line.starts_with("file://"))
-                .map(|line| line.to_string())
+                .map(|line| line.trim_start_matches("file://").to_string()) // 去除 file:// 前缀
                 .collect();
-            
-            if files.is_empty() {
-                println!("[Command] Wayland 剪贴板中没有文件");
-                Err("剪贴板中没有文件".to_string())
-            } else {
-                println!("[Command] Wayland 剪贴板中的文件: {:?}", files);
-                Ok(files)
+            if !files.is_empty() {
+                return Ok(files);
             }
         }
-        Err(wl_clipboard_rs::paste::Error::NoSeats) => {
-            println!("[Command] Wayland: 没有可用的 seat");
-            Err("没有可用的 seat".to_string())
-        }
-        Err(wl_clipboard_rs::paste::Error::ClipboardEmpty) => {
-            println!("[Command] Wayland: 剪贴板为空");
-            Err("剪贴板为空".to_string())
-        }
-        Err(wl_clipboard_rs::paste::Error::NoMimeType) => {
-            println!("[Command] Wayland: 剪贴板中没有 text/uri-list 类型");
-            Err("剪贴板中没有文件".to_string())
-        }
-        Err(e) => {
-            println!("[Command] Wayland 读取失败: {:?}", e);
-            Err(format!("Wayland 读取失败: {:?}", e))
+    }
+
+    // 2. 尝试读取 image/png 类型（截图）
+    let img_result = get_contents(
+        ClipboardType::Regular,
+        Seat::Unspecified,
+        MimeType::Specific("image/png"),
+    );
+    if let Ok((mut pipe, _)) = img_result {
+        let mut buffer = Vec::new();
+        if pipe.read_to_end(&mut buffer).is_ok() {
+            let temp_dir = std::env::temp_dir();
+            let file_name = format!(
+                "screenshot_{}.png",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+            );
+            let temp_path = temp_dir.join(file_name);
+
+            if std::fs::write(&temp_path, &buffer).is_ok() {
+                println!("[Command] Wayland: 成功读取截图并保存为临时文件");
+                return Ok(vec![temp_path.to_string_lossy().to_string()]);
+            }
         }
     }
+
+    Err("剪贴板中既没有文件也没有图片".to_string())
 }
 
 // Web 端的空实现
@@ -1089,7 +1133,6 @@ async fn try_read_wayland_clipboard() -> Result<Vec<String>, String> {
 pub async fn read_clipboard_files() -> Result<Vec<String>, String> {
     Err("此功能仅在桌面端可用".to_string())
 }
-
 
 // Web 端的空实现
 #[cfg(not(feature = "desktop"))]
