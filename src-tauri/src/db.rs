@@ -189,10 +189,29 @@ async fn init_db_with_path(app_dir: PathBuf) -> Result<Pool<Sqlite>, sqlx::Error
         .execute(&pool)
         .await;
 
+    // 数据库迁移：为现有的messages表添加status字段（如果不存在）
+    let _ = sqlx::query("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'")
+        .execute(&pool)
+        .await;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
+        )",
+    )
+    .execute(&pool)
+    .await?;
+
+    // 创建 users 表存储历史用户
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            addr TEXT,
+            last_seen INTEGER,
+            is_offline INTEGER DEFAULT 0,
+            available_memory_mb INTEGER DEFAULT 0
         )",
     )
     .execute(&pool)
@@ -673,4 +692,144 @@ pub async fn delete_messages_by_ids(
     
     println!("[DB] 消息已批量删除");
     Ok(())
+}
+
+// ==================== 历史用户管理函数 ====================
+
+/// 保存或更新用户到历史用户表
+pub async fn save_or_update_user(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    id: String,
+    name: String,
+    addr: String,
+    is_offline: bool,
+    available_memory_mb: u64,
+) -> Result<(), String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    sqlx::query(
+        "INSERT OR REPLACE INTO users (id, name, addr, last_seen, is_offline, available_memory_mb) VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&id)
+    .bind(&name)
+    .bind(&addr)
+    .bind(now)
+    .bind(if is_offline { 1 } else { 0 })
+    .bind(available_memory_mb as i64)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("保存用户失败: {}", e))?;
+
+    Ok(())
+}
+
+/// 获取所有历史用户（包括离线的）
+pub async fn get_all_users(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+) -> Result<Vec<(String, String, String, i64, bool, u64)>, String> {
+    let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64)>(
+        "SELECT id, name, addr, last_seen, is_offline, available_memory_mb FROM users ORDER BY last_seen DESC"
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("查询用户失败: {}", e))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, name, addr, last_seen, is_offline, mem)| {
+            (id, name, addr, last_seen, is_offline != 0, mem as u64)
+        })
+        .collect())
+}
+
+/// 获取所有挂起的消息（发送给离线用户的消息）
+pub async fn get_pending_messages(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    receiver_id: &str,
+) -> Result<Vec<(i64, String, String, i64)>, String> {
+    let rows = sqlx::query_as::<_, (i64, String, String, i64)>(
+        "SELECT id, content, msg_type, timestamp FROM messages WHERE receiver_id = ? AND status = 'pending' ORDER BY timestamp ASC"
+    )
+    .bind(receiver_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("查询挂起消息失败: {}", e))?;
+
+    Ok(rows)
+}
+
+/// 标记消息为已发送
+pub async fn mark_message_as_sent(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    msg_id: i64,
+) -> Result<(), String> {
+    sqlx::query("UPDATE messages SET status = 'sent' WHERE id = ?")
+        .bind(msg_id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("更新消息状态失败: {}", e))?;
+
+    Ok(())
+}
+
+/// 标记多条消息为已发送
+pub async fn mark_messages_as_sent(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    msg_ids: Vec<i64>,
+) -> Result<(), String> {
+    if msg_ids.is_empty() {
+        return Ok(());
+    }
+
+    let placeholders = msg_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let query_str = format!("UPDATE messages SET status = 'sent' WHERE id IN ({})", placeholders);
+
+    let mut query = sqlx::query(&query_str);
+    for id in msg_ids {
+        query = query.bind(id);
+    }
+
+    query.execute(pool)
+        .await
+        .map_err(|e| format!("批量更新消息状态失败: {}", e))?;
+
+    Ok(())
+}
+
+/// 保存文本消息（支持挂起状态）
+pub async fn save_text_message_with_status(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    receiver_id: String,
+    content: String,
+    status: String,
+) -> Result<i64, String> {
+    println!(
+        "[DB] 保存文本消息: 接收者={}, 内容长度={}, 状态={}",
+        receiver_id,
+        content.len(),
+        status
+    );
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let result = sqlx::query(
+        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, status) VALUES ('me', ?, ?, 'text', ?, ?)"
+    )
+    .bind(&receiver_id)
+    .bind(&content)
+    .bind(timestamp)
+    .bind(&status)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("保存消息失败: {}", e))?;
+
+    let msg_id = result.last_insert_rowid();
+    println!("[DB] 文本消息已保存，ID: {}, 状态: {}", msg_id, status);
+    Ok(msg_id)
 }

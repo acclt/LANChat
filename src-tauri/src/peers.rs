@@ -26,6 +26,29 @@ impl PeerManager {
         }
     }
 
+    // 从数据库加载历史用户
+    pub async fn load_from_db(&self, pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<(), String> {
+        println!("[PeerManager] 从数据库加载历史用户...");
+        
+        let users = crate::db::get_all_users(pool).await?;
+        
+        let mut peers = self.peers.write().unwrap();
+        for (id, name, addr, _last_seen, is_offline, available_memory_mb) in users {
+            let peer = Peer {
+                id: id.clone(),
+                name,
+                addr,
+                last_seen: _last_seen as u64,
+                is_offline,
+                available_memory_mb,
+            };
+            peers.insert(id, peer);
+        }
+        
+        println!("[PeerManager] 已加载 {} 个历史用户", peers.len());
+        Ok(())
+    }
+
     // 添加或更新用户
     pub fn add_or_update(&self, id: String, name: String, addr: String) -> bool {
         self.add_or_update_with_memory(id, name, addr, 0)
@@ -105,14 +128,7 @@ impl PeerManager {
             }
         }
 
-        // 删除超过 60 秒的用户
-        peers.retain(|id, peer| {
-            let keep = now - peer.last_seen < 60;
-            if !keep {
-                println!("[PeerManager] 移除用户: {} ({})", peer.name, id);
-            }
-            keep
-        });
+        // 不再删除超过 60 秒的用户，保留所有历史用户
     }
 
     // 获取所有用户（包括离线的）

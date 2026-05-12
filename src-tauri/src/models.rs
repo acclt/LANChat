@@ -12,6 +12,8 @@ pub struct Message {
     pub file_path: Option<String>,
     pub file_status: Option<String>,
     pub file_size: Option<i64>,
+    #[sqlx(default)]
+    pub status: Option<String>,
 }
 
 // API 响应用的消息结构体（字段名适配前端）
@@ -32,6 +34,8 @@ pub struct MessageResponse {
     pub file_status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 impl From<Message> for MessageResponse {
@@ -47,6 +51,7 @@ impl From<Message> for MessageResponse {
             file_path: None,
             file_status: None,
             file_size: None,
+            status: msg.status.clone(),
         };
 
         // 如果是文件消息，添加文件信息

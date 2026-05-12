@@ -116,6 +116,7 @@ pub async fn start_listening(
     _my_name: String,
     app: Option<AppHandle>,
     peer_manager: Arc<PeerManager>,
+    pool: sqlx::Pool<sqlx::Sqlite>,
 ) {
     let bind_addr = format!("0.0.0.0:{}", port);
     let socket = match create_discovery_socket(&bind_addr, true) {
@@ -153,12 +154,27 @@ pub async fn start_listening(
                     available_memory_mb,
                 );
 
+                // 保存或更新用户到数据库
+                let _ = crate::db::save_or_update_user(
+                    &pool,
+                    peer_id.clone(),
+                    name.clone(),
+                    peer_addr.clone(),
+                    false,
+                    available_memory_mb,
+                ).await;
+
                 // 只在新用户或重新上线时打印日志
                 if is_new_or_reconnected {
                     println!(
                         "[UDP] 发现用户: {} ({}) at {} (可用内存: {} MB)",
                         name, peer_id, peer_addr, available_memory_mb
                     );
+
+                    // 用户重新上线，补发挂起的消息
+                    if let Err(e) = resend_pending_messages(&pool, &peer_id, &peer_addr).await {
+                        eprintln!("[UDP] 补发消息失败: {}", e);
+                    }
                 }
 
                 if let Some(app_handle) = &app {
@@ -178,6 +194,7 @@ pub async fn start_listening(
     my_id: String,
     _my_name: String,
     peer_manager: Arc<PeerManager>,
+    pool: sqlx::Pool<sqlx::Sqlite>,
 ) {
     let bind_addr = format!("0.0.0.0:{}", port);
     let socket = match create_discovery_socket(&bind_addr, true) {
@@ -204,12 +221,30 @@ pub async fn start_listening(
                     continue;
                 }
                 let peer_addr = format!("{}:{}", addr.ip(), peer_port);
-                peer_manager.add_or_update_with_memory(
-                    peer_id,
-                    name,
-                    peer_addr,
+                
+                let is_new_or_reconnected = peer_manager.add_or_update_with_memory(
+                    peer_id.clone(),
+                    name.clone(),
+                    peer_addr.clone(),
                     available_memory_mb,
                 );
+
+                // 保存或更新用户到数据库
+                let _ = crate::db::save_or_update_user(
+                    &pool,
+                    peer_id.clone(),
+                    name.clone(),
+                    peer_addr.clone(),
+                    false,
+                    available_memory_mb,
+                ).await;
+
+                // 用户重新上线，补发挂起的消息
+                if is_new_or_reconnected {
+                    if let Err(e) = resend_pending_messages(&pool, &peer_id, &peer_addr).await {
+                        eprintln!("[UDP] 补发消息失败: {}", e);
+                    }
+                }
             }
         }
     }
@@ -229,6 +264,74 @@ pub async fn send_single_broadcast(
 
     for addr in target_addrs {
         let _ = socket.send_to(msg.as_bytes(), &addr);
+    }
+
+    Ok(())
+}
+
+// 补发挂起的消息给上线的用户
+async fn resend_pending_messages(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    peer_id: &str,
+    peer_addr: &str,
+) -> Result<(), String> {
+    println!("[UDP] 检查用户 {} 的挂起消息...", peer_id);
+
+    let pending_messages = crate::db::get_pending_messages(pool, peer_id).await?;
+
+    if pending_messages.is_empty() {
+        println!("[UDP] 用户 {} 没有挂起消息", peer_id);
+        return Ok(());
+    }
+
+    println!("[UDP] 发现 {} 条挂起消息，开始握手...", pending_messages.len());
+
+    // 第一步：发送握手请求，询问对方是否准备好接收
+    let my_id = crate::db::get_user_id(pool).await?;
+    
+    match crate::network::messaging::send_handshake(peer_addr, my_id.clone(), "ready_to_receive").await {
+        Ok(_) => {
+            println!("[UDP] ✓ 握手请求已发送");
+            
+            // 等待一段时间让对方处理握手
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            
+            // 第二步：补发所有挂起的消息
+            let mut msg_ids_to_mark = Vec::new();
+
+            for (msg_id, content, msg_type, _timestamp) in pending_messages {
+                if msg_type == "text" {
+                    // 补发文本消息
+                    match crate::network::messaging::send_text_message(
+                        peer_addr,
+                        my_id.clone(),
+                        "System".to_string(),
+                        content.clone(),
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            println!("[UDP] ✓ 消息 {} 补发成功", msg_id);
+                            msg_ids_to_mark.push(msg_id);
+                        }
+                        Err(e) => {
+                            eprintln!("[UDP] ✗ 消息 {} 补发失败: {}", msg_id, e);
+                        }
+                    }
+                    
+                    // 消息之间稍微延迟，避免过快
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                }
+            }
+
+            // 标记已发送的消息
+            if !msg_ids_to_mark.is_empty() {
+                crate::db::mark_messages_as_sent(pool, msg_ids_to_mark).await?;
+            }
+        }
+        Err(e) => {
+            eprintln!("[UDP] ✗ 握手失败: {}", e);
+        }
     }
 
     Ok(())

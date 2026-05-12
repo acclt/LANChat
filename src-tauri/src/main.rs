@@ -132,6 +132,11 @@ fn main() {
                 // 创建全局用户管理器
                 let peer_manager = Arc::new(PeerManager::new());
 
+                // 从数据库加载历史用户
+                if let Err(e) = peer_manager.load_from_db(&pool).await {
+                    eprintln!("[Main] 加载历史用户失败: {}", e);
+                }
+
                 // 将 PeerManager 注册到 Tauri 状态管理
                 handle.manage(lanchat::commands::PeerState {
                     manager: peer_manager.clone(),
@@ -144,6 +149,7 @@ fn main() {
                 let id1 = my_id.clone();
                 let name1 = my_name.clone();
                 let peer_manager_clone = peer_manager.clone();
+                let pool_for_discovery = pool.clone();
                 tokio::spawn(async move {
                     println!("[Main] 开启监听线程...");
                     lanchat::network::discovery::start_listening(
@@ -152,6 +158,7 @@ fn main() {
                         name1,
                         Some(h1),
                         peer_manager_clone,
+                        pool_for_discovery,
                     )
                     .await;
                 });

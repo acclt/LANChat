@@ -267,31 +267,59 @@ async fn send_message_http(
         }
     };
 
-    // 发送消息
-    if let Err(e) = crate::network::messaging::send_text_message(
-        &payload.peer_addr,
-        my_id,
-        my_name,
-        payload.content.clone(),
-    )
-    .await
-    {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: e }),
-        )
-            .into_response();
-    }
+    // 检查用户是否在线
+    let peers = state.peer_manager.get_all_peers();
+    let is_online = peers.iter().any(|p| p.id == payload.peer_id && !p.is_offline);
 
-    // 保存到数据库
-    if let Err(e) =
-        crate::db::save_text_message(&state.pool, payload.peer_id, payload.content).await
-    {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: e }),
+    if is_online {
+        // 用户在线，直接发送
+        if let Err(e) = crate::network::messaging::send_text_message(
+            &payload.peer_addr,
+            my_id,
+            my_name,
+            payload.content.clone(),
         )
-            .into_response();
+        .await
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+                .into_response();
+        }
+
+        // 保存到数据库(标记为已发送)
+        if let Err(e) = crate::db::save_text_message_with_status(
+            &state.pool,
+            payload.peer_id,
+            payload.content,
+            "sent".to_string(),
+        )
+        .await
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+                .into_response();
+        }
+    } else {
+        // 用户离线，保存为挂起状态
+        println!("[Web Server] 用户 {} 离线，消息保存为挂起状态", payload.peer_id);
+        if let Err(e) = crate::db::save_text_message_with_status(
+            &state.pool,
+            payload.peer_id,
+            payload.content,
+            "pending".to_string(),
+        )
+        .await
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+                .into_response();
+        }
     }
 
     Json(serde_json::json!({ "success": true })).into_response()

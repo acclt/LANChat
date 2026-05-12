@@ -363,6 +363,7 @@ pub async fn get_peers(state: State<'_, PeerState>) -> Result<Vec<Peer>, String>
 #[tauri::command]
 pub async fn send_message(
     state: State<'_, DbState>,
+    peer_state: State<'_, PeerState>,
     peer_id: String,
     peer_addr: String,
     content: String,
@@ -373,12 +374,22 @@ pub async fn send_message(
     let my_id = crate::db::get_user_id(&state.pool).await?;
     let my_name = crate::db::get_username(&state.pool).await?;
 
-    // 发送消息
-    crate::network::messaging::send_text_message(&peer_addr, my_id, my_name, content.clone())
-        .await?;
+    // 检查用户是否在线
+    let peers = peer_state.manager.get_all_peers();
+    let is_online = peers.iter().any(|p| p.id == peer_id && !p.is_offline);
 
-    // 保存到数据库(标记为自己发送的)
-    crate::db::save_text_message(&state.pool, peer_id, content).await?;
+    if is_online {
+        // 用户在线，直接发送
+        crate::network::messaging::send_text_message(&peer_addr, my_id, my_name, content.clone())
+            .await?;
+
+        // 保存到数据库(标记为已发送)
+        crate::db::save_text_message_with_status(&state.pool, peer_id, content, "sent".to_string()).await?;
+    } else {
+        // 用户离线，保存为挂起状态
+        println!("[Command] 用户 {} 离线，消息保存为挂起状态", peer_id);
+        crate::db::save_text_message_with_status(&state.pool, peer_id, content, "pending".to_string()).await?;
+    }
 
     Ok(())
 }

@@ -41,23 +41,30 @@ async fn main() {
     // 创建全局用户管理器
     let peer_manager = Arc::new(PeerManager::new());
 
+    // 从数据库加载历史用户
+    if let Err(e) = peer_manager.load_from_db(&pool).await {
+        eprintln!("[Server Main] 加载历史用户失败: {}", e);
+    }
+
     // 1. 启动 Web 服务 (TCP)
     let pool_clone = pool.clone();
     let peer_manager_clone = peer_manager.clone();
     tokio::spawn(async move {
-        lanchat::web_server::start_server(port, port, pool_clone, peer_manager_clone).await;
+        lanchat::web_server::start_server(port, port, pool_clone, peer_manager_clone, None).await;
     });
 
     // 2. 启动 UDP 监听
     let listen_id = my_id.clone();
     let listen_name = my_name.clone();
     let peer_manager_clone = peer_manager.clone();
+    let pool_for_discovery = pool.clone();
     tokio::spawn(async move {
         lanchat::network::discovery::start_listening(
             port,
             listen_id,
             listen_name,
             peer_manager_clone,
+            pool_for_discovery,
         )
         .await;
     });

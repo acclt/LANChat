@@ -166,17 +166,50 @@ function updateUserStatus(item, name, addr, isOffline) {
 	}
 
 	// 3. 类名手术：使用你的原有逻辑，但确保 CSS 能跟上
+	const wasOffline = item.classList.contains('offline');
 	if (isOffline) {
-		if (!item.classList.contains('offline')) {
+		if (!wasOffline) {
 			console.log('[UI] 用户离线:', name);
 		}
 		item.classList.add('offline');
 	} else {
-		if (item.classList.contains('offline')) {
+		if (wasOffline) {
 			console.log('[UI] 用户重新上线:', name);
+			// 用户从离线变为在线，调整顺序：移到在线用户末尾
+			reorderUserOnline(item);
 		}
 		item.classList.remove('offline');
 	}
+}
+
+// 用户上线时调整顺序：移到在线用户末尾
+function reorderUserOnline(userItem) {
+	const list = document.getElementById('user-list');
+	if (!list) return;
+
+	// 找到最后一个在线用户（不含 offline 类的最后一个）
+	const allItems = Array.from(list.querySelectorAll('li'));
+	let lastOnlineIndex = -1;
+
+	for (let i = allItems.length - 1; i >= 0; i--) {
+		if (!allItems[i].classList.contains('offline') && allItems[i] !== userItem) {
+			lastOnlineIndex = i;
+			break;
+		}
+	}
+
+	if (lastOnlineIndex >= 0 && lastOnlineIndex < allItems.length - 1) {
+		// 在最后一个在线用户之后插入
+		const nextSibling = allItems[lastOnlineIndex].nextElementSibling;
+		if (nextSibling && nextSibling !== userItem) {
+			list.insertBefore(userItem, nextSibling);
+		}
+	} else if (lastOnlineIndex === -1) {
+		// 没有其他在线用户，移到最前面
+		list.insertBefore(userItem, list.firstChild);
+	}
+
+	console.log('[UI] 用户', userItem.querySelector('.user-name').textContent, '已移到在线用户末尾');
 }
 
 // 从列表中移除用户
@@ -998,6 +1031,14 @@ function createMessageElement(message, isSent) {
 		textSpan.className = 'message-text';
 		textSpan.textContent = message.content;
 		contentDiv.appendChild(textSpan);
+
+		// 如果消息是pending状态，添加特殊样式
+		if (message.status === 'pending') {
+			const statusDiv = document.createElement('div');
+			statusDiv.className = 'message-pending';
+			statusDiv.textContent = '待发送...';
+			contentDiv.appendChild(statusDiv);
+		}
 	}
 
 	const timeDiv = document.createElement('div');

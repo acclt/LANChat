@@ -14,6 +14,75 @@ pub struct TextMessage {
     pub timestamp: u64,    // Unix 时间戳
 }
 
+// 握手协议消息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HandshakeMessage {
+    pub protocol: String,  // "handshake"
+    pub action: String,    // "ready_to_receive" 或 "ack"
+    pub from_id: String,   // 发送者 UUID
+}
+
+// 发送握手消息（询问对方是否准备好接收）
+pub async fn send_handshake(
+    peer_addr: &str,
+    from_id: String,
+    action: &str,
+) -> Result<(), String> {
+    let handshake = HandshakeMessage {
+        protocol: "handshake".to_string(),
+        action: action.to_string(),
+        from_id,
+    };
+
+    let json = serde_json::to_string(&handshake).map_err(|e| format!("序列化失败: {}", e))?;
+
+    // 尝试通过 WebSocket 发送
+    let ws_url = format!("ws://{}/ws", peer_addr);
+
+    match tokio_tungstenite::connect_async(&ws_url).await {
+        Ok((mut ws_stream, _)) => {
+            use futures_util::SinkExt;
+            use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
+
+            ws_stream
+                .send(WsMessage::Text(json))
+                .await
+                .map_err(|e| format!("发送握手失败: {}", e))?;
+
+            let _ = ws_stream.close(None).await;
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("[Messaging] 握手 WebSocket 连接失败: {}, 尝试 TCP", e);
+            send_handshake_via_tcp(peer_addr, handshake).await
+        }
+    }
+}
+
+// 通过 TCP 发送握手消息
+async fn send_handshake_via_tcp(peer_addr: &str, handshake: HandshakeMessage) -> Result<(), String> {
+    use tokio::net::TcpStream;
+
+    let mut stream = TcpStream::connect(peer_addr)
+        .await
+        .map_err(|e| format!("TCP 连接失败: {}", e))?;
+
+    let json = serde_json::to_string(&handshake).map_err(|e| format!("序列化失败: {}", e))?;
+
+    let len = json.len() as u32;
+    stream
+        .write_all(&len.to_be_bytes())
+        .await
+        .map_err(|e| format!("发送长度失败: {}", e))?;
+
+    stream
+        .write_all(json.as_bytes())
+        .await
+        .map_err(|e| format!("发送握手失败: {}", e))?;
+
+    Ok(())
+}
+
 // 发送文本消息
 pub async fn send_text_message(
     peer_addr: &str,
@@ -164,6 +233,30 @@ async fn handle_message_connection(
     // 解析 JSON
     let json_str = String::from_utf8(buffer).map_err(|e| format!("UTF-8 解析失败: {}", e))?;
 
+    // 首先尝试解析为握手消息
+    if let Ok(handshake) = serde_json::from_str::<HandshakeMessage>(&json_str) {
+        println!("[Messaging] 收到握手消息: action={}", handshake.action);
+        
+        if handshake.action == "ready_to_receive" {
+            // 对方询问我们是否准备好接收，发送 ack 确认
+            let my_id = crate::db::get_user_id(&db_pool).await.unwrap_or_default();
+            let ack = HandshakeMessage {
+                protocol: "handshake".to_string(),
+                action: "ack".to_string(),
+                from_id: my_id,
+            };
+            
+            if let Ok(ack_json) = serde_json::to_string(&ack) {
+                let len = ack_json.len() as u32;
+                let _ = stream.write_all(&len.to_be_bytes()).await;
+                let _ = stream.write_all(ack_json.as_bytes()).await;
+                println!("[Messaging] 已发送握手 ack");
+            }
+        }
+        return Ok(());
+    }
+
+    // 否则尝试解析为文本消息
     let message: TextMessage =
         serde_json::from_str(&json_str).map_err(|e| format!("JSON 解析失败: {}", e))?;
 
@@ -220,6 +313,30 @@ async fn handle_message_connection(
     // 解析 JSON
     let json_str = String::from_utf8(buffer).map_err(|e| format!("UTF-8 解析失败: {}", e))?;
 
+    // 首先尝试解析为握手消息
+    if let Ok(handshake) = serde_json::from_str::<HandshakeMessage>(&json_str) {
+        println!("[Messaging] 收到握手消息: action={}", handshake.action);
+        
+        if handshake.action == "ready_to_receive" {
+            // 对方询问我们是否准备好接收，发送 ack 确认
+            let my_id = crate::db::get_user_id(&db_pool).await.unwrap_or_default();
+            let ack = HandshakeMessage {
+                protocol: "handshake".to_string(),
+                action: "ack".to_string(),
+                from_id: my_id,
+            };
+            
+            if let Ok(ack_json) = serde_json::to_string(&ack) {
+                let len = ack_json.len() as u32;
+                let _ = stream.write_all(&len.to_be_bytes()).await;
+                let _ = stream.write_all(ack_json.as_bytes()).await;
+                println!("[Messaging] 已发送握手 ack");
+            }
+        }
+        return Ok(());
+    }
+
+    // 否则尝试解析为文本消息
     let message: TextMessage =
         serde_json::from_str(&json_str).map_err(|e| format!("JSON 解析失败: {}", e))?;
 

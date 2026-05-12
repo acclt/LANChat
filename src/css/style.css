@@ -1843,3 +1843,52 @@ h2::before {
 	box-shadow: 0 4px 12px rgba(189, 147, 249, 0.4);
 }
 
+
+
+/* =========================================
+   Pending 消息样式（离线消息）
+   ========================================= */
+
+/* Pending 消息状态指示器 - 复用文件传输样式 */
+.message-pending {
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.5px;
+	margin-top: 6px;
+	display: inline-flex;
+	align-items: center;
+	opacity: 0.9;
+	color: #f1fa8c;
+	/* Dracula Yellow - 与 file-pending 一致 */
+	animation: status-breath 1.5s infinite ease-in-out;
+	/* 复用呼吸动画 */
+}
+
+/* Pending 消息前的小圆点 */
+.message-pending::before {
+	content: '';
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	margin-right: 8px;
+	background-color: currentColor;
+	/* 圆点颜色跟随文字颜色（黄色） */
+	flex-shrink: 0;
+}
+
+/* Pending 消息的气泡样式 - 添加特殊视觉效果 */
+.message.sent .message-content:has(.message-pending) {
+	background: linear-gradient(135deg, rgba(241, 250, 140, 0.1) 0%, rgba(189, 147, 249, 0.05) 100%);
+	/* 黄紫渐变半透明背景 */
+	border: 1px solid rgba(241, 250, 140, 0.3);
+	/* 黄色边框 */
+	box-shadow: 0 0 12px rgba(241, 250, 140, 0.15);
+	/* 黄色光晕 */
+}
+
+/* Pending 消息的文字颜色调整 */
+.message.sent .message-content:has(.message-pending) .message-text {
+	color: #f8f8f2;
+	/* 保持白色文字，确保可读性 */
+}

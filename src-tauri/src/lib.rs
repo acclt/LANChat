@@ -71,6 +71,11 @@ pub fn run() {
                 // 创建全局用户管理器
                 let peer_manager = Arc::new(peers::PeerManager::new());
 
+                // 从数据库加载历史用户
+                if let Err(e) = peer_manager.load_from_db(&pool).await {
+                    eprintln!("[Lib] 加载历史用户失败: {}", e);
+                }
+
                 // 将 PeerManager 注册到 Tauri 状态管理
                 handle.manage(commands::PeerState {
                     manager: peer_manager.clone(),
@@ -83,6 +88,7 @@ pub fn run() {
                 let id1 = my_id.clone();
                 let name1 = my_name.clone();
                 let peer_manager_clone = peer_manager.clone();
+                let pool_for_discovery = pool.clone();
                 tokio::spawn(async move {
                     println!("[Lib] 开启监听线程...");
                     network::discovery::start_listening(
@@ -91,6 +97,7 @@ pub fn run() {
                         name1,
                         Some(h1),
                         peer_manager_clone,
+                        pool_for_discovery,
                     )
                     .await;
                 });
