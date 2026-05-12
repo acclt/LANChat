@@ -410,6 +410,14 @@ h2::before {
 	word-wrap: break-word;
 }
 
+/* 确保状态标签在文本下方有足够的间距 */
+.message-content .file-pending {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    font-size: 11px; /* 状态文字稍微小一点更精致 */
+}
+
 /* --- 消息普通文本内容 --- */
 .message-text {
 	white-space: pre-wrap;
@@ -1841,49 +1849,4 @@ h2::before {
 	color: #fff;
 	transform: scale(1.05);
 	box-shadow: 0 4px 12px rgba(189, 147, 249, 0.4);
-}
-
-/* =========================================
-   Pending 消息样式（离线消息）
-   ========================================= */
-
-/* Pending 消息状态指示器 - 复用文件传输样式 */
-.message-pending {
-	font-size: 12px;
-	font-weight: 600;
-	letter-spacing: 0.5px;
-	margin-top: 6px;
-	display: inline-flex;
-	align-items: center;
-	opacity: 0.9;
-	color: #f1fa8c;
-	/* Dracula Yellow - 与 file-pending 一致 */
-	animation: status-breath 1.5s infinite ease-in-out;
-	/* 复用呼吸动画 */
-}
-
-/* Pending 消息前的小圆点 */
-.message-pending::before {
-	content: '';
-	display: inline-block;
-	width: 6px;
-	height: 6px;
-	border-radius: 50%;
-	margin-right: 8px;
-	background-color: currentColor;
-	/* 圆点颜色跟随文字颜色（黄色） */
-	flex-shrink: 0;
-}
-
-/* Pending 消息的气泡样式 - 添加特殊视觉效果 */
-.message.sent .message-content.is-pending-wrapper {
-	background: linear-gradient(135deg, rgba(241, 250, 140, 0.1) 0%, rgba(189, 147, 249, 0.05) 100%) !important;
-	border: 1px solid rgba(241, 250, 140, 0.3) !important;
-	box-shadow: 0 0 12px rgba(241, 250, 140, 0.15) !important;
-}
-
-/* Pending 消息的文字颜色调整 */
-.message.sent .message-content:has(.message-pending) .message-text {
-	color: #f8f8f2;
-	/* 保持白色文字，确保可读性 */
 }

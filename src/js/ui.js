@@ -477,137 +477,88 @@ async function sendMessage() {
   const content = chatInput.value.trim();
   if (!content) return;
 
-  // 生成一个临时 ID 用于乐观更新
   const tempId = "temp_" + Date.now();
   const timestamp = Date.now() / 1000;
 
-  // --- 1. 立即在 UI 上显示消息 (初始黄色挂起状态) ---
+  // 1. 乐观更新：立即显示“待发送”状态（黄色小圆点）
   const tempMsg = {
     id: tempId,
     from_id: "me",
     content: content,
     timestamp: timestamp,
-    status: "pending", 
+    status: "pending",
   };
   addMessageToChat(tempMsg, true);
   await scrollToBottom();
 
-  // 清空输入框
   chatInput.value = "";
   chatInput.style.height = "auto";
 
   try {
-    // --- 2. 正式调用 API 发送 ---
-    // 注意：哪怕对方离线，这个 API 也会正常 resolve 返回成功（消息存入离线数据库）
+    // 2. 调用 API
     await apiSendMessage(
       window.currentChatPeer.id,
       window.currentChatPeer.addr,
       content,
     );
 
-    // --- 3. 主动去历史记录里“捞”出这条真实的消息 ---
+    // 3. 轮询捞取真实消息
     let realMsg = null;
     for (let i = 0; i < 5; i++) {
       const latestMessages = await apiGetChatHistory(
         window.currentChatPeer.id,
         10,
-        0
+        0,
       );
-      realMsg = latestMessages.find(
-        (m) => m.from_id === "me" && 
-               m.content === content && 
-               !String(m.id).startsWith("temp_") &&
-               Math.abs(m.timestamp - timestamp) < 10
+      realMsg = latestMessages.find((m) =>
+        m.from_id === "me" && m.content === content &&
+        !String(m.id).startsWith("temp_")
       );
       if (realMsg) break;
-      await new Promise((r) => setTimeout(r, 100)); 
+      await new Promise((r) => setTimeout(r, 100));
     }
 
     const tempEl = document.querySelector(`[data-msg-id="${tempId}"]`);
-    
     if (realMsg && tempEl) {
-      const existingRealMsg = document.querySelector(`[data-msg-id="${realMsg.id}"]`);
+      const existingRealMsg = document.querySelector(
+        `[data-msg-id="${realMsg.id}"]`,
+      );
       if (existingRealMsg) {
         tempEl.remove();
       } else {
-        // --- 4. 无缝切换 --- 
+        // --- 核心转变逻辑 ---
         tempEl.dataset.msgId = realMsg.id;
-        
-        const timeDiv = tempEl.querySelector(".message-time");
-        if (timeDiv) {
-          const date = new Date(realMsg.timestamp * 1000);
-          timeDiv.textContent = date.toLocaleTimeString([], {
-            hour: "2-digit", minute: "2-digit", second: "2-digit"
-          });
-        }
 
         const contentDiv = tempEl.querySelector(".message-content");
-        const pendingText = tempEl.querySelector(".message-pending");
+        const statusDiv = tempEl.querySelector(".file-pending");
 
-        // 【核心修复】检查后端返回的真实状态，区别对待“送达”与“离线”
-        if (realMsg.status === 'pending') {
-          // 对方离线，消息存入了数据库的 Pending 状态
-          // 满足你的要求：将气泡变成鲜红色！
-          if (pendingText) {
-            pendingText.textContent = "未送达 (等待上线)";
-            pendingText.style.setProperty('color', '#ff5555', 'important');
-          }
-          if (contentDiv) {
-            contentDiv.style.setProperty('background', 'linear-gradient(135deg, rgba(255, 85, 85, 0.15) 0%, rgba(189, 147, 249, 0.05) 100%)', 'important');
-            contentDiv.style.setProperty('border-color', 'rgba(255, 85, 85, 0.4)', 'important');
-            contentDiv.style.setProperty('box-shadow', '0 0 12px rgba(255, 85, 85, 0.2)', 'important');
-          }
+        if (realMsg.status === "pending") {
+          // 如果后端确认还是 pending（离线），保留黄色小圆点，仅改文字
+          if (statusDiv) statusDiv.textContent = "待上线)";
         } else {
-          // 对方在线发送成功，彻底移除挂起样式，变成正常的紫色气泡
-          if (contentDiv) contentDiv.classList.remove("is-pending-wrapper");
-          if (pendingText) pendingText.remove();
-        }
-
-        if (realMsg.timestamp > (window.lastMessageTimestamp || 0)) {
-          window.lastMessageTimestamp = realMsg.timestamp;
+          // 如果发送成功，直接移除状态标签，回归纯紫色气泡
+          if (statusDiv) statusDiv.remove();
         }
       }
-    } else if (tempEl) {
-      tempEl.remove();
-      await loadChatHistory(window.currentChatPeer.id, true);
     }
-    
   } catch (e) {
-    console.error("[UI] 发送消息失败:", e);
-    // --- 5. 真异常拦截：API 崩溃或断网 ---
-    const tempEl = document.querySelector(`[data-msg-id="${tempId}"]`);
-    if (tempEl) {
-      const contentDiv = tempEl.querySelector(".message-content");
-      if (contentDiv) {
-        contentDiv.style.setProperty('background', 'linear-gradient(135deg, rgba(255, 85, 85, 0.15) 0%, rgba(189, 147, 249, 0.05) 100%)', 'important');
-        contentDiv.style.setProperty('border-color', 'rgba(255, 85, 85, 0.4)', 'important');
-        contentDiv.style.setProperty('box-shadow', '0 0 12px rgba(255, 85, 85, 0.2)', 'important');
-      }
-      const status = tempEl.querySelector(".message-pending");
-      if (status) {
-        status.textContent = "发送失败";
-        status.style.setProperty('color', '#ff5555', 'important');
-      }
-    }
-    alert("发送失败: " + e.message);
+    console.error("[UI] 发送异常:", e);
+    // 出错时保留原样，不做变红处理，用户可以刷新或重发
   }
 }
 
 function addMessageToChat(message, isSent) {
   const chatMessages = document.getElementById("chat-messages");
-
-  // 1. 查重拦截：防止由于轮询和手动渲染同时发生导致的重复消息
-  if (
-    message.id && chatMessages.querySelector(`[data-msg-id="${message.id}"]`)
-  ) {
-    return;
+  // 如果有重复ID，直接移除旧节点，用最新的渲染
+  const existing = chatMessages.querySelector(`[data-msg-id="${message.id}"]`);
+  if (existing) {
+    existing.remove();
   }
 
   const messageDiv = createMessageElement(message, isSent);
   chatMessages.appendChild(messageDiv);
 
-  // 2. 【核心修复】：不要让 "temp_" 开头的临时消息去更新全局时间戳
-  // 只有拿到来自数据库的真正消息时，才允许更新时间戳
+  // 更新时间戳
   if (message.timestamp && !String(message.id).startsWith("temp_")) {
     if (message.timestamp > (window.lastMessageTimestamp || 0)) {
       window.lastMessageTimestamp = message.timestamp;
@@ -1180,13 +1131,12 @@ function createMessageElement(message, isSent) {
     textSpan.textContent = message.content;
     contentDiv.appendChild(textSpan);
 
-    // 如果消息是pending状态，添加特殊样式
+    // 统一复用文件传输的样式
     if (message.status === "pending") {
       const statusDiv = document.createElement("div");
-      statusDiv.className = "message-pending";
+      statusDiv.className = "file-pending";
       statusDiv.textContent = "待发送...";
       contentDiv.appendChild(statusDiv);
-      contentDiv.classList.add("is-pending-wrapper");
     }
   }
 
@@ -1239,10 +1189,12 @@ function onReceiveMessage(message) {
 
     // 检查是否是文件状态更新（downloading -> accepted/pending）
     if (message.msg_type === "file" && message.file_status !== "downloading") {
-      // 刷新聊天历史以更新状态，保持滚动位置
+      // 如果已经在页面上存在这个ID，先删掉旧的，再刷新，防止闪烁
       console.log(
         "[UI] 文件状态更新 (" + message.file_status + ")，刷新聊天历史",
       );
+      const existing = document.querySelector(`[data-msg-id="${message.id}"]`);
+      if (existing) existing.remove();
       loadChatHistory(window.currentChatPeer.id, true);
     } else {
       // 直接显示新消息（增量添加）
@@ -1395,6 +1347,7 @@ async function sendFile(file) {
         const tempFileId = "temp_" + Date.now();
         addMessageToChat({
           msg_type: "file",
+          id: tempFileId,
           from_id: "me",
           content: file.name,
           file_name: file.name,
@@ -1452,19 +1405,6 @@ async function sendFile(file) {
     } else {
       // 没有传入 file 参数，使用文件对话框选择
       try {
-        // 先显示上传中的临时消息
-        const tempFileId = "temp_" + Date.now();
-        addMessageToChat({
-          msg_type: "file",
-          from_id: "me",
-          content: "准备发送...",
-          file_name: "准备发送...",
-          file_size: 0,
-          file_id: tempFileId,
-          file_status: "uploading",
-          timestamp: Date.now() / 1000,
-        }, true);
-
         const result = await apiSendFile(
           window.currentChatPeer.id,
           window.currentChatPeer.addr,
@@ -1503,13 +1443,14 @@ async function sendFile(file) {
     console.log("[UI] 1. 在前端显示上传中消息");
     addMessageToChat({
       msg_type: "file",
+      id: tempFileId, // 必须包含 ID
       from_id: "me",
       content: file.name,
       file_name: file.name,
       file_size: file.size,
       file_id: tempFileId,
-      file_status: "uploading", // 上传中状态
-      timestamp: timestamp,
+      file_status: "uploading",
+      timestamp: Date.now() / 1000,
     }, true);
 
     try {
