@@ -1006,11 +1006,11 @@ pub async fn get_media_token() -> String {
 #[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn read_clipboard_files() -> Result<Vec<String>, String> {
-    use clipboard_rs::common::RustImage;
     println!("[Command] 读取剪贴板文件");
 
     #[cfg(all(not(target_os = "android"), feature = "clipboard-rs"))]
     {
+        use clipboard_rs::common::RustImage;
         // 1. 优先尝试 Wayland (仅 Linux 桌面端)
         #[cfg(all(target_os = "linux", feature = "wl-clipboard-rs"))]
         {
