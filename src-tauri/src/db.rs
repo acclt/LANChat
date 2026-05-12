@@ -833,3 +833,69 @@ pub async fn save_text_message_with_status(
     println!("[DB] 文本消息已保存，ID: {}, 状态: {}", msg_id, status);
     Ok(msg_id)
 }
+
+/// 查询聊天历史（带偏移量，用于懒加载）
+pub async fn get_chat_history_with_offset(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    peer_id: &str,
+    limit: i32,
+    offset: i32,
+) -> Result<Vec<crate::models::Message>, String> {
+    // 获取当前用户ID
+    let my_id = get_user_id(pool).await?;
+
+    // 【核心修复】：在两处 SELECT 中加上了 status 字段
+    let messages = sqlx::query_as::<_, crate::models::Message>(
+        "SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, status 
+         FROM (
+            SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, status 
+            FROM messages 
+            WHERE 
+                (sender_id = ? AND receiver_id = ?) OR 
+                (sender_id = ? AND (receiver_id = ? OR receiver_id IS NULL)) OR
+                (sender_id = 'me' AND receiver_id = ?)
+            ORDER BY timestamp DESC 
+            LIMIT ? OFFSET ?
+         ) 
+         ORDER BY timestamp ASC",
+    )
+    .bind(&my_id)
+    .bind(peer_id)
+    .bind(peer_id)
+    .bind(&my_id)
+    .bind(peer_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("查询历史失败: {}", e))?;
+
+    Ok(messages)
+}
+
+/// 专门用于保存从网络接收到的文本消息
+pub async fn save_network_message(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    from_id: &str,
+    content: &str,
+    msg_type: &str,
+    timestamp: u64,
+) -> Result<(), String> {
+    // 获取当前用户ID作为接收者
+    let my_id = get_user_id(pool).await?;
+
+    sqlx::query(
+        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(from_id) 
+    .bind(&my_id)            
+    .bind(content)
+    .bind(msg_type)
+    .bind(timestamp as i64)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("保存网络消息失败: {}", e))?;
+
+    println!("[DB] 接收自网络的消息已保存到数据库");
+    Ok(())
+}

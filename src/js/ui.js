@@ -1,2048 +1,2231 @@
 // 图标 SVG 常量
-const ICON_SELECT_LIST = `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>`;
-const ICON_CANCEL_X = `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+const ICON_SELECT_LIST =
+  `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>`;
+const ICON_CANCEL_X =
+  `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
 
 // 初始化改名功能
 function initNameEditor() {
-	const editBtn = document.getElementById('edit-name-btn');
-	const editPanel = document.getElementById('edit-name-panel');
-	const nameInput = document.getElementById('new-name-input');
-	const saveBtn = document.getElementById('save-name-btn');
-	const cancelBtn = document.getElementById('cancel-name-btn');
-	const errorMsg = document.getElementById('error-msg');
-	const nameDisplay = document.getElementById('my-name');
+  const editBtn = document.getElementById("edit-name-btn");
+  const editPanel = document.getElementById("edit-name-panel");
+  const nameInput = document.getElementById("new-name-input");
+  const saveBtn = document.getElementById("save-name-btn");
+  const cancelBtn = document.getElementById("cancel-name-btn");
+  const errorMsg = document.getElementById("error-msg");
+  const nameDisplay = document.getElementById("my-name");
 
-	// 点击编辑按钮 - 切换显示/隐藏
-	editBtn.addEventListener('click', () => {
-		if (editPanel.style.display === 'block') {
-			// 当前是显示状态，点击后隐藏
-			editPanel.style.display = 'none';
-			errorMsg.textContent = '';
-		} else {
-			// 当前是隐藏状态，点击后显示
-			editPanel.style.display = 'block';
-			nameInput.value = '';
-			nameInput.focus();
-			errorMsg.textContent = '';
-		}
-	});
+  // 点击编辑按钮 - 切换显示/隐藏
+  editBtn.addEventListener("click", () => {
+    if (editPanel.style.display === "block") {
+      // 当前是显示状态，点击后隐藏
+      editPanel.style.display = "none";
+      errorMsg.textContent = "";
+    } else {
+      // 当前是隐藏状态，点击后显示
+      editPanel.style.display = "block";
+      nameInput.value = "";
+      nameInput.focus();
+      errorMsg.textContent = "";
+    }
+  });
 
-	// 点击取消按钮
-	cancelBtn.addEventListener('click', () => {
-		editPanel.style.display = 'none';
-		errorMsg.textContent = '';
-	});
+  // 点击取消按钮
+  cancelBtn.addEventListener("click", () => {
+    editPanel.style.display = "none";
+    errorMsg.textContent = "";
+  });
 
-	// 点击保存按钮
-	saveBtn.addEventListener('click', async () => {
-		const newName = nameInput.value.trim();
+  // 点击保存按钮
+  saveBtn.addEventListener("click", async () => {
+    const newName = nameInput.value.trim();
 
-		if (!newName) {
-			errorMsg.textContent = '用户名不能为空';
-			return;
-		}
+    if (!newName) {
+      errorMsg.textContent = "用户名不能为空";
+      return;
+    }
 
-		if (newName.length > 50) {
-			errorMsg.textContent = '用户名过长（最多50个字符）';
-			return;
-		}
+    if (newName.length > 50) {
+      errorMsg.textContent = "用户名过长（最多50个字符）";
+      return;
+    }
 
-		try {
-			saveBtn.disabled = true;
-			saveBtn.textContent = '保存中...';
-			errorMsg.textContent = '';
+    try {
+      saveBtn.disabled = true;
+      saveBtn.textContent = "保存中...";
+      errorMsg.textContent = "";
 
-			const updatedName = await apiUpdateMyName(newName);
+      const updatedName = await apiUpdateMyName(newName);
 
-			// 更新显示
-			nameDisplay.textContent = updatedName;
-			editPanel.style.display = 'none';
+      // 更新显示
+      nameDisplay.textContent = updatedName;
+      editPanel.style.display = "none";
 
-			console.log('[UI] 用户名更新成功:', updatedName);
-		} catch (e) {
-			errorMsg.textContent = e.message || '更新失败';
-			console.error('[UI] 更新用户名失败:', e);
-		} finally {
-			saveBtn.disabled = false;
-			saveBtn.textContent = '保存';
-		}
-	});
+      console.log("[UI] 用户名更新成功:", updatedName);
+    } catch (e) {
+      errorMsg.textContent = e.message || "更新失败";
+      console.error("[UI] 更新用户名失败:", e);
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "保存";
+    }
+  });
 
-	// 支持回车键保存
-	nameInput.addEventListener('keypress', (e) => {
-		if (e.key === 'Enter') {
-			saveBtn.click();
-		}
-	});
+  // 支持回车键保存
+  nameInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") {
+      saveBtn.click();
+    }
+  });
 
-	// 支持 ESC 键取消
-	nameInput.addEventListener('keydown', (e) => {
-		if (e.key === 'Escape') {
-			cancelBtn.click();
-		}
-	});
+  // 支持 ESC 键取消
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      cancelBtn.click();
+    }
+  });
 }
 
 // 添加新用户到列表
 async function addUserToList(id, name, addr, isOffline = false) {
-	const list = document.getElementById('user-list');
-	if (!list) return;
+  const list = document.getElementById("user-list");
+  if (!list) return;
 
-	// 检查是否已存在
-	const existingItems = list.querySelectorAll('li');
-	for (let item of existingItems) {
-		if (item.dataset.id === id) {
-			// 已存在,更新状态
-			updateUserStatus(item, name, addr, isOffline);
-			return;
-		}
-	}
+  // 检查是否已存在
+  const existingItems = list.querySelectorAll("li");
+  for (let item of existingItems) {
+    if (item.dataset.id === id) {
+      // 已存在,更新状态
+      updateUserStatus(item, name, addr, isOffline);
+      return;
+    }
+  }
 
-	// 不存在,创建新的
-	const li = document.createElement('li');
-	li.dataset.id = id;
-	li.dataset.name = name;
-	li.dataset.addr = addr;
-	li.innerHTML = `
+  // 不存在,创建新的
+  const li = document.createElement("li");
+  li.dataset.id = id;
+  li.dataset.name = name;
+  li.dataset.addr = addr;
+  li.innerHTML = `
         <span class="user-name">${name}</span>
         <span class="user-addr">${addr}</span>
-        <span class="user-status">${isOffline ? 'offline' : ''}</span>
+        <span class="user-status">${isOffline ? "offline" : ""}</span>
     `;
 
-	if (isOffline) {
-		li.classList.add('offline');
-	}
+  if (isOffline) {
+    li.classList.add("offline");
+  }
 
-	// 添加点击事件
-	li.addEventListener('click', () => {
-		if (!isOffline) {
-			openChat({ id, name, addr });
-		}
-	});
+  // 添加点击事件
+  li.addEventListener("click", () => {
+    if (!isOffline) {
+      openChat({ id, name, addr });
+    }
+  });
 
-	list.appendChild(li);
+  list.appendChild(li);
 
-	// 初始化新用户的时间戳，避免误报未读消息
-	if (!window.userLastMessageTimestamps) {
-		window.userLastMessageTimestamps = {};
-	}
+  // 初始化新用户的时间戳，避免误报未读消息
+  if (!window.userLastMessageTimestamps) {
+    window.userLastMessageTimestamps = {};
+  }
 
-	if (!window.userLastMessageTimestamps[id]) {
-		try {
-			const messages = await apiGetChatHistory(id, 1, 0);
-			if (messages && messages.length > 0) {
-				window.userLastMessageTimestamps[id] = messages[0].timestamp;
-				console.log('[UI] 初始化新用户', name, '的时间戳:', messages[0].timestamp);
-			} else {
-				// 没有历史消息，设置为当前时间
-				window.userLastMessageTimestamps[id] = Date.now() / 1000;
-				console.log('[UI] 新用户', name, '没有历史消息，设置时间戳为当前时间');
-			}
-		} catch (e) {
-			console.warn('[UI] 初始化用户时间戳失败:', e);
-			// 失败时也设置为当前时间，避免误报
-			window.userLastMessageTimestamps[id] = Date.now() / 1000;
-		}
-	}
+  if (!window.userLastMessageTimestamps[id]) {
+    try {
+      const messages = await apiGetChatHistory(id, 1, 0);
+      if (messages && messages.length > 0) {
+        window.userLastMessageTimestamps[id] = messages[0].timestamp;
+        console.log(
+          "[UI] 初始化新用户",
+          name,
+          "的时间戳:",
+          messages[0].timestamp,
+        );
+      } else {
+        // 没有历史消息，设置为当前时间
+        window.userLastMessageTimestamps[id] = Date.now() / 1000;
+        console.log("[UI] 新用户", name, "没有历史消息，设置时间戳为当前时间");
+      }
+    } catch (e) {
+      console.warn("[UI] 初始化用户时间戳失败:", e);
+      // 失败时也设置为当前时间，避免误报
+      window.userLastMessageTimestamps[id] = Date.now() / 1000;
+    }
+  }
 
-	console.log('[UI] 添加用户到列表:', name, id, isOffline ? '(离线)' : '(在线)');
+  console.log(
+    "[UI] 添加用户到列表:",
+    name,
+    id,
+    isOffline ? "(离线)" : "(在线)",
+  );
 }
 
 // 更新用户状态
 // 更新用户状态 - 赛博神医微创版
 function updateUserStatus(item, name, addr, isOffline) {
-	const statusSpan = item.querySelector('.user-status');
-	const nameSpan = item.querySelector('.user-name');
-	const addrSpan = item.querySelector('.user-addr');
+  const statusSpan = item.querySelector(".user-status");
+  const nameSpan = item.querySelector(".user-name");
+  const addrSpan = item.querySelector(".user-addr");
 
-	// 1. 更新基础信息
-	if (nameSpan) nameSpan.textContent = name;
-	if (addrSpan) addrSpan.textContent = addr;
+  // 1. 更新基础信息
+  if (nameSpan) nameSpan.textContent = name;
+  if (addrSpan) addrSpan.textContent = addr;
 
-	// 2. 更新状态标签的文字
-	if (statusSpan) {
-		// 离线显示 OFFLINE，在线清空
-		statusSpan.textContent = isOffline ? 'OFF' : '';
-	}
+  // 2. 更新状态标签的文字
+  if (statusSpan) {
+    // 离线显示 OFFLINE，在线清空
+    statusSpan.textContent = isOffline ? "OFF" : "";
+  }
 
-	// 3. 类名手术：使用你的原有逻辑，但确保 CSS 能跟上
-	const wasOffline = item.classList.contains('offline');
-	if (isOffline) {
-		if (!wasOffline) {
-			console.log('[UI] 用户离线:', name);
-		}
-		item.classList.add('offline');
-	} else {
-		if (wasOffline) {
-			console.log('[UI] 用户重新上线:', name);
-			// 用户从离线变为在线，调整顺序：移到在线用户末尾
-			reorderUserOnline(item);
-		}
-		item.classList.remove('offline');
-	}
+  // 3. 类名手术：使用你的原有逻辑，但确保 CSS 能跟上
+  const wasOffline = item.classList.contains("offline");
+  if (isOffline) {
+    if (!wasOffline) {
+      console.log("[UI] 用户离线:", name);
+    }
+    item.classList.add("offline");
+  } else {
+    if (wasOffline) {
+      console.log("[UI] 用户重新上线:", name);
+      // 用户从离线变为在线，调整顺序：移到在线用户末尾
+      reorderUserOnline(item);
+    }
+    item.classList.remove("offline");
+  }
 }
 
 // 用户上线时调整顺序：移到在线用户末尾
 function reorderUserOnline(userItem) {
-	const list = document.getElementById('user-list');
-	if (!list) return;
+  const list = document.getElementById("user-list");
+  if (!list) return;
 
-	// 找到最后一个在线用户（不含 offline 类的最后一个）
-	const allItems = Array.from(list.querySelectorAll('li'));
-	let lastOnlineIndex = -1;
+  // 找到最后一个在线用户（不含 offline 类的最后一个）
+  const allItems = Array.from(list.querySelectorAll("li"));
+  let lastOnlineIndex = -1;
 
-	for (let i = allItems.length - 1; i >= 0; i--) {
-		if (!allItems[i].classList.contains('offline') && allItems[i] !== userItem) {
-			lastOnlineIndex = i;
-			break;
-		}
-	}
+  for (let i = allItems.length - 1; i >= 0; i--) {
+    if (
+      !allItems[i].classList.contains("offline") && allItems[i] !== userItem
+    ) {
+      lastOnlineIndex = i;
+      break;
+    }
+  }
 
-	if (lastOnlineIndex >= 0 && lastOnlineIndex < allItems.length - 1) {
-		// 在最后一个在线用户之后插入
-		const nextSibling = allItems[lastOnlineIndex].nextElementSibling;
-		if (nextSibling && nextSibling !== userItem) {
-			list.insertBefore(userItem, nextSibling);
-		}
-	} else if (lastOnlineIndex === -1) {
-		// 没有其他在线用户，移到最前面
-		list.insertBefore(userItem, list.firstChild);
-	}
+  if (lastOnlineIndex >= 0 && lastOnlineIndex < allItems.length - 1) {
+    // 在最后一个在线用户之后插入
+    const nextSibling = allItems[lastOnlineIndex].nextElementSibling;
+    if (nextSibling && nextSibling !== userItem) {
+      list.insertBefore(userItem, nextSibling);
+    }
+  } else if (lastOnlineIndex === -1) {
+    // 没有其他在线用户，移到最前面
+    list.insertBefore(userItem, list.firstChild);
+  }
 
-	console.log('[UI] 用户', userItem.querySelector('.user-name').textContent, '已移到在线用户末尾');
+  console.log(
+    "[UI] 用户",
+    userItem.querySelector(".user-name").textContent,
+    "已移到在线用户末尾",
+  );
 }
 
 // 从列表中移除用户
 function removeUserFromList(id) {
-	const list = document.getElementById('user-list');
-	if (!list) return;
+  const list = document.getElementById("user-list");
+  if (!list) return;
 
-	const items = list.querySelectorAll('li');
-	for (let item of items) {
-		if (item.dataset.id === id) {
-			const name = item.querySelector('.user-name').textContent;
-			item.remove();
-			console.log('[UI] 移除用户:', name, id);
-			return;
-		}
-	}
+  const items = list.querySelectorAll("li");
+  for (let item of items) {
+    if (item.dataset.id === id) {
+      const name = item.querySelector(".user-name").textContent;
+      item.remove();
+      console.log("[UI] 移除用户:", name, id);
+      return;
+    }
+  }
 }
-
 
 // 当前聊天对象 - 全局变量
 window.currentChatPeer = null;
 
 // 初始化聊天功能
 function initChat() {
-	const closeChatBtn = document.getElementById('close-chat-btn');
-	const sendBtn = document.getElementById('send-btn');
-	const chatInput = document.getElementById('chat-input');
-	const attachFileBtn = document.getElementById('attach-file-btn');
-	const fileInput = document.getElementById('file-input');
-	const chatContainer = document.getElementById('chat-container');
+  const closeChatBtn = document.getElementById("close-chat-btn");
+  const sendBtn = document.getElementById("send-btn");
+  const chatInput = document.getElementById("chat-input");
+  const attachFileBtn = document.getElementById("attach-file-btn");
+  const fileInput = document.getElementById("file-input");
+  const chatContainer = document.getElementById("chat-container");
 
-	// 关闭聊天窗口
-	closeChatBtn.addEventListener('click', () => {
-		// 如果在多选模式，先退出
-		if (window.selectMode && window.selectMode.active) {
-			exitSelectMode();
-		}
-		closeChat();
-	});
+  // 关闭聊天窗口
+  closeChatBtn.addEventListener("click", () => {
+    // 如果在多选模式，先退出
+    if (window.selectMode && window.selectMode.active) {
+      exitSelectMode();
+    }
+    closeChat();
+  });
 
-	// 发送消息 - 统一处理发送和删除
-	sendBtn.addEventListener('click', () => {
-		if (window.selectMode && window.selectMode.active) {
-			deleteSelectedMessages();
-		} else {
-			sendMessage();
-		}
-	});
+  // 发送消息 - 统一处理发送和删除
+  sendBtn.addEventListener("click", () => {
+    if (window.selectMode && window.selectMode.active) {
+      deleteSelectedMessages();
+    } else {
+      sendMessage();
+    }
+  });
 
-	// 自动调整 textarea 高度
-	function adjustTextareaHeight() {
-		chatInput.style.height = 'auto';
-		const newHeight = Math.min(chatInput.scrollHeight, 200);
-		chatInput.style.height = newHeight + 'px';
-	}
+  // 自动调整 textarea 高度
+  function adjustTextareaHeight() {
+    chatInput.style.height = "auto";
+    const newHeight = Math.min(chatInput.scrollHeight, 200);
+    chatInput.style.height = newHeight + "px";
+  }
 
-	// 输入时调整高度
-	chatInput.addEventListener('input', adjustTextareaHeight);
+  // 输入时调整高度
+  chatInput.addEventListener("input", adjustTextareaHeight);
 
-	// 回车发送（Shift+Enter 换行）
-	chatInput.addEventListener('keypress', (e) => {
-		if (e.key === 'Enter' && !e.shiftKey) {
-			e.preventDefault();
-			sendMessage();
-		}
-	});
+  // 回车发送（Shift+Enter 换行）
+  chatInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
 
-	// 选择文件
-	attachFileBtn.addEventListener('click', () => {
-		const tauri = window.__TAURI__;
-		if (tauri) {
-			// 桌面端 - 直接调用 sendFile，它会弹出对话框
-			sendFile(null);
-		} else {
-			// Web 端 - 触发文件选择
-			fileInput.click();
-		}
-	});
+  // 选择文件
+  attachFileBtn.addEventListener("click", () => {
+    const tauri = window.__TAURI__;
+    if (tauri) {
+      // 桌面端 - 直接调用 sendFile，它会弹出对话框
+      sendFile(null);
+    } else {
+      // Web 端 - 触发文件选择
+      fileInput.click();
+    }
+  });
 
-	// 文件选择后发送（仅 Web 端）
-	fileInput.addEventListener('change', async (e) => {
-		const file = e.target.files[0];
-		if (file) {
-			await sendFile(file);
-			fileInput.value = ''; // 清空选择
-		}
-	});
+  // 文件选择后发送（仅 Web 端）
+  fileInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      await sendFile(file);
+      fileInput.value = ""; // 清空选择
+    }
+  });
 
-	// 拖拽文件功能
-	initDragAndDrop(chatContainer);
+  // 拖拽文件功能
+  initDragAndDrop(chatContainer);
 
-	// 粘贴文件功能
-	initPasteFile();
+  // 粘贴文件功能
+  initPasteFile();
 
-	// 初始化多选模式
-	initSelectMode();
+  // 初始化多选模式
+  initSelectMode();
 
-	// 初始化回到底部按钮
-	initScrollToBottomBtn();
+  // 初始化回到底部按钮
+  initScrollToBottomBtn();
 }
 
 // 打开聊天
 function openChat(peer) {
-	// 如果已经是当前聊天的用户，且窗口开着，就别折腾了
-	const chatContainer = document.getElementById('chat-container');
-	if (window.currentChatPeer && window.currentChatPeer.id === peer.id && chatContainer.style.display === 'flex') {
-		return;
-	}
+  // 如果已经是当前聊天的用户，且窗口开着，就别折腾了
+  const chatContainer = document.getElementById("chat-container");
+  if (
+    window.currentChatPeer && window.currentChatPeer.id === peer.id &&
+    chatContainer.style.display === "flex"
+  ) {
+    return;
+  }
 
-	// 如果是在手机端，确保 Hash 状态同步
-	if (window.innerWidth <= 768) {
-		if (window.location.hash !== '#chat') {
-			window.history.pushState({ chatOpen: true }, "", "#chat");
-		}
-	}
+  // 如果是在手机端，确保 Hash 状态同步
+  if (window.innerWidth <= 768) {
+    if (window.location.hash !== "#chat") {
+      window.history.pushState({ chatOpen: true }, "", "#chat");
+    }
+  }
 
-	window.currentChatPeer = peer;
+  window.currentChatPeer = peer;
 
-	// 消除未读红点
-	const userLi = document.querySelector(`#user-list li[data-id="${peer.id}"]`);
-	if (userLi) {
-		userLi.classList.remove('has-unread');
-	}
+  // 消除未读红点
+  const userLi = document.querySelector(`#user-list li[data-id="${peer.id}"]`);
+  if (userLi) {
+    userLi.classList.remove("has-unread");
+  }
 
-	const chatWithName = document.getElementById('chat-with-name');
-	const chatMessages = document.getElementById('chat-messages');
+  const chatWithName = document.getElementById("chat-with-name");
+  const chatMessages = document.getElementById("chat-messages");
 
-	chatContainer.style.display = 'flex';
-	chatWithName.textContent = `${peer.name}`;
-	chatMessages.innerHTML = '';
+  chatContainer.style.display = "flex";
+  chatWithName.textContent = `${peer.name}`;
+  chatMessages.innerHTML = "";
 
-	// 高亮逻辑
-	updateListHighlight(peer.id);
+  // 高亮逻辑
+  updateListHighlight(peer.id);
 
-	window.lastMessageTimestamp = 0;
-	loadChatHistory(peer.id);
-	console.log('[UI] 成功进入聊天:', peer.name);
+  window.lastMessageTimestamp = 0;
+  loadChatHistory(peer.id);
+  console.log("[UI] 成功进入聊天:", peer.name);
 }
 
 // 2. 关闭聊天（由 X 按钮或物理返回键调用）
 function closeChat() {
-	// 如果是手机端且有 #chat，点击 X 按钮时触发 back() 即可，剩下的交给 popstate
-	if (window.innerWidth <= 768 && window.location.hash === '#chat') {
-		window.history.back();
-		return;
-	}
-	performCloseChatUI();
+  // 如果是手机端且有 #chat，点击 X 按钮时触发 back() 即可，剩下的交给 popstate
+  if (window.innerWidth <= 768 && window.location.hash === "#chat") {
+    window.history.back();
+    return;
+  }
+  performCloseChatUI();
 }
 
 // 3. 真正的 UI 隐藏逻辑（只管藏，不管历史记录）
 function performCloseChatUI() {
-	// 如果在多选模式，先退出
-	if (window.selectMode && window.selectMode.active) {
-		exitSelectMode();
-	}
+  // 如果在多选模式，先退出
+  if (window.selectMode && window.selectMode.active) {
+    exitSelectMode();
+  }
 
-	const chatContainer = document.getElementById('chat-container');
-	if (chatContainer) chatContainer.style.display = 'none';
-	window.currentChatPeer = null;
-	updateListHighlight(null); // 清除高亮
+  const chatContainer = document.getElementById("chat-container");
+  if (chatContainer) chatContainer.style.display = "none";
+  window.currentChatPeer = null;
+  updateListHighlight(null); // 清除高亮
 }
 
 // 4. 辅助函数：更新高亮
 function updateListHighlight(activeId) {
-	const items = document.querySelectorAll('#user-list li');
-	items.forEach(item => {
-		if (activeId && item.dataset.id === activeId) {
-			item.classList.add('active');
-		} else {
-			item.classList.remove('active');
-		}
-	});
+  const items = document.querySelectorAll("#user-list li");
+  items.forEach((item) => {
+    if (activeId && item.dataset.id === activeId) {
+      item.classList.add("active");
+    } else {
+      item.classList.remove("active");
+    }
+  });
 }
 
 // 5. 全局监听器：处理物理返回键和手动后退
-window.addEventListener('popstate', function(event) {
-	const chatContainer = document.getElementById('chat-container');
+window.addEventListener("popstate", function (event) {
+  const chatContainer = document.getElementById("chat-container");
 
-	// 【场景 A】如果当前处于多选模式
-	if (window.selectMode && window.selectMode.active) {
-		console.log('[UI] 拦截返回键：退出多选模式');
+  // 【场景 A】如果当前处于多选模式
+  if (window.selectMode && window.selectMode.active) {
+    console.log("[UI] 拦截返回键：退出多选模式");
 
-		// 手动执行退出多选的 UI 恢复逻辑
-		window.selectMode.active = false;
-		window.selectMode.selectedMessages.clear();
+    // 手动执行退出多选的 UI 恢复逻辑
+    window.selectMode.active = false;
+    window.selectMode.selectedMessages.clear();
 
-		const selectModeBtn = document.getElementById('select-mode-btn');
-		const sendBtn = document.getElementById('send-btn');
-		const chatInput = document.getElementById('chat-input');
-		const attachFileBtn = document.getElementById('attach-file-btn');
+    const selectModeBtn = document.getElementById("select-mode-btn");
+    const sendBtn = document.getElementById("send-btn");
+    const chatInput = document.getElementById("chat-input");
+    const attachFileBtn = document.getElementById("attach-file-btn");
 
-		// 恢复图标
-		if (selectModeBtn) {
-			selectModeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>';
-			selectModeBtn.classList.remove('active');
-		}
+    // 恢复图标
+    if (selectModeBtn) {
+      selectModeBtn.innerHTML =
+        '<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>';
+      selectModeBtn.classList.remove("active");
+    }
 
-		if (sendBtn) {
-			sendBtn.textContent = '发送';
-			sendBtn.style.backgroundColor = '';
-			sendBtn.style.borderColor = '';
-			sendBtn.style.color = '';
-		}
+    if (sendBtn) {
+      sendBtn.textContent = "发送";
+      sendBtn.style.backgroundColor = "";
+      sendBtn.style.borderColor = "";
+      sendBtn.style.color = "";
+    }
 
-		if (chatInput) chatInput.disabled = false;
-		if (attachFileBtn) attachFileBtn.disabled = false;
+    if (chatInput) chatInput.disabled = false;
+    if (attachFileBtn) attachFileBtn.disabled = false;
 
-		const messages = document.querySelectorAll('.message');
-		messages.forEach(msg => {
-			// 简单清理
-			const checkbox = msg.querySelector('.select-checkbox');
-			if (checkbox) checkbox.remove();
-			msg.classList.remove('selectable', 'selected');
-		});
+    const messages = document.querySelectorAll(".message");
+    messages.forEach((msg) => {
+      // 简单清理
+      const checkbox = msg.querySelector(".select-checkbox");
+      if (checkbox) checkbox.remove();
+      msg.classList.remove("selectable", "selected");
+    });
 
-		const fileContainers = document.querySelectorAll('.message-file');
-		fileContainers.forEach(container => container.style.pointerEvents = 'auto');
+    const fileContainers = document.querySelectorAll(".message-file");
+    fileContainers.forEach((container) =>
+      container.style.pointerEvents = "auto"
+    );
 
-		// 【核心修复 1】平板/手机 URL 状态修正
-		// 如果是手机端，且当前不是 #chat，补回 #chat 以保持聊天窗口打开
-		if (window.innerWidth <= 768 && window.location.hash !== '#chat') {
-			window.history.replaceState({ chatOpen: true }, "", "#chat");
-		}
+    // 【核心修复 1】平板/手机 URL 状态修正
+    // 如果是手机端，且当前不是 #chat，补回 #chat 以保持聊天窗口打开
+    if (window.innerWidth <= 768 && window.location.hash !== "#chat") {
+      window.history.replaceState({ chatOpen: true }, "", "#chat");
+    }
 
-		return;
-	}
+    return;
+  }
 
-	// 【场景 B】正常关闭聊天窗口逻辑
-	// 如果 URL 已经不是 #chat 了
-	if (window.location.hash !== '#chat') {
-		// 【核心修复 2】关键判断！
-		// 只有在“手机模式”下 (<=768px)，URL 变空才代表“关闭聊天返回列表”。
-		// 在平板/桌面端 (>768px)，URL 变空是正常现象（因为打开聊天时不推入 #chat），
-		// 所以平板端绝对不能在这里关闭聊天窗口。
-		if (window.innerWidth <= 768) {
-			performCloseChatUI();
-		}
-	}
+  // 【场景 B】正常关闭聊天窗口逻辑
+  // 如果 URL 已经不是 #chat 了
+  if (window.location.hash !== "#chat") {
+    if (window.innerWidth <= 768) {
+      performCloseChatUI();
+    }
+  }
 });
 
 // 发送消息
 async function sendMessage() {
-	if (!window.currentChatPeer) return;
+  if (!window.currentChatPeer) return;
 
-	const chatInput = document.getElementById('chat-input');
-	const content = chatInput.value.trim();
+  const chatInput = document.getElementById("chat-input");
+  const content = chatInput.value.trim();
+  if (!content) return;
 
-	if (!content) return;
+  // 生成一个临时 ID 用于乐观更新
+  const tempId = "temp_" + Date.now();
+  const timestamp = Date.now() / 1000;
 
-	try {
-		// 调用 API 发送消息
-		await apiSendMessage(window.currentChatPeer.id, window.currentChatPeer.addr, content);
+  // --- 1. 立即在 UI 上显示消息 (初始黄色挂起状态) ---
+  const tempMsg = {
+    id: tempId,
+    from_id: "me",
+    content: content,
+    timestamp: timestamp,
+    status: "pending", 
+  };
+  addMessageToChat(tempMsg, true);
+  await scrollToBottom();
 
-		// 清空输入框并重置高度
-		chatInput.value = '';
-		chatInput.style.height = 'auto';
+  // 清空输入框
+  chatInput.value = "";
+  chatInput.style.height = "auto";
 
-		// 轮询获取最新消息并显示（等待有效ID）
-		const maxRetries = 10; // 最多重试10次
-		const retryInterval = 100; // 每次间隔100ms
-		let retryCount = 0;
+  try {
+    // --- 2. 正式调用 API 发送 ---
+    // 注意：哪怕对方离线，这个 API 也会正常 resolve 返回成功（消息存入离线数据库）
+    await apiSendMessage(
+      window.currentChatPeer.id,
+      window.currentChatPeer.addr,
+      content,
+    );
 
-		const pollForMessage = async () => {
-			try {
-				const latestMessages = await apiGetChatHistory(window.currentChatPeer.id, 1, 0);
-				if (latestMessages && latestMessages.length > 0) {
-					const latestMsg = latestMessages[0];
-					// 检查是否是刚发送的消息（时间戳接近且是自己发的）
-					const timeDiff = Math.abs(latestMsg.timestamp - Date.now() / 1000);
-					if (latestMsg.from_id === 'me' && latestMsg.id && timeDiff < 5) {
-						// 显示带有有效ID的消息
-						addMessageToChat(latestMsg, true);
-						await scrollToBottom();
-						console.log('[UI] 已显示发送的消息，ID:', latestMsg.id, '重试次数:', retryCount);
-						return true;
-					}
-				}
+    // --- 3. 主动去历史记录里“捞”出这条真实的消息 ---
+    let realMsg = null;
+    for (let i = 0; i < 5; i++) {
+      const latestMessages = await apiGetChatHistory(
+        window.currentChatPeer.id,
+        10,
+        0
+      );
+      realMsg = latestMessages.find(
+        (m) => m.from_id === "me" && 
+               m.content === content && 
+               !String(m.id).startsWith("temp_") &&
+               Math.abs(m.timestamp - timestamp) < 10
+      );
+      if (realMsg) break;
+      await new Promise((r) => setTimeout(r, 100)); 
+    }
 
-				// 如果还没找到，继续重试
-				retryCount++;
-				if (retryCount < maxRetries) {
-					setTimeout(pollForMessage, retryInterval);
-				} else {
-					console.error('[UI] 获取消息ID超时，已重试', maxRetries, '次');
-					// 超时后刷新整个聊天历史
-					await loadChatHistory(window.currentChatPeer.id, true);
-				}
-			} catch (e) {
-				console.warn('[UI] 获取最新消息失败:', e);
-				retryCount++;
-				if (retryCount < maxRetries) {
-					setTimeout(pollForMessage, retryInterval);
-				}
-			}
-		};
+    const tempEl = document.querySelector(`[data-msg-id="${tempId}"]`);
+    
+    if (realMsg && tempEl) {
+      const existingRealMsg = document.querySelector(`[data-msg-id="${realMsg.id}"]`);
+      if (existingRealMsg) {
+        tempEl.remove();
+      } else {
+        // --- 4. 无缝切换 --- 
+        tempEl.dataset.msgId = realMsg.id;
+        
+        const timeDiv = tempEl.querySelector(".message-time");
+        if (timeDiv) {
+          const date = new Date(realMsg.timestamp * 1000);
+          timeDiv.textContent = date.toLocaleTimeString([], {
+            hour: "2-digit", minute: "2-digit", second: "2-digit"
+          });
+        }
 
-		setTimeout(pollForMessage, retryInterval);
+        const contentDiv = tempEl.querySelector(".message-content");
+        const pendingText = tempEl.querySelector(".message-pending");
 
-		console.log('[UI] 发送消息:', content);
-	} catch (e) {
-		console.error('[UI] 发送消息失败:', e);
-		alert('发送失败: ' + e.message);
-	}
+        // 【核心修复】检查后端返回的真实状态，区别对待“送达”与“离线”
+        if (realMsg.status === 'pending') {
+          // 对方离线，消息存入了数据库的 Pending 状态
+          // 满足你的要求：将气泡变成鲜红色！
+          if (pendingText) {
+            pendingText.textContent = "未送达 (等待上线)";
+            pendingText.style.setProperty('color', '#ff5555', 'important');
+          }
+          if (contentDiv) {
+            contentDiv.style.setProperty('background', 'linear-gradient(135deg, rgba(255, 85, 85, 0.15) 0%, rgba(189, 147, 249, 0.05) 100%)', 'important');
+            contentDiv.style.setProperty('border-color', 'rgba(255, 85, 85, 0.4)', 'important');
+            contentDiv.style.setProperty('box-shadow', '0 0 12px rgba(255, 85, 85, 0.2)', 'important');
+          }
+        } else {
+          // 对方在线发送成功，彻底移除挂起样式，变成正常的紫色气泡
+          if (contentDiv) contentDiv.classList.remove("is-pending-wrapper");
+          if (pendingText) pendingText.remove();
+        }
+
+        if (realMsg.timestamp > (window.lastMessageTimestamp || 0)) {
+          window.lastMessageTimestamp = realMsg.timestamp;
+        }
+      }
+    } else if (tempEl) {
+      tempEl.remove();
+      await loadChatHistory(window.currentChatPeer.id, true);
+    }
+    
+  } catch (e) {
+    console.error("[UI] 发送消息失败:", e);
+    // --- 5. 真异常拦截：API 崩溃或断网 ---
+    const tempEl = document.querySelector(`[data-msg-id="${tempId}"]`);
+    if (tempEl) {
+      const contentDiv = tempEl.querySelector(".message-content");
+      if (contentDiv) {
+        contentDiv.style.setProperty('background', 'linear-gradient(135deg, rgba(255, 85, 85, 0.15) 0%, rgba(189, 147, 249, 0.05) 100%)', 'important');
+        contentDiv.style.setProperty('border-color', 'rgba(255, 85, 85, 0.4)', 'important');
+        contentDiv.style.setProperty('box-shadow', '0 0 12px rgba(255, 85, 85, 0.2)', 'important');
+      }
+      const status = tempEl.querySelector(".message-pending");
+      if (status) {
+        status.textContent = "发送失败";
+        status.style.setProperty('color', '#ff5555', 'important');
+      }
+    }
+    alert("发送失败: " + e.message);
+  }
 }
 
-// 添加消息到聊天窗口
 function addMessageToChat(message, isSent) {
-	// 如果消息没有有效的ID，不渲染
-	if (!message.id || isNaN(parseInt(message.id))) {
-		console.warn('[UI] 消息没有有效的 msgId，跳过渲染:', message);
-		return;
-	}
+  const chatMessages = document.getElementById("chat-messages");
 
-	const chatMessages = document.getElementById('chat-messages');
-	const messageDiv = createMessageElement(message, isSent);
-	chatMessages.appendChild(messageDiv);
-	if (message.timestamp && message.timestamp > (window.lastMessageTimestamp || 0)) {
-		window.lastMessageTimestamp = message.timestamp;
-	}
+  // 1. 查重拦截：防止由于轮询和手动渲染同时发生导致的重复消息
+  if (
+    message.id && chatMessages.querySelector(`[data-msg-id="${message.id}"]`)
+  ) {
+    return;
+  }
+
+  const messageDiv = createMessageElement(message, isSent);
+  chatMessages.appendChild(messageDiv);
+
+  // 2. 【核心修复】：不要让 "temp_" 开头的临时消息去更新全局时间戳
+  // 只有拿到来自数据库的真正消息时，才允许更新时间戳
+  if (message.timestamp && !String(message.id).startsWith("temp_")) {
+    if (message.timestamp > (window.lastMessageTimestamp || 0)) {
+      window.lastMessageTimestamp = message.timestamp;
+    }
+  }
 }
 
 // 创建文件图标元素
 function createFileIcon(message) {
-	const fileInfo = document.createElement('div');
-	fileInfo.className = 'file-info-wrapper';
+  const fileInfo = document.createElement("div");
+  fileInfo.className = "file-info-wrapper";
 
-	// 1. 图标
-	const fileIcon = document.createElement('span');
-	fileIcon.className = 'file-icon';
-	fileIcon.textContent = '📄';
+  // 1. 图标
+  const fileIcon = document.createElement("span");
+  fileIcon.className = "file-icon";
+  fileIcon.textContent = "📄";
 
-	// 2. 文件信息
-	const fileInfoText = document.createElement('div');
-	fileInfoText.className = 'file-info';
+  // 2. 文件信息
+  const fileInfoText = document.createElement("div");
+  fileInfoText.className = "file-info";
 
-	// 文件名
-	const fileName = document.createElement('div');
-	fileName.className = 'file-name';
-	fileName.textContent = message.file_name || message.content;
+  // 文件名
+  const fileName = document.createElement("div");
+  fileName.className = "file-name";
+  fileName.textContent = message.file_name || message.content;
 
-	// 文件大小
-	const fileSize = document.createElement('div');
-	fileSize.className = 'file-size';
-	fileSize.textContent = message.file_size ? formatFileSize(message.file_size) : '未知大小';
+  // 文件大小
+  const fileSize = document.createElement("div");
+  fileSize.className = "file-size";
+  fileSize.textContent = message.file_size
+    ? formatFileSize(message.file_size)
+    : "未知大小";
 
-	fileInfoText.appendChild(fileName);
-	fileInfoText.appendChild(fileSize);
+  fileInfoText.appendChild(fileName);
+  fileInfoText.appendChild(fileSize);
 
-	fileInfo.appendChild(fileIcon);
-	fileInfo.appendChild(fileInfoText);
+  fileInfo.appendChild(fileIcon);
+  fileInfo.appendChild(fileInfoText);
 
-	return fileInfo;
+  return fileInfo;
 }
 
 // 检查是否是图片文件
 function isImageFile(fileName) {
-	if (!fileName) return false;
+  if (!fileName) return false;
 
-	const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico'];
-	const lowerFileName = fileName.toLowerCase();
+  const imageExtensions = [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".bmp",
+    ".webp",
+    ".svg",
+    ".ico",
+  ];
+  const lowerFileName = fileName.toLowerCase();
 
-	return imageExtensions.some(ext => lowerFileName.endsWith(ext));
+  return imageExtensions.some((ext) => lowerFileName.endsWith(ext));
 }
 
 // 等待聊天窗口中的所有图片加载完成
 function waitForImagesToLoad(container) {
-	return new Promise((resolve) => {
-		const images = container.querySelectorAll('img');
+  return new Promise((resolve) => {
+    const images = container.querySelectorAll("img");
 
-		if (images.length === 0) {
-			resolve();
-			return;
-		}
+    if (images.length === 0) {
+      resolve();
+      return;
+    }
 
-		let loadedCount = 0;
-		const totalImages = images.length;
+    let loadedCount = 0;
+    const totalImages = images.length;
 
-		const checkAllLoaded = () => {
-			loadedCount++;
-			if (loadedCount === totalImages) {
-				resolve();
-			}
-		};
+    const checkAllLoaded = () => {
+      loadedCount++;
+      if (loadedCount === totalImages) {
+        resolve();
+      }
+    };
 
-		images.forEach(img => {
-			if (img.complete) {
-				checkAllLoaded();
-			} else {
-				img.addEventListener('load', checkAllLoaded);
-				img.addEventListener('error', checkAllLoaded); // 即使加载失败也要继续
-			}
-		});
+    images.forEach((img) => {
+      if (img.complete) {
+        checkAllLoaded();
+      } else {
+        img.addEventListener("load", checkAllLoaded);
+        img.addEventListener("error", checkAllLoaded); // 即使加载失败也要继续
+      }
+    });
 
-		// 设置超时，避免永久等待
-		setTimeout(() => {
-			resolve();
-		}, 2000);
-	});
+    // 设置超时，避免永久等待
+    setTimeout(() => {
+      resolve();
+    }, 2000);
+  });
 }
 
 // 滚动到聊天窗口底部（等待图片加载）
 async function scrollToBottom() {
-	const chatMessages = document.getElementById('chat-messages');
-	if (!chatMessages) return;
+  const chatMessages = document.getElementById("chat-messages");
+  if (!chatMessages) return;
 
-	// 等待图片加载完成
-	await waitForImagesToLoad(chatMessages);
+  // 等待图片加载完成
+  await waitForImagesToLoad(chatMessages);
 
-	// 滚动到底部
-	chatMessages.scrollTop = chatMessages.scrollHeight;
+  // 滚动到底部
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 // 加载聊天历史（支持懒加载）
 async function loadChatHistory(peerId, preserveScroll = false) {
-	try {
-		// 禁用轮询，避免干扰加载过程
-		const wasPollingEnabled = window.messagePollingEnabled;
-		window.messagePollingEnabled = false;
+  try {
+    // 禁用轮询，避免干扰加载过程
+    const wasPollingEnabled = window.messagePollingEnabled;
+    window.messagePollingEnabled = false;
 
-		// 首次加载，获取最新的10条消息
-		const messages = await apiGetChatHistory(peerId, 10, 0);
+    // 首次加载，获取最新的10条消息
+    const messages = await apiGetChatHistory(peerId, 10, 0);
 
-		const chatMessages = document.getElementById('chat-messages');
+    const chatMessages = document.getElementById("chat-messages");
 
-		// 保存当前滚动位置
-		const oldScrollTop = chatMessages.scrollTop;
-		const oldScrollHeight = chatMessages.scrollHeight;
-		const wasAtBottom = oldScrollHeight - oldScrollTop - chatMessages.clientHeight < 100;
+    // 保存当前滚动位置
+    const oldScrollTop = chatMessages.scrollTop;
+    const oldScrollHeight = chatMessages.scrollHeight;
+    const wasAtBottom =
+      oldScrollHeight - oldScrollTop - chatMessages.clientHeight < 100;
 
-		chatMessages.innerHTML = '';
+    chatMessages.innerHTML = "";
 
-		// 存储当前对话的消息总数和已加载数量
-		window.currentChatMessages = {
-			peerId: peerId,
-			loadedCount: messages.length,
-			totalCount: messages.length,
-			isLoading: false,
-			hasMore: true // 默认假设有更多，尝试加载时才知道
-		};
+    // 存储当前对话的消息总数和已加载数量
+    window.currentChatMessages = {
+      peerId: peerId,
+      loadedCount: messages.length,
+      totalCount: messages.length,
+      isLoading: false,
+      hasMore: true, // 默认假设有更多，尝试加载时才知道
+    };
 
-		for (const msg of messages) {
-			addMessageToChat(msg, msg.from_id === 'me');
-			// 更新最后消息时间戳
-			if (msg.timestamp > (window.lastMessageTimestamp || 0)) {
-				window.lastMessageTimestamp = msg.timestamp;
-			}
-		}
+    for (const msg of messages) {
+      addMessageToChat(msg, msg.from_id === "me");
+      // 更新最后消息时间戳
+      if (msg.timestamp > (window.lastMessageTimestamp || 0)) {
+        window.lastMessageTimestamp = msg.timestamp;
+      }
+    }
 
-		// 等待图片加载完成
-		await waitForImagesToLoad(chatMessages);
+    // 等待图片加载完成
+    await waitForImagesToLoad(chatMessages);
 
-		// 首次加载时，如果没有滚动条，继续加载更多消息直到出现滚动条或没有更多消息
-		if (!preserveScroll) {
-			let hasScrollbar = chatMessages.scrollHeight > chatMessages.clientHeight;
+    // 首次加载时，如果没有滚动条，继续加载更多消息直到出现滚动条或没有更多消息
+    if (!preserveScroll) {
+      let hasScrollbar = chatMessages.scrollHeight > chatMessages.clientHeight;
 
-			while (!hasScrollbar && window.currentChatMessages.hasMore) {
-				const offset = window.currentChatMessages.loadedCount;
-				const moreMessages = await apiGetChatHistory(peerId, 10, offset);
+      while (!hasScrollbar && window.currentChatMessages.hasMore) {
+        const offset = window.currentChatMessages.loadedCount;
+        const moreMessages = await apiGetChatHistory(peerId, 10, offset);
 
-				if (moreMessages.length === 0) {
-					window.currentChatMessages.hasMore = false;
-					break;
-				}
+        if (moreMessages.length === 0) {
+          window.currentChatMessages.hasMore = false;
+          break;
+        }
 
-				// 在顶部插入消息
-				for (let i = moreMessages.length - 1; i >= 0; i--) {
-					const msg = moreMessages[i];
-					const messageDiv = createMessageElement(msg, msg.from_id === 'me');
-					chatMessages.insertBefore(messageDiv, chatMessages.firstChild);
-				}
+        // 在顶部插入消息
+        for (let i = moreMessages.length - 1; i >= 0; i--) {
+          const msg = moreMessages[i];
+          const messageDiv = createMessageElement(msg, msg.from_id === "me");
+          chatMessages.insertBefore(messageDiv, chatMessages.firstChild);
+        }
 
-				window.currentChatMessages.loadedCount += moreMessages.length;
+        window.currentChatMessages.loadedCount += moreMessages.length;
 
-				if (moreMessages.length < 10) {
-					window.currentChatMessages.hasMore = false;
-					break;
-				}
+        if (moreMessages.length < 10) {
+          window.currentChatMessages.hasMore = false;
+          break;
+        }
 
-				// 等待图片加载
-				await waitForImagesToLoad(chatMessages);
+        // 等待图片加载
+        await waitForImagesToLoad(chatMessages);
 
-				// 检查是否出现滚动条
-				hasScrollbar = chatMessages.scrollHeight > chatMessages.clientHeight;
-			}
+        // 检查是否出现滚动条
+        hasScrollbar = chatMessages.scrollHeight > chatMessages.clientHeight;
+      }
 
-			// 自动加载完成后，滚动到底部
-			await scrollToBottom();
-		} else {
-			// 恢复滚动位置
-			if (!wasAtBottom) {
-				// 如果用户不在底部，尝试保持相对位置
-				const newScrollHeight = chatMessages.scrollHeight;
-				const scrollDiff = newScrollHeight - oldScrollHeight;
-				chatMessages.scrollTop = oldScrollTop + scrollDiff;
-			} else {
-				// 用户在底部时，滚动到底部
-				await scrollToBottom();
-			}
-		}
+      // 自动加载完成后，滚动到底部
+      await scrollToBottom();
+    } else {
+      // 恢复滚动位置
+      if (!wasAtBottom) {
+        // 如果用户不在底部，尝试保持相对位置
+        const newScrollHeight = chatMessages.scrollHeight;
+        const scrollDiff = newScrollHeight - oldScrollHeight;
+        chatMessages.scrollTop = oldScrollTop + scrollDiff;
+      } else {
+        // 用户在底部时，滚动到底部
+        await scrollToBottom();
+      }
+    }
 
-		// 只在首次加载时初始化滚动监听器
-		if (!preserveScroll && !window.scrollListenerAttached) {
-			initScrollListener();
-		}
+    // 只在首次加载时初始化滚动监听器
+    if (!preserveScroll && !window.scrollListenerAttached) {
+      initScrollListener();
+    }
 
-		// 恢复轮询
-		window.messagePollingEnabled = wasPollingEnabled;
-	} catch (e) {
-		console.error('[UI] 加载历史消息失败:', e);
-		// 出错时也要恢复轮询
-		window.messagePollingEnabled = true;
-	}
+    // 恢复轮询
+    window.messagePollingEnabled = wasPollingEnabled;
+  } catch (e) {
+    console.error("[UI] 加载历史消息失败:", e);
+    // 出错时也要恢复轮询
+    window.messagePollingEnabled = true;
+  }
 }
 
 // 初始化滚动监听器（懒加载）
 function initScrollListener() {
-	const chatMessages = document.getElementById('chat-messages');
+  const chatMessages = document.getElementById("chat-messages");
 
-	// 移除旧的监听器（如果存在）
-	if (window.scrollListenerAttached) {
-		chatMessages.removeEventListener('scroll', window.handleChatScroll);
-	}
+  // 移除旧的监听器（如果存在）
+  if (window.scrollListenerAttached) {
+    chatMessages.removeEventListener("scroll", window.handleChatScroll);
+  }
 
-	// 定义滚动处理函数
-	window.handleChatScroll = async function() {
-		if (!window.currentChatMessages) {
-			return;
-		}
+  // 定义滚动处理函数
+  window.handleChatScroll = async function () {
+    if (!window.currentChatMessages) {
+      return;
+    }
 
-		if (window.currentChatMessages.isLoading) {
-			return;
-		}
+    if (window.currentChatMessages.isLoading) {
+      return;
+    }
 
-		const scrollTop = chatMessages.scrollTop;
-		const scrollHeight = chatMessages.scrollHeight;
-		const clientHeight = chatMessages.clientHeight;
+    const scrollTop = chatMessages.scrollTop;
+    const scrollHeight = chatMessages.scrollHeight;
+    const clientHeight = chatMessages.clientHeight;
 
-		// 检查是否滚动到底部（距离底部小于100px）
-		const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+    // 检查是否滚动到底部（距离底部小于100px）
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
 
-		// 如果滚动到底部，触发一次刷新（检查新消息）
-		if (isAtBottom && window.lastScrollWasNotAtBottom) {
-			console.log('[UI] 滚动到底部，检查新消息');
-			window.currentChatMessages.isLoading = true;
-			try {
-				// 同样只取最新的小批量，靠时间戳过滤
-				const latestMessages = await apiGetChatHistory(window.currentChatMessages.peerId, 20, 0);
-				const newMessages = latestMessages.filter(msg => msg.timestamp > (window.lastMessageTimestamp || 0));
+    // 如果滚动到底部，触发一次刷新（检查新消息）
+    if (isAtBottom && window.lastScrollWasNotAtBottom) {
+      console.log("[UI] 滚动到底部，检查新消息");
+      window.currentChatMessages.isLoading = true;
+      try {
+        // 同样只取最新的小批量，靠时间戳过滤
+        const latestMessages = await apiGetChatHistory(
+          window.currentChatMessages.peerId,
+          20,
+          0,
+        );
+        const newMessages = latestMessages.filter((msg) =>
+          msg.timestamp > (window.lastMessageTimestamp || 0)
+        );
 
-				if (newMessages.length > 0) {
-					for (const msg of newMessages) {
-						addMessageToChat(msg, msg.from_id === 'me');
-						if (msg.timestamp > (window.lastMessageTimestamp || 0)) {
-							window.lastMessageTimestamp = msg.timestamp;
-						}
-					}
-					window.currentChatMessages.loadedCount += newMessages.length;
-					window.currentChatMessages.totalCount += newMessages.length;
-					await scrollToBottom();
-				}
-			} catch (e) {
-				console.error('[UI] 检查新消息失败:', e);
-			} finally {
-				window.currentChatMessages.isLoading = false;
-			}
-		}
+        if (newMessages.length > 0) {
+          for (const msg of newMessages) {
+            addMessageToChat(msg, msg.from_id === "me");
+            if (msg.timestamp > (window.lastMessageTimestamp || 0)) {
+              window.lastMessageTimestamp = msg.timestamp;
+            }
+          }
+          window.currentChatMessages.loadedCount += newMessages.length;
+          window.currentChatMessages.totalCount += newMessages.length;
+          await scrollToBottom();
+        }
+      } catch (e) {
+        console.error("[UI] 检查新消息失败:", e);
+      } finally {
+        window.currentChatMessages.isLoading = false;
+      }
+    }
 
-		// 记录当前是否在底部
-		window.lastScrollWasNotAtBottom = !isAtBottom;
+    // 记录当前是否在底部
+    window.lastScrollWasNotAtBottom = !isAtBottom;
 
-		if (!window.currentChatMessages.hasMore) {
-			return;
-		}
+    if (!window.currentChatMessages.hasMore) {
+      return;
+    }
 
-		// 检查是否滚动到顶部（距离顶部小于100px）
-		// 同时确保不是刚加载完（scrollHeight > clientHeight 说明有滚动条）
-		const hasScrollbar = scrollHeight > clientHeight;
-		if (hasScrollbar && scrollTop < 100) {
-			console.log('[UI] 触发懒加载，加载更多历史消息');
+    // 检查是否滚动到顶部（距离顶部小于100px）
+    // 同时确保不是刚加载完（scrollHeight > clientHeight 说明有滚动条）
+    const hasScrollbar = scrollHeight > clientHeight;
+    if (hasScrollbar && scrollTop < 100) {
+      console.log("[UI] 触发懒加载，加载更多历史消息");
 
-			window.currentChatMessages.isLoading = true;
+      window.currentChatMessages.isLoading = true;
 
-			// 暂时禁用消息轮询，防止干扰
-			const wasPollingEnabled = window.messagePollingEnabled;
-			window.messagePollingEnabled = false;
+      // 暂时禁用消息轮询，防止干扰
+      const wasPollingEnabled = window.messagePollingEnabled;
+      window.messagePollingEnabled = false;
 
-			try {
-				// 加载更多消息
-				const offset = window.currentChatMessages.loadedCount;
+      try {
+        // 加载更多消息
+        const offset = window.currentChatMessages.loadedCount;
 
-				const moreMessages = await apiGetChatHistory(
-					window.currentChatMessages.peerId,
-					10,
-					offset
-				);
+        const moreMessages = await apiGetChatHistory(
+          window.currentChatMessages.peerId,
+          10,
+          offset,
+        );
 
-				if (moreMessages.length === 0) {
-					console.log('[UI] 没有更多历史消息了');
-					window.currentChatMessages.hasMore = false;
-					window.currentChatMessages.isLoading = false;
-					window.messagePollingEnabled = wasPollingEnabled;
-					return;
-				}
+        if (moreMessages.length === 0) {
+          console.log("[UI] 没有更多历史消息了");
+          window.currentChatMessages.hasMore = false;
+          window.currentChatMessages.isLoading = false;
+          window.messagePollingEnabled = wasPollingEnabled;
+          return;
+        }
 
-				// 保存当前滚动位置
-				const oldScrollTop = chatMessages.scrollTop;
-				const oldScrollHeight = chatMessages.scrollHeight;
+        // 保存当前滚动位置
+        const oldScrollTop = chatMessages.scrollTop;
+        const oldScrollHeight = chatMessages.scrollHeight;
 
-				// 在顶部插入消息（倒序插入）
-				for (let i = moreMessages.length - 1; i >= 0; i--) {
-					const msg = moreMessages[i];
-					const messageDiv = createMessageElement(msg, msg.from_id === 'me');
-					chatMessages.insertBefore(messageDiv, chatMessages.firstChild);
-				}
+        // 在顶部插入消息（倒序插入）
+        for (let i = moreMessages.length - 1; i >= 0; i--) {
+          const msg = moreMessages[i];
+          const messageDiv = createMessageElement(msg, msg.from_id === "me");
+          chatMessages.insertBefore(messageDiv, chatMessages.firstChild);
+        }
 
-				// 更新已加载数量
-				window.currentChatMessages.loadedCount += moreMessages.length;
+        // 更新已加载数量
+        window.currentChatMessages.loadedCount += moreMessages.length;
 
-				// 如果返回的消息少于10条，说明没有更多了
-				if (moreMessages.length < 10) {
-					window.currentChatMessages.hasMore = false;
-				}
+        // 如果返回的消息少于10条，说明没有更多了
+        if (moreMessages.length < 10) {
+          window.currentChatMessages.hasMore = false;
+        }
 
-				// 恢复滚动位置（保持在原来的消息位置）
-				// 使用 requestAnimationFrame 确保 DOM 更新完成后再设置滚动位置
-				requestAnimationFrame(() => {
-					const newScrollHeight = chatMessages.scrollHeight;
-					const addedHeight = newScrollHeight - oldScrollHeight;
-					const newScrollTop = oldScrollTop + addedHeight;
+        // 恢复滚动位置（保持在原来的消息位置）
+        // 使用 requestAnimationFrame 确保 DOM 更新完成后再设置滚动位置
+        requestAnimationFrame(() => {
+          const newScrollHeight = chatMessages.scrollHeight;
+          const addedHeight = newScrollHeight - oldScrollHeight;
+          const newScrollTop = oldScrollTop + addedHeight;
 
-					chatMessages.scrollTop = newScrollTop;
+          chatMessages.scrollTop = newScrollTop;
 
-					// 恢复消息轮询
-					setTimeout(() => {
-						window.messagePollingEnabled = wasPollingEnabled;
-					}, 100);
-				});
+          // 恢复消息轮询
+          setTimeout(() => {
+            window.messagePollingEnabled = wasPollingEnabled;
+          }, 100);
+        });
+      } catch (e) {
+        console.error("[UI] 加载更多消息失败:", e);
+        window.messagePollingEnabled = wasPollingEnabled;
+      } finally {
+        window.currentChatMessages.isLoading = false;
+      }
+    }
+  };
 
-			} catch (e) {
-				console.error('[UI] 加载更多消息失败:', e);
-				window.messagePollingEnabled = wasPollingEnabled;
-			} finally {
-				window.currentChatMessages.isLoading = false;
-			}
-		}
-	};
-
-	// 添加滚动监听器
-	chatMessages.addEventListener('scroll', window.handleChatScroll);
-	window.scrollListenerAttached = true;
+  // 添加滚动监听器
+  chatMessages.addEventListener("scroll", window.handleChatScroll);
+  window.scrollListenerAttached = true;
 }
 
 // 创建消息元素（从 addMessageToChat 中提取）
 function createMessageElement(message, isSent) {
-	const messageDiv = document.createElement('div');
-	messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+  const messageDiv = document.createElement("div");
+  messageDiv.className = `message ${isSent ? "sent" : "received"}`;
 
-	// 添加消息ID作为data属性
-	if (message.id) {
-		messageDiv.dataset.msgId = message.id;
-	}
+  // 添加消息ID作为data属性
+  if (message.id) {
+    messageDiv.dataset.msgId = message.id;
+  }
 
-	const contentDiv = document.createElement('div');
-	contentDiv.className = 'message-content';
+  const contentDiv = document.createElement("div");
+  contentDiv.className = "message-content";
 
-	if (message.msg_type === 'file') {
-		const fileContainer = document.createElement('div');
-		fileContainer.className = 'message-file';
+  if (message.msg_type === "file") {
+    const fileContainer = document.createElement("div");
+    fileContainer.className = "message-file";
 
-		// 检查是否是图片文件
-		const isImage = isImageFile(message.file_name || message.content);
+    // 检查是否是图片文件
+    const isImage = isImageFile(message.file_name || message.content);
 
-		console.log('[Image-Debug] 消息ID:', message.id,
-			'file_name:', message.file_name || message.content,
-			'isImage:', isImage,
-			'file_path:', message.file_path,
-			'file_status:', message.file_status);
+    console.log(
+      "[Image-Debug] 消息ID:",
+      message.id,
+      "file_name:",
+      message.file_name || message.content,
+      "isImage:",
+      isImage,
+      "file_path:",
+      message.file_path,
+      "file_status:",
+      message.file_status,
+    );
 
-		if (isImage && message.file_path && (message.file_status === 'sent' || message.file_status === 'accepted')) {
-			// 图片预览
-			const imgPreview = document.createElement('div');
-			imgPreview.className = 'image-preview';
+    if (
+      isImage && message.file_path &&
+      (message.file_status === "sent" || message.file_status === "accepted")
+    ) {
+      // 图片预览
+      const imgPreview = document.createElement("div");
+      imgPreview.className = "image-preview";
 
-			const img = document.createElement('img');
+      const img = document.createElement("img");
 
-			const tauri = window.__TAURI__;
-			if (tauri) {
-				const isAndroid = navigator.userAgent.includes('Android');
-				if (isAndroid && message.file_path && message.file_path.startsWith('content://')) {
-					// Android content URI：通过本地媒体代理服务获取
-					apiGetMediaToken().then(token => {
-						const url = `http://127.0.0.1:8888/api/media?uri=${encodeURIComponent(message.file_path)}&token=${token}`;
-						console.log('[Image] Android content URI 预览, url:', url, 'file_path:', message.file_path);
-						img.src = url;
-					});
-				} else {
-					// 桌面端或普通路径：使用 convertFileSrc
-					const assetUrl = tauri.core.convertFileSrc(message.file_path);
-					console.log('[Image] convertFileSrc 预览, assetUrl:', assetUrl, 'file_path:', message.file_path);
-					img.src = assetUrl;
-				}
-			} else {
-				// Web 端：使用下载 API
-				if (message.file_id) {
-					img.src = `/api/download/${message.file_id}`;
-				}
-			}
+      const tauri = window.__TAURI__;
+      if (tauri) {
+        const isAndroid = navigator.userAgent.includes("Android");
+        if (
+          isAndroid && message.file_path &&
+          message.file_path.startsWith("content://")
+        ) {
+          // Android content URI：通过本地媒体代理服务获取
+          apiGetMediaToken().then((token) => {
+            const url = `http://127.0.0.1:8888/api/media?uri=${
+              encodeURIComponent(message.file_path)
+            }&token=${token}`;
+            console.log(
+              "[Image] Android content URI 预览, url:",
+              url,
+              "file_path:",
+              message.file_path,
+            );
+            img.src = url;
+          });
+        } else {
+          // 桌面端或普通路径：使用 convertFileSrc
+          const assetUrl = tauri.core.convertFileSrc(message.file_path);
+          console.log(
+            "[Image] convertFileSrc 预览, assetUrl:",
+            assetUrl,
+            "file_path:",
+            message.file_path,
+          );
+          img.src = assetUrl;
+        }
+      } else {
+        // Web 端：使用下载 API
+        if (message.file_id) {
+          img.src = `/api/download/${message.file_id}`;
+        }
+      }
 
-			img.alt = message.file_name || message.content;
-			img.loading = 'lazy';
+      img.alt = message.file_name || message.content;
+      img.loading = "lazy";
 
-			img.onload = () => {
-				console.log('[Image] 加载成功:', img.src);
-			};
+      img.onload = () => {
+        console.log("[Image] 加载成功:", img.src);
+      };
 
-			// 图片加载失败时显示文件图标
-			img.onerror = () => {
-				console.error('[Image] 加载失败:', img.src, 'file_path:', message.file_path, 'file_status:', message.file_status);
-				imgPreview.innerHTML = '';
-				imgPreview.appendChild(createFileIcon(message));
-			};
+      // 图片加载失败时显示文件图标
+      img.onerror = () => {
+        console.error(
+          "[Image] 加载失败:",
+          img.src,
+          "file_path:",
+          message.file_path,
+          "file_status:",
+          message.file_status,
+        );
+        imgPreview.innerHTML = "";
+        imgPreview.appendChild(createFileIcon(message));
+      };
 
-			imgPreview.appendChild(img);
-			fileContainer.appendChild(imgPreview);
-		} else {
-			// 非图片或未完成的文件：显示文件图标
-			fileContainer.appendChild(createFileIcon(message));
-		}
+      imgPreview.appendChild(img);
+      fileContainer.appendChild(imgPreview);
+    } else {
+      // 非图片或未完成的文件：显示文件图标
+      fileContainer.appendChild(createFileIcon(message));
+    }
 
-		contentDiv.appendChild(fileContainer);
+    contentDiv.appendChild(fileContainer);
 
-		// 3. 状态标签 (保留类名，供默认模式显示圆点，伪装模式显示注释)
-		const fileStatus = message.file_status || 'accepted';
-		const statusDiv = document.createElement('div');
-		if (fileStatus === 'downloading') {
-			statusDiv.className = 'file-downloading';
-			const speed = message.transfer_speed ? Math.round(message.transfer_speed) + ' MB/s' : '下载中...';
-			statusDiv.textContent = speed;
-		} else if (fileStatus === 'uploading') {
-			statusDiv.className = 'file-uploading';
-			const speed = message.transfer_speed ? Math.round(message.transfer_speed) + ' MB/s' : '上传中...';
-			statusDiv.textContent = speed;
-		} else if (fileStatus === 'accepted' && !isSent) {
-			statusDiv.className = 'file-finish';
-			statusDiv.textContent = 'finish';
-		}
+    // 3. 状态标签 (保留类名，供默认模式显示圆点，伪装模式显示注释)
+    const fileStatus = message.file_status || "accepted";
+    const statusDiv = document.createElement("div");
+    if (fileStatus === "downloading") {
+      statusDiv.className = "file-downloading";
+      const speed = message.transfer_speed
+        ? Math.round(message.transfer_speed) + " MB/s"
+        : "下载中...";
+      statusDiv.textContent = speed;
+    } else if (fileStatus === "uploading") {
+      statusDiv.className = "file-uploading";
+      const speed = message.transfer_speed
+        ? Math.round(message.transfer_speed) + " MB/s"
+        : "上传中...";
+      statusDiv.textContent = speed;
+    } else if (fileStatus === "accepted" && !isSent) {
+      statusDiv.className = "file-finish";
+      statusDiv.textContent = "finish";
+    }
 
-		if (statusDiv.className) {
-			contentDiv.appendChild(statusDiv);
-		}
+    if (statusDiv.className) {
+      contentDiv.appendChild(statusDiv);
+    }
 
-		// 对于已完成的文件（sent 或 accepted），添加点击处理
-		if (fileStatus === 'sent' || fileStatus === 'accepted') {
-			fileContainer.style.cursor = 'pointer';
+    // 对于已完成的文件（sent 或 accepted），添加点击处理
+    if (fileStatus === "sent" || fileStatus === "accepted") {
+      fileContainer.style.cursor = "pointer";
 
-			const tauri = window.__TAURI__;
-			if (tauri) {
-				// 桌面端/Android：点击打开文件所在位置或分享
-				if (message.file_path) {
-					// 检查是否是 Android
-					const isAndroid = navigator.userAgent.includes('Android');
+      const tauri = window.__TAURI__;
+      if (tauri) {
+        // 桌面端/Android：点击打开文件所在位置或分享
+        if (message.file_path) {
+          // 检查是否是 Android
+          const isAndroid = navigator.userAgent.includes("Android");
 
-					if (isAndroid) {
-						// 1. 给主体绑定打开文件的事件
-						fileContainer.addEventListener('click', async () => {
-							try {
-								await apiOpenFileInAndroid(message.file_path);
-							} catch (e) {
-								alert('打开失败: ' + e.message);
-							}
-						});
+          if (isAndroid) {
+            // 1. 给主体绑定打开文件的事件
+            fileContainer.addEventListener("click", async () => {
+              try {
+                await apiOpenFileInAndroid(message.file_path);
+              } catch (e) {
+                alert("打开失败: " + e.message);
+              }
+            });
 
-						// 2. 创建分享按钮
-						const shareBtn = document.createElement('button');
-						shareBtn.className = 'file-share-btn';
-						shareBtn.title = '分享到其他应用';
-						shareBtn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>`;
-						shareBtn.addEventListener('click', async (e) => {
-							e.stopPropagation(); // 阻止冒泡，防止触发打开文件
-							try {
-								await apiShareFileToOtherApp(message.file_path);
-							} catch (e) {
-								alert('分享失败: ' + e.message);
-							}
-						});
+            // 2. 创建分享按钮
+            const shareBtn = document.createElement("button");
+            shareBtn.className = "file-share-btn";
+            shareBtn.title = "分享到其他应用";
+            shareBtn.innerHTML =
+              `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>`;
+            shareBtn.addEventListener("click", async (e) => {
+              e.stopPropagation(); // 阻止冒泡，防止触发打开文件
+              try {
+                await apiShareFileToOtherApp(message.file_path);
+              } catch (e) {
+                alert("分享失败: " + e.message);
+              }
+            });
 
-						// 【普通文件模式】：创建横向容器
-						const row = document.createElement('div');
-						row.className = 'file-action-row';
+            // 【普通文件模式】：创建横向容器
+            const row = document.createElement("div");
+            row.className = "file-action-row";
 
-						if (isSent) {
-							// 发送方（靠右）：分享按钮在左，文件信息在右
-							row.appendChild(shareBtn);
-							while (fileContainer.firstChild) {
-								row.appendChild(fileContainer.firstChild);
-							}
-						} else {
-							// 接收方（靠左）：文件信息在左，分享按钮在右
-							while (fileContainer.firstChild) {
-								row.appendChild(fileContainer.firstChild);
-							}
-							row.appendChild(shareBtn);
-						}
-						fileContainer.appendChild(row);
-					} else {
-						// 桌面端：点击打开文件位置
-						fileContainer.addEventListener('click', () => openFileLocation(message.file_path));
-					}
-				}
-			} else {
-				// Web 端：点击下载文件
-				if (message.file_id) {
-					fileContainer.addEventListener('click', () => downloadFile(message.file_id, message.file_name || message.content));
-				}
-			}
-		}
-	} else {
-		const textSpan = document.createElement('span');
-		textSpan.className = 'message-text';
-		textSpan.textContent = message.content;
-		contentDiv.appendChild(textSpan);
+            if (isSent) {
+              // 发送方（靠右）：分享按钮在左，文件信息在右
+              row.appendChild(shareBtn);
+              while (fileContainer.firstChild) {
+                row.appendChild(fileContainer.firstChild);
+              }
+            } else {
+              // 接收方（靠左）：文件信息在左，分享按钮在右
+              while (fileContainer.firstChild) {
+                row.appendChild(fileContainer.firstChild);
+              }
+              row.appendChild(shareBtn);
+            }
+            fileContainer.appendChild(row);
+          } else {
+            // 桌面端：点击打开文件位置
+            fileContainer.addEventListener(
+              "click",
+              () => openFileLocation(message.file_path),
+            );
+          }
+        }
+      } else {
+        // Web 端：点击下载文件
+        if (message.file_id) {
+          fileContainer.addEventListener(
+            "click",
+            () =>
+              downloadFile(
+                message.file_id,
+                message.file_name || message.content,
+              ),
+          );
+        }
+      }
+    }
+  } else {
+    const textSpan = document.createElement("span");
+    textSpan.className = "message-text";
+    textSpan.textContent = message.content;
+    contentDiv.appendChild(textSpan);
 
-		// 如果消息是pending状态，添加特殊样式
-		if (message.status === 'pending') {
-			const statusDiv = document.createElement('div');
-			statusDiv.className = 'message-pending';
-			statusDiv.textContent = '待发送...';
-			contentDiv.appendChild(statusDiv);
-		}
-	}
+    // 如果消息是pending状态，添加特殊样式
+    if (message.status === "pending") {
+      const statusDiv = document.createElement("div");
+      statusDiv.className = "message-pending";
+      statusDiv.textContent = "待发送...";
+      contentDiv.appendChild(statusDiv);
+      contentDiv.classList.add("is-pending-wrapper");
+    }
+  }
 
-	const timeDiv = document.createElement('div');
-	timeDiv.className = 'message-time';
-	const date = new Date(message.timestamp * 1000);
-	timeDiv.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const timeDiv = document.createElement("div");
+  timeDiv.className = "message-time";
+  const date = new Date(message.timestamp * 1000);
+  timeDiv.textContent = date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 
-	messageDiv.appendChild(contentDiv);
-	messageDiv.appendChild(timeDiv);
+  messageDiv.appendChild(contentDiv);
+  messageDiv.appendChild(timeDiv);
 
-	// ============================================================
-	// 适配懒加载和新消息的多选模式
-	// ============================================================
-	if (window.selectMode && window.selectMode.active) {
-		// 1. 给新生成的消息添加 selectable 类
-		messageDiv.classList.add('selectable');
+  // ============================================================
+  // 适配懒加载和新消息的多选模式
+  // ============================================================
+  if (window.selectMode && window.selectMode.active) {
+    // 1. 给新生成的消息添加 selectable 类
+    messageDiv.classList.add("selectable");
 
-		// 2. 立即添加复选框和监听器
-		addSelectCheckbox(messageDiv);
+    // 2. 立即添加复选框和监听器
+    addSelectCheckbox(messageDiv);
 
-		// 3. 保持选中状态（比如这是刚刚加载出来的历史消息，
-		//    但在逻辑上它之前被选中过），可以在这里判断 id 是否在 selectedMessages 里
-		if (message.id && window.selectMode.selectedMessages.has(parseInt(message.id))) {
-			messageDiv.classList.add('selected');
-			const checkbox = messageDiv.querySelector('.select-checkbox');
-			if (checkbox) checkbox.checked = true;
-		}
-	}
-	// ============================================================
+    // 3. 保持选中状态（比如这是刚刚加载出来的历史消息，
+    //    但在逻辑上它之前被选中过），可以在这里判断 id 是否在 selectedMessages 里
+    if (
+      message.id && window.selectMode.selectedMessages.has(parseInt(message.id))
+    ) {
+      messageDiv.classList.add("selected");
+      const checkbox = messageDiv.querySelector(".select-checkbox");
+      if (checkbox) checkbox.checked = true;
+    }
+  }
+  // ============================================================
 
-	return messageDiv;
+  return messageDiv;
 }
 
 // 接收到新消息
 function onReceiveMessage(message) {
-	console.log('[UI] ========== onReceiveMessage 被调用 ==========');
-	console.log('[UI] 消息内容:', JSON.stringify(message, null, 2));
-	console.log('[UI] 当前聊天对象:', window.currentChatPeer);
+  console.log("[UI] ========== onReceiveMessage 被调用 ==========");
+  console.log("[UI] 消息内容:", JSON.stringify(message, null, 2));
+  console.log("[UI] 当前聊天对象:", window.currentChatPeer);
 
-	// 如果正在和发送者聊天
-	if (window.currentChatPeer && window.currentChatPeer.id === message.from_id) {
-		console.log('[UI] ✓ 匹配当前聊天对象');
+  // 如果正在和发送者聊天
+  if (window.currentChatPeer && window.currentChatPeer.id === message.from_id) {
+    console.log("[UI] ✓ 匹配当前聊天对象");
 
-		// 检查是否是文件状态更新（downloading -> accepted/pending）
-		if (message.msg_type === 'file' && message.file_status !== 'downloading') {
-			// 刷新聊天历史以更新状态，保持滚动位置
-			console.log('[UI] 文件状态更新 (' + message.file_status + ')，刷新聊天历史');
-			loadChatHistory(window.currentChatPeer.id, true);
-		} else {
-			// 直接显示新消息（增量添加）
-			console.log('[UI] 直接显示新消息 (msg_type=' + message.msg_type + ', file_status=' + message.file_status + ')');
+    // 检查是否是文件状态更新（downloading -> accepted/pending）
+    if (message.msg_type === "file" && message.file_status !== "downloading") {
+      // 刷新聊天历史以更新状态，保持滚动位置
+      console.log(
+        "[UI] 文件状态更新 (" + message.file_status + ")，刷新聊天历史",
+      );
+      loadChatHistory(window.currentChatPeer.id, true);
+    } else {
+      // 直接显示新消息（增量添加）
+      console.log(
+        "[UI] 直接显示新消息 (msg_type=" + message.msg_type + ", file_status=" +
+          message.file_status + ")",
+      );
 
-			const chatMessages = document.getElementById('chat-messages');
-			const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 100;
+      const chatMessages = document.getElementById("chat-messages");
+      const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
+          chatMessages.clientHeight < 100;
 
-			addMessageToChat(message, false);
+      addMessageToChat(message, false);
 
-			// 只有在底部时才滚动
-			if (wasAtBottom) {
-				// 使用 setTimeout 确保 DOM 更新后再滚动
-				setTimeout(async () => {
-					await scrollToBottom();
-				}, 50);
-			} else {
-				// 如果用户往上翻看历史记录时来新消息了，点亮小红点
-				console.log('[UI] 用户不在底部，显示未读红点');
-				const unreadDot = document.getElementById('unread-dot');
-				const scrollBtn = document.getElementById('scroll-to-bottom-btn');
-				console.log('[UI] unreadDot:', unreadDot, 'scrollBtn:', scrollBtn);
-				if (unreadDot && scrollBtn) {
-					scrollBtn.classList.add('show');
-					unreadDot.classList.add('show');
-					console.log('[UI] 已添加 show 类到按钮和红点');
-				} else {
-					console.warn('[UI] 找不到未读红点或滚动按钮元素');
-				}
-			}
-		}
-	} else {
-		console.log('[UI] ✗ 不匹配当前聊天对象');
-		const userLi = document.querySelector(`#user-list li[data-id="${message.from_id}"]`);
-		if (userLi) {
-			userLi.classList.add('has-unread');
-			// 把有新消息的用户置顶排到列表最上面，体验更好
-			const list = document.getElementById('user-list');
-			list.prepend(userLi);
-		}
-		console.log('[UI]   - message.from_id:', message.from_id);
-		console.log('[UI]   - currentChatPeer.id:', window.currentChatPeer ? window.currentChatPeer.id : 'null');
-	}
+      // 只有在底部时才滚动
+      if (wasAtBottom) {
+        // 使用 setTimeout 确保 DOM 更新后再滚动
+        setTimeout(async () => {
+          await scrollToBottom();
+        }, 50);
+      } else {
+        // 如果用户往上翻看历史记录时来新消息了，点亮小红点
+        console.log("[UI] 用户不在底部，显示未读红点");
+        const unreadDot = document.getElementById("unread-dot");
+        const scrollBtn = document.getElementById("scroll-to-bottom-btn");
+        console.log("[UI] unreadDot:", unreadDot, "scrollBtn:", scrollBtn);
+        if (unreadDot && scrollBtn) {
+          scrollBtn.classList.add("show");
+          unreadDot.classList.add("show");
+          console.log("[UI] 已添加 show 类到按钮和红点");
+        } else {
+          console.warn("[UI] 找不到未读红点或滚动按钮元素");
+        }
+      }
+    }
+  } else {
+    console.log("[UI] ✗ 不匹配当前聊天对象");
+    const userLi = document.querySelector(
+      `#user-list li[data-id="${message.from_id}"]`,
+    );
+    if (userLi) {
+      userLi.classList.add("has-unread");
+      // 把有新消息的用户置顶排到列表最上面，体验更好
+      const list = document.getElementById("user-list");
+      list.prepend(userLi);
+    }
+    console.log("[UI]   - message.from_id:", message.from_id);
+    console.log(
+      "[UI]   - currentChatPeer.id:",
+      window.currentChatPeer ? window.currentChatPeer.id : "null",
+    );
+  }
 
-	console.log('[UI] ==========================================');
+  console.log("[UI] ==========================================");
 }
-
 
 // 通过文件路径发送文件（桌面端零拷贝，直接从硬盘读取）
 async function sendFileByPath(filePath) {
-	if (!window.currentChatPeer) return;
+  if (!window.currentChatPeer) return;
 
-	const tauri = window.__TAURI__;
+  const tauri = window.__TAURI__;
 
-	if (!tauri) {
-		console.error('[UI] sendFileByPath 只能在桌面端使用');
-		return;
-	}
+  if (!tauri) {
+    console.error("[UI] sendFileByPath 只能在桌面端使用");
+    return;
+  }
 
-	console.log('[UI] 通过路径发送文件（零拷贝）:', filePath);
+  console.log("[UI] 通过路径发送文件（零拷贝）:", filePath);
 
-	try {
-		// 处理 file:// URI 格式
-		let actualPath = filePath;
-		if (filePath.startsWith('file://')) {
-			// 移除 file:// 前缀并解码 URL 编码
-			actualPath = decodeURIComponent(filePath.substring(7));
-			console.log('[UI] 转换 URI 为路径:', actualPath);
-		}
+  try {
+    // 处理 file:// URI 格式
+    let actualPath = filePath;
+    if (filePath.startsWith("file://")) {
+      // 移除 file:// 前缀并解码 URL 编码
+      actualPath = decodeURIComponent(filePath.substring(7));
+      console.log("[UI] 转换 URI 为路径:", actualPath);
+    }
 
-		// 获取文件名
-		const fileName = actualPath.split(/[\\/]/).pop();
+    // 获取文件名
+    const fileName = actualPath.split(/[\\/]/).pop();
 
-		// 获取文件大小
-		let fileSize = 0;
-		try {
-			const metadata = await tauri.fs.stat(actualPath);
-			fileSize = metadata.size;
-		} catch (e) {
-			console.warn('[UI] 无法获取文件大小:', e);
-		}
+    // 获取文件大小
+    let fileSize = 0;
+    try {
+      const metadata = await tauri.fs.stat(actualPath);
+      fileSize = metadata.size;
+    } catch (e) {
+      console.warn("[UI] 无法获取文件大小:", e);
+    }
 
-		// 显示上传中的临时消息
-		const tempFileId = 'temp_' + Date.now();
-		addMessageToChat({
-			msg_type: 'file',
-			from_id: 'me',
-			content: fileName,
-			file_name: fileName,
-			file_size: fileSize,
-			file_id: tempFileId,
-			file_status: 'uploading',
-			timestamp: Date.now() / 1000
-		}, true);
+    // 显示上传中的临时消息
+    const tempFileId = "temp_" + Date.now();
+    addMessageToChat({
+      msg_type: "file",
+      from_id: "me",
+      content: fileName,
+      file_name: fileName,
+      file_size: fileSize,
+      file_id: tempFileId,
+      file_status: "uploading",
+      timestamp: Date.now() / 1000,
+    }, true);
 
-		// 直接调用 send_file 命令，传递文件路径
-		// Rust 会直接从硬盘读取文件，零拷贝
-		const result = await apiSendFile(
-			window.currentChatPeer.id,
-			window.currentChatPeer.addr,
-			null,
-			actualPath
-		);
+    // 直接调用 send_file 命令，传递文件路径
+    // Rust 会直接从硬盘读取文件，零拷贝
+    const result = await apiSendFile(
+      window.currentChatPeer.id,
+      window.currentChatPeer.addr,
+      null,
+      actualPath,
+    );
 
-		// 上传完成，刷新聊天历史
-		if (window.currentChatPeer) {
-			await loadChatHistory(window.currentChatPeer.id);
-		}
+    // 上传完成，刷新聊天历史
+    if (window.currentChatPeer) {
+      await loadChatHistory(window.currentChatPeer.id);
+    }
 
-		// 滚动到底部
-		await scrollToBottom();
+    // 滚动到底部
+    await scrollToBottom();
 
-		console.log('[UI] 文件发送成功（零拷贝）');
-	} catch (e) {
-		console.error('[UI] 文件发送失败:', e);
-		alert('文件发送失败: ' + e.message);
-		// 刷新聊天历史以移除失败的消息
-		if (window.currentChatPeer) {
-			await loadChatHistory(window.currentChatPeer.id);
-		}
-	}
+    console.log("[UI] 文件发送成功（零拷贝）");
+  } catch (e) {
+    console.error("[UI] 文件发送失败:", e);
+    alert("文件发送失败: " + e.message);
+    // 刷新聊天历史以移除失败的消息
+    if (window.currentChatPeer) {
+      await loadChatHistory(window.currentChatPeer.id);
+    }
+  }
 }
 
 // 发送文件
 async function sendFile(file) {
-	if (!window.currentChatPeer) return;
+  if (!window.currentChatPeer) return;
 
-	const tauri = window.__TAURI__;
+  const tauri = window.__TAURI__;
 
-	if (tauri) {
-		// 桌面端
-		console.log('[UI] 桌面端发送文件');
+  if (tauri) {
+    // 桌面端
+    console.log("[UI] 桌面端发送文件");
 
-		// 如果传入了 file 参数（拖拽或粘贴），需要特殊处理
-		if (file) {
-			console.log('[UI] 处理拖拽/粘贴的文件:', file.name, file.size);
+    // 如果传入了 file 参数（拖拽或粘贴），需要特殊处理
+    if (file) {
+      console.log("[UI] 处理拖拽/粘贴的文件:", file.name, file.size);
 
-			// 桌面端拖拽/粘贴时，我们需要先将文件保存到临时目录
-			// 然后再调用 send_file 命令
-			try {
-				// 显示上传中的临时消息
-				const tempFileId = 'temp_' + Date.now();
-				addMessageToChat({
-					msg_type: 'file',
-					from_id: 'me',
-					content: file.name,
-					file_name: file.name,
-					file_size: file.size,
-					file_id: tempFileId,
-					file_status: 'uploading',
-					timestamp: Date.now() / 1000
-				}, true);
+      // 桌面端拖拽/粘贴时，我们需要先将文件保存到临时目录
+      // 然后再调用 send_file 命令
+      try {
+        // 显示上传中的临时消息
+        const tempFileId = "temp_" + Date.now();
+        addMessageToChat({
+          msg_type: "file",
+          from_id: "me",
+          content: file.name,
+          file_name: file.name,
+          file_size: file.size,
+          file_id: tempFileId,
+          file_status: "uploading",
+          timestamp: Date.now() / 1000,
+        }, true);
 
-				// 读取文件内容
-				const arrayBuffer = await file.arrayBuffer();
-				const uint8Array = new Uint8Array(arrayBuffer);
+        // 读取文件内容
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
 
-				// 获取临时目录路径
-				const tempDir = await tauri.path.tempDir();
-				const tempFilePath = await tauri.path.join(tempDir, file.name);
+        // 获取临时目录路径
+        const tempDir = await tauri.path.tempDir();
+        const tempFilePath = await tauri.path.join(tempDir, file.name);
 
-				// 写入临时文件
-				await tauri.fs.writeFile(tempFilePath, uint8Array);
-				console.log('[UI] 文件已保存到临时目录:', tempFilePath);
+        // 写入临时文件
+        await tauri.fs.writeFile(tempFilePath, uint8Array);
+        console.log("[UI] 文件已保存到临时目录:", tempFilePath);
 
-				// 调用 send_file 命令
-				const result = await apiSendFile(
-					window.currentChatPeer.id,
-					window.currentChatPeer.addr,
-					null,
-					tempFilePath  // 传递临时文件路径
-				);
+        // 调用 send_file 命令
+        const result = await apiSendFile(
+          window.currentChatPeer.id,
+          window.currentChatPeer.addr,
+          null,
+          tempFilePath, // 传递临时文件路径
+        );
 
-				// 上传完成，刷新聊天历史
-				if (window.currentChatPeer) {
-					await loadChatHistory(window.currentChatPeer.id);
-				}
+        // 上传完成，刷新聊天历史
+        if (window.currentChatPeer) {
+          await loadChatHistory(window.currentChatPeer.id);
+        }
 
-				// 滚动到底部
-				await scrollToBottom();
+        // 滚动到底部
+        await scrollToBottom();
 
-				// 删除临时文件
-				try {
-					await tauri.fs.remove(tempFilePath);
-					console.log('[UI] 临时文件已删除');
-				} catch (e) {
-					console.warn('[UI] 删除临时文件失败:', e);
-				}
+        // 删除临时文件
+        try {
+          await tauri.fs.remove(tempFilePath);
+          console.log("[UI] 临时文件已删除");
+        } catch (e) {
+          console.warn("[UI] 删除临时文件失败:", e);
+        }
 
-				console.log('[UI] 文件发送成功');
-			} catch (e) {
-				console.error('[UI] 文件发送失败:', e);
-				alert('文件发送失败: ' + e.message);
-				// 刷新聊天历史以移除失败的消息
-				if (window.currentChatPeer) {
-					await loadChatHistory(window.currentChatPeer.id);
-				}
-			}
-		} else {
-			// 没有传入 file 参数，使用文件对话框选择
-			try {
-				// 先显示上传中的临时消息
-				const tempFileId = 'temp_' + Date.now();
-				addMessageToChat({
-					msg_type: 'file',
-					from_id: 'me',
-					content: '准备发送...',
-					file_name: '准备发送...',
-					file_size: 0,
-					file_id: tempFileId,
-					file_status: 'uploading',
-					timestamp: Date.now() / 1000
-				}, true);
+        console.log("[UI] 文件发送成功");
+      } catch (e) {
+        console.error("[UI] 文件发送失败:", e);
+        alert("文件发送失败: " + e.message);
+        // 刷新聊天历史以移除失败的消息
+        if (window.currentChatPeer) {
+          await loadChatHistory(window.currentChatPeer.id);
+        }
+      }
+    } else {
+      // 没有传入 file 参数，使用文件对话框选择
+      try {
+        // 先显示上传中的临时消息
+        const tempFileId = "temp_" + Date.now();
+        addMessageToChat({
+          msg_type: "file",
+          from_id: "me",
+          content: "准备发送...",
+          file_name: "准备发送...",
+          file_size: 0,
+          file_id: tempFileId,
+          file_status: "uploading",
+          timestamp: Date.now() / 1000,
+        }, true);
 
-				const result = await apiSendFile(
-					window.currentChatPeer.id,
-					window.currentChatPeer.addr,
-					null  // 桌面端不需要
-				);
+        const result = await apiSendFile(
+          window.currentChatPeer.id,
+          window.currentChatPeer.addr,
+          null, // 桌面端不需要
+        );
 
-				// 上传完成，刷新聊天历史以显示正确的文件信息
-				if (window.currentChatPeer) {
-					await loadChatHistory(window.currentChatPeer.id);
-				}
+        // 上传完成，刷新聊天历史以显示正确的文件信息
+        if (window.currentChatPeer) {
+          await loadChatHistory(window.currentChatPeer.id);
+        }
 
-				// 滚动到底部
-				await scrollToBottom();
+        // 滚动到底部
+        await scrollToBottom();
 
-				console.log('[UI] 文件发送成功');
-			} catch (e) {
-				console.error('[UI] 文件发送失败:', e);
-				alert('文件发送失败: ' + e.message);
-				// 刷新聊天历史以移除失败的消息
-				if (window.currentChatPeer) {
-					await loadChatHistory(window.currentChatPeer.id);
-				}
-			}
-		}
-	} else {
-		// Web 端 - 使用传入的 file 参数
-		console.log('[UI] ========== Web 端发送文件 ==========');
-		console.log('[UI] 文件名:', file.name);
-		console.log('[UI] 文件大小:', file.size);
-		console.log('[UI] 目标地址:', window.currentChatPeer.addr);
+        console.log("[UI] 文件发送成功");
+      } catch (e) {
+        console.error("[UI] 文件发送失败:", e);
+        alert("文件发送失败: " + e.message);
+        // 刷新聊天历史以移除失败的消息
+        if (window.currentChatPeer) {
+          await loadChatHistory(window.currentChatPeer.id);
+        }
+      }
+    }
+  } else {
+    // Web 端 - 使用传入的 file 参数
+    console.log("[UI] ========== Web 端发送文件 ==========");
+    console.log("[UI] 文件名:", file.name);
+    console.log("[UI] 文件大小:", file.size);
+    console.log("[UI] 目标地址:", window.currentChatPeer.addr);
 
-		// 立即显示发送中的消息
-		const tempFileId = 'temp_' + Date.now();
-		const timestamp = Math.floor(Date.now() / 1000);
+    // 立即显示发送中的消息
+    const tempFileId = "temp_" + Date.now();
+    const timestamp = Math.floor(Date.now() / 1000);
 
-		console.log('[UI] 1. 在前端显示上传中消息');
-		addMessageToChat({
-			msg_type: 'file',
-			from_id: 'me',
-			content: file.name,
-			file_name: file.name,
-			file_size: file.size,
-			file_id: tempFileId,
-			file_status: 'uploading',  // 上传中状态
-			timestamp: timestamp
-		}, true);
+    console.log("[UI] 1. 在前端显示上传中消息");
+    addMessageToChat({
+      msg_type: "file",
+      from_id: "me",
+      content: file.name,
+      file_name: file.name,
+      file_size: file.size,
+      file_id: tempFileId,
+      file_status: "uploading", // 上传中状态
+      timestamp: timestamp,
+    }, true);
 
-		try {
-			// 先在本地数据库创建上传记录
-			console.log('[UI] 2. 调用 /api/create_upload_record');
-			const createResp = await fetch('/api/create_upload_record', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					file_name: file.name,
-					timestamp: timestamp,
-					receiver_id: window.currentChatPeer.id  // 添加接收者ID
-				})
-			});
+    try {
+      // 先在本地数据库创建上传记录
+      console.log("[UI] 2. 调用 /api/create_upload_record");
+      const createResp = await fetch("/api/create_upload_record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_name: file.name,
+          timestamp: timestamp,
+          receiver_id: window.currentChatPeer.id, // 添加接收者ID
+        }),
+      });
 
-			if (!createResp.ok) {
-				throw new Error('创建上传记录失败: ' + createResp.status);
-			}
+      if (!createResp.ok) {
+        throw new Error("创建上传记录失败: " + createResp.status);
+      }
 
-			console.log('[UI] ✓ 上传记录已创建');
+      console.log("[UI] ✓ 上传记录已创建");
 
-			console.log('[UI] 3. 开始上传文件到对方');
-			const result = await apiSendFile(
-				window.currentChatPeer.id,
-				window.currentChatPeer.addr,
-				file
-			);
+      console.log("[UI] 3. 开始上传文件到对方");
+      const result = await apiSendFile(
+        window.currentChatPeer.id,
+        window.currentChatPeer.addr,
+        file,
+      );
 
-			console.log('[UI] ✓ 文件上传成功');
+      console.log("[UI] ✓ 文件上传成功");
 
-			// 上传成功，更新本地数据库状态为 'sent'
-			console.log('[UI] 4. 更新上传状态为 sent');
-			const updateResp = await fetch('/api/update_upload_status', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					file_name: file.name,
-					timestamp: timestamp,
-					status: 'sent'
-				})
-			});
+      // 上传成功，更新本地数据库状态为 'sent'
+      console.log("[UI] 4. 更新上传状态为 sent");
+      const updateResp = await fetch("/api/update_upload_status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_name: file.name,
+          timestamp: timestamp,
+          status: "sent",
+        }),
+      });
 
-			if (!updateResp.ok) {
-				console.warn('[UI] ⚠ 更新上传状态失败:', updateResp.status);
-			} else {
-				console.log('[UI] ✓ 上传状态已更新');
-			}
+      if (!updateResp.ok) {
+        console.warn("[UI] ⚠ 更新上传状态失败:", updateResp.status);
+      } else {
+        console.log("[UI] ✓ 上传状态已更新");
+      }
 
-			// 刷新聊天历史以显示正确的状态
-			console.log('[UI] 5. 刷新聊天历史');
-			if (window.currentChatPeer) {
-				await loadChatHistory(window.currentChatPeer.id);
-			}
+      // 刷新聊天历史以显示正确的状态
+      console.log("[UI] 5. 刷新聊天历史");
+      if (window.currentChatPeer) {
+        await loadChatHistory(window.currentChatPeer.id);
+      }
 
-			// 滚动到底部
-			await scrollToBottom();
+      // 滚动到底部
+      await scrollToBottom();
 
-			console.log('[UI] ========== 文件发送完成 ==========');
-		} catch (e) {
-			console.error('[UI] ✗ 文件发送失败:', e);
-			alert('文件发送失败: ' + e.message);
-			// 删除失败的上传记录
-			console.log('[UI] 删除失败的上传记录');
-			await fetch('/api/delete_upload_record', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					file_name: file.name,
-					timestamp: timestamp
-				})
-			});
-			// 刷新聊天历史以移除失败的消息
-			if (window.currentChatPeer) {
-				await loadChatHistory(window.currentChatPeer.id);
-			}
-		}
-	}
+      console.log("[UI] ========== 文件发送完成 ==========");
+    } catch (e) {
+      console.error("[UI] ✗ 文件发送失败:", e);
+      alert("文件发送失败: " + e.message);
+      // 删除失败的上传记录
+      console.log("[UI] 删除失败的上传记录");
+      await fetch("/api/delete_upload_record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_name: file.name,
+          timestamp: timestamp,
+        }),
+      });
+      // 刷新聊天历史以移除失败的消息
+      if (window.currentChatPeer) {
+        await loadChatHistory(window.currentChatPeer.id);
+      }
+    }
+  }
 }
 
 // 格式化文件大小
 function formatFileSize(bytes) {
-	if (bytes < 1024) return bytes + ' B';
-	if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-	return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
 // 下载文件
 async function downloadFile(fileId, fileName) {
-	try {
-		const url = `/api/download/${fileId}`;
+  try {
+    const url = `/api/download/${fileId}`;
 
-		// 使用 fetch 来获取下载进度
-		const response = await fetch(url);
-		if (!response.ok) {
-			throw new Error(`HTTP ${response.status}`);
-		}
+    // 使用 fetch 来获取下载进度
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
 
-		const contentLength = response.headers.get('content-length');
-		const totalSize = parseInt(contentLength, 10);
+    const contentLength = response.headers.get("content-length");
+    const totalSize = parseInt(contentLength, 10);
 
-		const reader = response.body.getReader();
-		const chunks = [];
-		let receivedLength = 0;
-		const startTime = Date.now();
-		let lastLogTime = startTime;
+    const reader = response.body.getReader();
+    const chunks = [];
+    let receivedLength = 0;
+    const startTime = Date.now();
+    let lastLogTime = startTime;
 
-		// 更新下载速度显示
-		const updateDownloadSpeed = () => {
-			const elapsed = (Date.now() - startTime) / 1000;
-			if (elapsed > 0) {
-				const speed = receivedLength / (1024 * 1024) / elapsed;
-				const statusDivs = document.querySelectorAll('.file-downloading');
-				statusDivs.forEach(div => {
-					div.textContent = Math.round(speed) + ' MB/s';
-				});
-			}
-		};
+    // 更新下载速度显示
+    const updateDownloadSpeed = () => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      if (elapsed > 0) {
+        const speed = receivedLength / (1024 * 1024) / elapsed;
+        const statusDivs = document.querySelectorAll(".file-downloading");
+        statusDivs.forEach((div) => {
+          div.textContent = Math.round(speed) + " MB/s";
+        });
+      }
+    };
 
-		while (true) {
-			const { done, value } = await reader.read();
+    while (true) {
+      const { done, value } = await reader.read();
 
-			if (done) break;
+      if (done) break;
 
-			chunks.push(value);
-			receivedLength += value.length;
+      chunks.push(value);
+      receivedLength += value.length;
 
-			// 每秒更新一次速度显示
-			const now = Date.now();
-			if (now - lastLogTime > 1000) {
-				updateDownloadSpeed();
-				lastLogTime = now;
-			}
-		}
+      // 每秒更新一次速度显示
+      const now = Date.now();
+      if (now - lastLogTime > 1000) {
+        updateDownloadSpeed();
+        lastLogTime = now;
+      }
+    }
 
-		// 合并所有分块
-		const chunksAll = new Uint8Array(receivedLength);
-		let position = 0;
-		for (const chunk of chunks) {
-			chunksAll.set(chunk, position);
-			position += chunk.length;
-		}
+    // 合并所有分块
+    const chunksAll = new Uint8Array(receivedLength);
+    let position = 0;
+    for (const chunk of chunks) {
+      chunksAll.set(chunk, position);
+      position += chunk.length;
+    }
 
-		// 创建 Blob 并下载
-		const blob = new Blob([chunksAll]);
-		const a = document.createElement('a');
-		a.href = URL.createObjectURL(blob);
-		a.download = fileName;
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
-		URL.revokeObjectURL(a.href);
+    // 创建 Blob 并下载
+    const blob = new Blob([chunksAll]);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
 
-		const totalTime = (Date.now() - startTime) / 1000;
-		const avgSpeed = (receivedLength / (1024 * 1024)) / totalTime;
-		console.log('[UI] ✓ 文件下载完成:', fileName, '耗时:', totalTime.toFixed(2), '秒，平均速度:', avgSpeed.toFixed(2), 'MB/s');
-	} catch (e) {
-		console.error('[UI] 下载文件失败:', e);
-		alert('下载失败: ' + e.message);
-	}
+    const totalTime = (Date.now() - startTime) / 1000;
+    const avgSpeed = (receivedLength / (1024 * 1024)) / totalTime;
+    console.log(
+      "[UI] ✓ 文件下载完成:",
+      fileName,
+      "耗时:",
+      totalTime.toFixed(2),
+      "秒，平均速度:",
+      avgSpeed.toFixed(2),
+      "MB/s",
+    );
+  } catch (e) {
+    console.error("[UI] 下载文件失败:", e);
+    alert("下载失败: " + e.message);
+  }
 }
 
 // 打开文件所在位置（仅桌面端）
 async function openFileLocation(filePath) {
-	const tauri = window.__TAURI__;
+  const tauri = window.__TAURI__;
 
-	if (!tauri) {
-		alert('此功能仅在桌面端支持');
-		return;
-	}
+  if (!tauri) {
+    alert("此功能仅在桌面端支持");
+    return;
+  }
 
-	try {
-		await tauri.core.invoke('open_file_location', { filePath: filePath });
-		console.log('[UI] ✓ 打开文件位置:', filePath);
-	} catch (e) {
-		console.error('[UI] 打开文件位置失败:', e);
-		alert('打开文件位置失败: ' + e.message);
-	}
+  try {
+    await tauri.core.invoke("open_file_location", { filePath: filePath });
+    console.log("[UI] ✓ 打开文件位置:", filePath);
+  } catch (e) {
+    console.error("[UI] 打开文件位置失败:", e);
+    alert("打开文件位置失败: " + e.message);
+  }
 }
-
 
 // 初始化设置功能
 function initSettings() {
-	const settingsBtn = document.getElementById('settings-btn');
-	const settingsPanel = document.getElementById('settings-panel');
-	const saveSettingsBtn = document.getElementById('save-settings-btn');
-	const cancelSettingsBtn = document.getElementById('cancel-settings-btn');
-	const choosePathBtn = document.getElementById('choose-path-btn');
-	const downloadPathInput = document.getElementById('download-path-input');
-	const settingsErrorMsg = document.getElementById('settings-error-msg');
-	const settingsSuccessMsg = document.getElementById('settings-success-msg');
+  const settingsBtn = document.getElementById("settings-btn");
+  const settingsPanel = document.getElementById("settings-panel");
+  const saveSettingsBtn = document.getElementById("save-settings-btn");
+  const cancelSettingsBtn = document.getElementById("cancel-settings-btn");
+  const choosePathBtn = document.getElementById("choose-path-btn");
+  const downloadPathInput = document.getElementById("download-path-input");
+  const settingsErrorMsg = document.getElementById("settings-error-msg");
+  const settingsSuccessMsg = document.getElementById("settings-success-msg");
 
-	// 打开/关闭设置面板 - 切换显示/隐藏
-	settingsBtn.addEventListener('click', async () => {
-		if (settingsPanel.style.display === 'block') {
-			// 当前是显示状态，点击后隐藏
-			settingsPanel.style.display = 'none';
-			settingsErrorMsg.textContent = '';
-			settingsSuccessMsg.textContent = '';
-			settingsSuccessMsg.classList.remove('show');
-		} else {
-			// 当前是隐藏状态，点击后显示
-			try {
-				const settings = await apiGetSettings();
-				downloadPathInput.value = settings.download_path;
-				settingsPanel.style.display = 'block';
-				settingsErrorMsg.textContent = '';
-				settingsSuccessMsg.textContent = '';
-				settingsSuccessMsg.classList.remove('show');
-			} catch (e) {
-				settingsErrorMsg.textContent = '加载设置失败: ' + e.message;
-				settingsPanel.style.display = 'block';
-			}
-		}
-	});
+  // 打开/关闭设置面板 - 切换显示/隐藏
+  settingsBtn.addEventListener("click", async () => {
+    if (settingsPanel.style.display === "block") {
+      // 当前是显示状态，点击后隐藏
+      settingsPanel.style.display = "none";
+      settingsErrorMsg.textContent = "";
+      settingsSuccessMsg.textContent = "";
+      settingsSuccessMsg.classList.remove("show");
+    } else {
+      // 当前是隐藏状态，点击后显示
+      try {
+        const settings = await apiGetSettings();
+        downloadPathInput.value = settings.download_path;
+        settingsPanel.style.display = "block";
+        settingsErrorMsg.textContent = "";
+        settingsSuccessMsg.textContent = "";
+        settingsSuccessMsg.classList.remove("show");
+      } catch (e) {
+        settingsErrorMsg.textContent = "加载设置失败: " + e.message;
+        settingsPanel.style.display = "block";
+      }
+    }
+  });
 
-	// 选择路径
-	choosePathBtn.addEventListener('click', async () => {
-		const tauri = window.__TAURI__;
-		const isAndroid = tauri && navigator.userAgent.includes('Android');
+  // 选择路径
+  choosePathBtn.addEventListener("click", async () => {
+    const tauri = window.__TAURI__;
+    const isAndroid = tauri && navigator.userAgent.includes("Android");
 
-		if (isAndroid) {
-			// Android - 显示路径选择面板
-			const androidPathPanel = document.getElementById('android-path-panel');
-			androidPathPanel.style.display = 'block';
-		} else if (tauri) {
-			// 桌面端 - 使用 Tauri 对话框
-			try {
-				const defaultPath = await apiGetDefaultDownloadPath();
-				const selected = await tauri.dialog.open({
-					directory: true,
-					multiple: false,
-					title: '选择下载文件夹',
-					defaultPath: downloadPathInput.value || defaultPath
-				});
+    if (isAndroid) {
+      // Android - 显示路径选择面板
+      const androidPathPanel = document.getElementById("android-path-panel");
+      androidPathPanel.style.display = "block";
+    } else if (tauri) {
+      // 桌面端 - 使用 Tauri 对话框
+      try {
+        const defaultPath = await apiGetDefaultDownloadPath();
+        const selected = await tauri.dialog.open({
+          directory: true,
+          multiple: false,
+          title: "选择下载文件夹",
+          defaultPath: downloadPathInput.value || defaultPath,
+        });
 
-				if (selected) {
-					const path = Array.isArray(selected) ? selected[0] : selected;
-					downloadPathInput.value = path;
-					settingsErrorMsg.textContent = '';
-				}
-			} catch (e) {
-				console.error('[UI] 文件选择器错误:', e);
-				settingsErrorMsg.textContent = '选择路径失败: ' + e.message;
-			}
-		} else {
-			// Web 端 - 只能手动输入
-			const newPath = prompt('请输入下载路径:', downloadPathInput.value);
-			if (newPath) {
-				downloadPathInput.value = newPath;
-			}
-		}
-	});
+        if (selected) {
+          const path = Array.isArray(selected) ? selected[0] : selected;
+          downloadPathInput.value = path;
+          settingsErrorMsg.textContent = "";
+        }
+      } catch (e) {
+        console.error("[UI] 文件选择器错误:", e);
+        settingsErrorMsg.textContent = "选择路径失败: " + e.message;
+      }
+    } else {
+      // Web 端 - 只能手动输入
+      const newPath = prompt("请输入下载路径:", downloadPathInput.value);
+      if (newPath) {
+        downloadPathInput.value = newPath;
+      }
+    }
+  });
 
-	// Android 路径选择面板逻辑
-	const androidPathPanel = document.getElementById('android-path-panel');
-	const pathOptions = document.querySelectorAll('.path-option');
-	const customPathInput = document.getElementById('custom-path-input');
-	const useCustomPathBtn = document.getElementById('use-custom-path-btn');
-	const cancelAndroidPathBtn = document.getElementById('cancel-android-path-btn');
+  // Android 路径选择面板逻辑
+  const androidPathPanel = document.getElementById("android-path-panel");
+  const pathOptions = document.querySelectorAll(".path-option");
+  const customPathInput = document.getElementById("custom-path-input");
+  const useCustomPathBtn = document.getElementById("use-custom-path-btn");
+  const cancelAndroidPathBtn = document.getElementById(
+    "cancel-android-path-btn",
+  );
 
-	pathOptions.forEach(option => {
-		option.addEventListener('click', () => {
-			const path = option.getAttribute('data-path');
-			downloadPathInput.value = path;
-			androidPathPanel.style.display = 'none';
-		});
-	});
+  pathOptions.forEach((option) => {
+    option.addEventListener("click", () => {
+      const path = option.getAttribute("data-path");
+      downloadPathInput.value = path;
+      androidPathPanel.style.display = "none";
+    });
+  });
 
-	useCustomPathBtn.addEventListener('click', () => {
-		const customPath = customPathInput.value.trim();
-		if (customPath) {
-			downloadPathInput.value = customPath;
-			androidPathPanel.style.display = 'none';
-			customPathInput.value = '';
-		}
-	});
+  useCustomPathBtn.addEventListener("click", () => {
+    const customPath = customPathInput.value.trim();
+    if (customPath) {
+      downloadPathInput.value = customPath;
+      androidPathPanel.style.display = "none";
+      customPathInput.value = "";
+    }
+  });
 
-	cancelAndroidPathBtn.addEventListener('click', () => {
-		androidPathPanel.style.display = 'none';
-		customPathInput.value = '';
-	});
+  cancelAndroidPathBtn.addEventListener("click", () => {
+    androidPathPanel.style.display = "none";
+    customPathInput.value = "";
+  });
 
-	// 保存设置
-	saveSettingsBtn.addEventListener('click', async () => {
-		try {
-			settingsErrorMsg.textContent = '';
-			settingsSuccessMsg.textContent = '';
-			settingsSuccessMsg.classList.remove('show');
+  // 保存设置
+  saveSettingsBtn.addEventListener("click", async () => {
+    try {
+      settingsErrorMsg.textContent = "";
+      settingsSuccessMsg.textContent = "";
+      settingsSuccessMsg.classList.remove("show");
 
-			await apiUpdateSettings(
-				downloadPathInput.value
-			);
+      await apiUpdateSettings(
+        downloadPathInput.value,
+      );
 
-			// 显示成功消息
-			settingsSuccessMsg.textContent = '✓ 设置保存成功';
-			settingsSuccessMsg.classList.add('show');
+      // 显示成功消息
+      settingsSuccessMsg.textContent = "✓ 设置保存成功";
+      settingsSuccessMsg.classList.add("show");
 
-			// 1.5秒后自动关闭设置面板
-			setTimeout(() => {
-				settingsPanel.style.display = 'none';
-				settingsSuccessMsg.classList.remove('show');
-			}, 1500);
+      // 1.5秒后自动关闭设置面板
+      setTimeout(() => {
+        settingsPanel.style.display = "none";
+        settingsSuccessMsg.classList.remove("show");
+      }, 1500);
 
-			console.log('[UI] 设置保存成功');
-		} catch (e) {
-			settingsErrorMsg.textContent = '保存失败: ' + e.message;
-		}
-	});
+      console.log("[UI] 设置保存成功");
+    } catch (e) {
+      settingsErrorMsg.textContent = "保存失败: " + e.message;
+    }
+  });
 
-	// 取消
-	cancelSettingsBtn.addEventListener('click', () => {
-		settingsPanel.style.display = 'none';
-		settingsErrorMsg.textContent = '';
-		settingsSuccessMsg.textContent = '';
-		settingsSuccessMsg.classList.remove('show');
-	});
+  // 取消
+  cancelSettingsBtn.addEventListener("click", () => {
+    settingsPanel.style.display = "none";
+    settingsErrorMsg.textContent = "";
+    settingsSuccessMsg.textContent = "";
+    settingsSuccessMsg.classList.remove("show");
+  });
 }
 
 // 初始化主题功能
 function initTheme() {
-	const themeBtn = document.getElementById('theme-btn');
-	const themePanel = document.getElementById('theme-panel');
-	const applyThemeBtn = document.getElementById('apply-theme-btn');
-	const cancelThemeBtn = document.getElementById('cancel-theme-btn');
-	const themeList = document.getElementById('theme-list');
-	const themeErrorMsg = document.getElementById('theme-error-msg');
-	const themeSuccessMsg = document.getElementById('theme-success-msg');
+  const themeBtn = document.getElementById("theme-btn");
+  const themePanel = document.getElementById("theme-panel");
+  const applyThemeBtn = document.getElementById("apply-theme-btn");
+  const cancelThemeBtn = document.getElementById("cancel-theme-btn");
+  const themeList = document.getElementById("theme-list");
+  const themeErrorMsg = document.getElementById("theme-error-msg");
+  const themeSuccessMsg = document.getElementById("theme-success-msg");
 
-	// 打开/关闭主题面板
-	themeBtn.addEventListener('click', async () => {
-		if (themePanel.style.display === 'block') {
-			themePanel.style.display = 'none';
-			themeErrorMsg.textContent = '';
-			themeSuccessMsg.textContent = '';
-			themeSuccessMsg.classList.remove('show');
-		} else {
-			try {
-				await loadThemeList();
-				themePanel.style.display = 'block';
-				themeErrorMsg.textContent = '';
-				themeSuccessMsg.textContent = '';
-				themeSuccessMsg.classList.remove('show');
-			} catch (e) {
-				themeErrorMsg.textContent = '加载主题列表失败: ' + e.message;
-				themePanel.style.display = 'block';
-			}
-		}
-	});
+  // 打开/关闭主题面板
+  themeBtn.addEventListener("click", async () => {
+    if (themePanel.style.display === "block") {
+      themePanel.style.display = "none";
+      themeErrorMsg.textContent = "";
+      themeSuccessMsg.textContent = "";
+      themeSuccessMsg.classList.remove("show");
+    } else {
+      try {
+        await loadThemeList();
+        themePanel.style.display = "block";
+        themeErrorMsg.textContent = "";
+        themeSuccessMsg.textContent = "";
+        themeSuccessMsg.classList.remove("show");
+      } catch (e) {
+        themeErrorMsg.textContent = "加载主题列表失败: " + e.message;
+        themePanel.style.display = "block";
+      }
+    }
+  });
 
-	// 应用主题
-	applyThemeBtn.addEventListener('click', async () => {
-		const selectedTheme = document.querySelector('input[name="theme"]:checked');
-		if (!selectedTheme) {
-			themeErrorMsg.textContent = '请选择一个主题';
-			return;
-		}
+  // 应用主题
+  applyThemeBtn.addEventListener("click", async () => {
+    const selectedTheme = document.querySelector('input[name="theme"]:checked');
+    if (!selectedTheme) {
+      themeErrorMsg.textContent = "请选择一个主题";
+      return;
+    }
 
-		try {
-			themeErrorMsg.textContent = '';
-			themeSuccessMsg.textContent = '';
-			themeSuccessMsg.classList.remove('show');
+    try {
+      themeErrorMsg.textContent = "";
+      themeSuccessMsg.textContent = "";
+      themeSuccessMsg.classList.remove("show");
 
-			await applyTheme(selectedTheme.value);
-			await apiSaveCurrentTheme(selectedTheme.value);
+      await applyTheme(selectedTheme.value);
+      await apiSaveCurrentTheme(selectedTheme.value);
 
-			themeSuccessMsg.textContent = '✓ 主题应用成功';
-			themeSuccessMsg.classList.add('show');
+      themeSuccessMsg.textContent = "✓ 主题应用成功";
+      themeSuccessMsg.classList.add("show");
 
-			setTimeout(() => {
-				themePanel.style.display = 'none';
-				themeSuccessMsg.classList.remove('show');
-			}, 1500);
+      setTimeout(() => {
+        themePanel.style.display = "none";
+        themeSuccessMsg.classList.remove("show");
+      }, 1500);
 
-			console.log('[UI] 主题应用成功:', selectedTheme.value);
-		} catch (e) {
-			themeErrorMsg.textContent = '应用主题失败: ' + e.message;
-			console.error('[UI] 应用主题失败:', e);
-		}
-	});
+      console.log("[UI] 主题应用成功:", selectedTheme.value);
+    } catch (e) {
+      themeErrorMsg.textContent = "应用主题失败: " + e.message;
+      console.error("[UI] 应用主题失败:", e);
+    }
+  });
 
-	// 取消
-	cancelThemeBtn.addEventListener('click', () => {
-		themePanel.style.display = 'none';
-		themeErrorMsg.textContent = '';
-		themeSuccessMsg.textContent = '';
-		themeSuccessMsg.classList.remove('show');
-	});
+  // 取消
+  cancelThemeBtn.addEventListener("click", () => {
+    themePanel.style.display = "none";
+    themeErrorMsg.textContent = "";
+    themeSuccessMsg.textContent = "";
+    themeSuccessMsg.classList.remove("show");
+  });
 
-	// 页面加载时应用保存的主题
-	loadSavedTheme();
+  // 页面加载时应用保存的主题
+  loadSavedTheme();
 }
 
 // 加载主题列表
 async function loadThemeList() {
-	const themeList = document.getElementById('theme-list');
-	const themes = await apiGetThemeList();
-	const currentTheme = await apiGetCurrentTheme();
+  const themeList = document.getElementById("theme-list");
+  const themes = await apiGetThemeList();
+  const currentTheme = await apiGetCurrentTheme();
 
-	themeList.innerHTML = '';
+  themeList.innerHTML = "";
 
-	for (const theme of themes) {
-		const themeItem = document.createElement('div');
-		themeItem.className = 'theme-item';
+  for (const theme of themes) {
+    const themeItem = document.createElement("div");
+    themeItem.className = "theme-item";
 
-		const isSelected = theme.name === currentTheme;
+    const isSelected = theme.name === currentTheme;
 
-		themeItem.innerHTML = `
-            <input type="radio" id="theme-${theme.name}" name="theme" value="${theme.name}" ${isSelected ? 'checked' : ''}>
-            <label for="theme-${theme.name}">${theme.display_name}${theme.is_custom ? ' (自定义)' : ''}</label>
+    themeItem.innerHTML = `
+            <input type="radio" id="theme-${theme.name}" name="theme" value="${theme.name}" ${
+      isSelected ? "checked" : ""
+    }>
+            <label for="theme-${theme.name}">${theme.display_name}${
+      theme.is_custom ? " (自定义)" : ""
+    }</label>
         `;
 
-		if (isSelected) {
-			themeItem.classList.add('active');
-		}
+    if (isSelected) {
+      themeItem.classList.add("active");
+    }
 
-		// 点击整个项目也能选中
-		themeItem.addEventListener('click', (e) => {
-			if (e.target.tagName !== 'INPUT') {
-				const radio = themeItem.querySelector('input[type="radio"]');
-				radio.checked = true;
+    // 点击整个项目也能选中
+    themeItem.addEventListener("click", (e) => {
+      if (e.target.tagName !== "INPUT") {
+        const radio = themeItem.querySelector('input[type="radio"]');
+        radio.checked = true;
 
-				// 更新active状态
-				document.querySelectorAll('.theme-item').forEach(item => item.classList.remove('active'));
-				themeItem.classList.add('active');
-			}
-		});
+        // 更新active状态
+        document.querySelectorAll(".theme-item").forEach((item) =>
+          item.classList.remove("active")
+        );
+        themeItem.classList.add("active");
+      }
+    });
 
-		// 监听radio变化
-		const radio = themeItem.querySelector('input[type="radio"]');
-		radio.addEventListener('change', () => {
-			if (radio.checked) {
-				document.querySelectorAll('.theme-item').forEach(item => item.classList.remove('active'));
-				themeItem.classList.add('active');
-			}
-		});
+    // 监听radio变化
+    const radio = themeItem.querySelector('input[type="radio"]');
+    radio.addEventListener("change", () => {
+      if (radio.checked) {
+        document.querySelectorAll(".theme-item").forEach((item) =>
+          item.classList.remove("active")
+        );
+        themeItem.classList.add("active");
+      }
+    });
 
-		themeList.appendChild(themeItem);
-	}
+    themeList.appendChild(themeItem);
+  }
 
-	console.log('[UI] 加载了', themes.length, '个主题，当前主题:', currentTheme);
+  console.log("[UI] 加载了", themes.length, "个主题，当前主题:", currentTheme);
 }
 
 // 应用主题
 async function applyTheme(themeName) {
-	// 移除现有的自定义主题样式
-	const existingCustomStyle = document.getElementById('custom-theme-style');
-	if (existingCustomStyle) {
-		existingCustomStyle.remove();
-	}
+  // 移除现有的自定义主题样式
+  const existingCustomStyle = document.getElementById("custom-theme-style");
+  if (existingCustomStyle) {
+    existingCustomStyle.remove();
+  }
 
-	// 获取默认样式表
-	const defaultStylesheet = document.querySelector('link[href="css/style.css"]');
+  // 获取默认样式表
+  const defaultStylesheet = document.querySelector(
+    'link[href="css/style.css"]',
+  );
 
-	if (themeName === 'default') {
-		// 恢复默认主题：启用默认CSS
-		if (defaultStylesheet) {
-			defaultStylesheet.disabled = false;
-		}
-		console.log('[UI] 应用默认主题');
-		return;
-	}
+  if (themeName === "default") {
+    // 恢复默认主题：启用默认CSS
+    if (defaultStylesheet) {
+      defaultStylesheet.disabled = false;
+    }
+    console.log("[UI] 应用默认主题");
+    return;
+  }
 
-	// 获取自定义主题CSS
-	const css = await apiGetThemeCss(themeName);
+  // 获取自定义主题CSS
+  const css = await apiGetThemeCss(themeName);
 
-	// 禁用默认样式表
-	if (defaultStylesheet) {
-		defaultStylesheet.disabled = true;
-	}
+  // 禁用默认样式表
+  if (defaultStylesheet) {
+    defaultStylesheet.disabled = true;
+  }
 
-	// 创建新的style元素
-	const styleElement = document.createElement('style');
-	styleElement.id = 'custom-theme-style';
-	styleElement.textContent = css;
+  // 创建新的style元素
+  const styleElement = document.createElement("style");
+  styleElement.id = "custom-theme-style";
+  styleElement.textContent = css;
 
-	// 添加到head中
-	document.head.appendChild(styleElement);
+  // 添加到head中
+  document.head.appendChild(styleElement);
 
-	console.log('[UI] 应用自定义主题:', themeName, '(已禁用默认CSS)');
+  console.log("[UI] 应用自定义主题:", themeName, "(已禁用默认CSS)");
 }
 
 // 加载保存的主题
 async function loadSavedTheme() {
-	try {
-		const currentTheme = await apiGetCurrentTheme();
-		if (currentTheme && currentTheme !== 'default') {
-			await applyTheme(currentTheme);
-			console.log('[UI] 自动加载保存的主题:', currentTheme);
-		}
-	} catch (e) {
-		console.warn('[UI] 加载保存的主题失败:', e);
-	}
+  try {
+    const currentTheme = await apiGetCurrentTheme();
+    if (currentTheme && currentTheme !== "default") {
+      await applyTheme(currentTheme);
+      console.log("[UI] 自动加载保存的主题:", currentTheme);
+    }
+  } catch (e) {
+    console.warn("[UI] 加载保存的主题失败:", e);
+  }
 }
 
 // 初始化拖拽文件功能
 function initDragAndDrop(chatContainer) {
-	console.log('[UI] 初始化拖拽文件功能');
+  console.log("[UI] 初始化拖拽文件功能");
 
-	const tauri = window.__TAURI__;
+  const tauri = window.__TAURI__;
 
-	if (tauri) {
-		// 桌面端：使用 Tauri 的原生拖拽事件（可以获取文件路径）
-		console.log('[UI] 使用 Tauri 原生拖拽事件');
+  if (tauri) {
+    // 桌面端：使用 Tauri 的原生拖拽事件（可以获取文件路径）
+    console.log("[UI] 使用 Tauri 原生拖拽事件");
 
-		// 监听 Tauri 的文件拖放事件
-		tauri.event.listen('tauri://drag-drop', async (event) => {
-			console.log('[UI] Tauri 拖放事件:', event);
+    // 监听 Tauri 的文件拖放事件
+    tauri.event.listen("tauri://drag-drop", async (event) => {
+      console.log("[UI] Tauri 拖放事件:", event);
 
-			if (!window.currentChatPeer) {
-				console.log('[UI] 没有打开聊天窗口，忽略拖放');
-				return;
-			}
+      if (!window.currentChatPeer) {
+        console.log("[UI] 没有打开聊天窗口，忽略拖放");
+        return;
+      }
 
-			const paths = event.payload.paths;
-			if (paths && paths.length > 0) {
-				console.log('[UI] 拖放的文件路径:', paths);
+      const paths = event.payload.paths;
+      if (paths && paths.length > 0) {
+        console.log("[UI] 拖放的文件路径:", paths);
 
-				// 依次发送所有文件（使用文件路径，零拷贝）
-				for (const filePath of paths) {
-					console.log('[UI] 发送文件:', filePath);
-					await sendFileByPath(filePath);
-				}
-			}
-		});
+        // 依次发送所有文件（使用文件路径，零拷贝）
+        for (const filePath of paths) {
+          console.log("[UI] 发送文件:", filePath);
+          await sendFileByPath(filePath);
+        }
+      }
+    });
 
-		// 监听拖拽悬停事件（显示视觉反馈）
-		tauri.event.listen('tauri://drag-enter', () => {
-			if (window.currentChatPeer) {
-				chatContainer.classList.add('drag-over');
-			}
-		});
+    // 监听拖拽悬停事件（显示视觉反馈）
+    tauri.event.listen("tauri://drag-enter", () => {
+      if (window.currentChatPeer) {
+        chatContainer.classList.add("drag-over");
+      }
+    });
 
-		tauri.event.listen('tauri://drag-leave', () => {
-			chatContainer.classList.remove('drag-over');
-		});
+    tauri.event.listen("tauri://drag-leave", () => {
+      chatContainer.classList.remove("drag-over");
+    });
 
-		tauri.event.listen('tauri://drag-drop', () => {
-			chatContainer.classList.remove('drag-over');
-		});
+    tauri.event.listen("tauri://drag-drop", () => {
+      chatContainer.classList.remove("drag-over");
+    });
+  } else {
+    // Web 端：使用传统的 HTML5 拖拽 API（需要读取文件内容）
+    console.log("[UI] 使用 HTML5 拖拽 API");
 
-	} else {
-		// Web 端：使用传统的 HTML5 拖拽 API（需要读取文件内容）
-		console.log('[UI] 使用 HTML5 拖拽 API');
+    // 防止默认的拖拽行为（打开文件）
+    ["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
+      chatContainer.addEventListener(eventName, preventDefaults, false);
+      document.body.addEventListener(eventName, preventDefaults, false);
+    });
 
-		// 防止默认的拖拽行为（打开文件）
-		['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-			chatContainer.addEventListener(eventName, preventDefaults, false);
-			document.body.addEventListener(eventName, preventDefaults, false);
-		});
+    function preventDefaults(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
 
-		function preventDefaults(e) {
-			e.preventDefault();
-			e.stopPropagation();
-		}
+    // 拖拽进入时高亮
+    ["dragenter", "dragover"].forEach((eventName) => {
+      chatContainer.addEventListener(eventName, () => {
+        if (window.currentChatPeer) {
+          chatContainer.classList.add("drag-over");
+        }
+      }, false);
+    });
 
-		// 拖拽进入时高亮
-		['dragenter', 'dragover'].forEach(eventName => {
-			chatContainer.addEventListener(eventName, () => {
-				if (window.currentChatPeer) {
-					chatContainer.classList.add('drag-over');
-				}
-			}, false);
-		});
+    // 拖拽离开时取消高亮
+    ["dragleave", "drop"].forEach((eventName) => {
+      chatContainer.addEventListener(eventName, () => {
+        chatContainer.classList.remove("drag-over");
+      }, false);
+    });
 
-		// 拖拽离开时取消高亮
-		['dragleave', 'drop'].forEach(eventName => {
-			chatContainer.addEventListener(eventName, () => {
-				chatContainer.classList.remove('drag-over');
-			}, false);
-		});
+    // 处理文件拖放
+    chatContainer.addEventListener("drop", async (e) => {
+      if (!window.currentChatPeer) {
+        console.log("[UI] 没有打开聊天窗口，忽略拖放");
+        return;
+      }
 
-		// 处理文件拖放
-		chatContainer.addEventListener('drop', async (e) => {
-			if (!window.currentChatPeer) {
-				console.log('[UI] 没有打开聊天窗口，忽略拖放');
-				return;
-			}
+      const files = e.dataTransfer.files;
 
-			const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        console.log("[UI] 拖放了", files.length, "个文件");
 
-			if (files && files.length > 0) {
-				console.log('[UI] 拖放了', files.length, '个文件');
-
-				// 依次发送所有文件
-				for (let i = 0; i < files.length; i++) {
-					const file = files[i];
-					console.log('[UI] 拖放的文件:', file.name, file.size);
-					await sendFile(file);
-				}
-			} else {
-				console.log('[UI] 没有检测到文件');
-			}
-		}, false);
-	}
+        // 依次发送所有文件
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          console.log("[UI] 拖放的文件:", file.name, file.size);
+          await sendFile(file);
+        }
+      } else {
+        console.log("[UI] 没有检测到文件");
+      }
+    }, false);
+  }
 }
 
 // 初始化粘贴文件功能
 function initPasteFile() {
-	console.log('[UI] 初始化粘贴文件功能');
+  console.log("[UI] 初始化粘贴文件功能");
 
-	const tauri = window.__TAURI__;
+  const tauri = window.__TAURI__;
 
-	// 监听全局粘贴事件
-	document.addEventListener('paste', async (e) => {
-		// 只在聊天窗口打开时处理
-		if (!window.currentChatPeer) {
-			console.log('[UI] 没有打开聊天窗口，忽略粘贴');
-			return;
-		}
+  // 监听全局粘贴事件
+  document.addEventListener("paste", async (e) => {
+    // 只在聊天窗口打开时处理
+    if (!window.currentChatPeer) {
+      console.log("[UI] 没有打开聊天窗口，忽略粘贴");
+      return;
+    }
 
-		// 桌面端：优先尝试使用 clipboard-rs 读取文件路径（零拷贝）
-		if (tauri) {
-			try {
-				console.log('[UI] 尝试从剪贴板读取文件路径');
-				const filePaths = await tauri.core.invoke('read_clipboard_files');
+    // 桌面端：优先尝试使用 clipboard-rs 读取文件路径（零拷贝）
+    if (tauri) {
+      try {
+        console.log("[UI] 尝试从剪贴板读取文件路径");
+        const filePaths = await tauri.core.invoke("read_clipboard_files");
 
-				if (filePaths && filePaths.length > 0) {
-					console.log('[UI] 剪贴板中的文件路径:', filePaths);
-					e.preventDefault(); // 阻止默认粘贴行为
+        if (filePaths && filePaths.length > 0) {
+          console.log("[UI] 剪贴板中的文件路径:", filePaths);
+          e.preventDefault(); // 阻止默认粘贴行为
 
-					// 使用零拷贝方式发送文件
-					for (const filePath of filePaths) {
-						await sendFileByPath(filePath);
-					}
-					return;
-				} else {
-					console.log('[UI] 剪贴板中没有文件');
-				}
-			} catch (err) {
-				console.log('[UI] 读取剪贴板文件路径失败，尝试使用传统方式:', err);
-				// 继续使用传统方式处理
-			}
-		}
+          // 使用零拷贝方式发送文件
+          for (const filePath of filePaths) {
+            await sendFileByPath(filePath);
+          }
+          return;
+        } else {
+          console.log("[UI] 剪贴板中没有文件");
+        }
+      } catch (err) {
+        console.log("[UI] 读取剪贴板文件路径失败，尝试使用传统方式:", err);
+        // 继续使用传统方式处理
+      }
+    }
 
-		// 传统方式：从 ClipboardEvent 读取文件（需要读取内容）
-		const clipboardData = e.clipboardData || window.clipboardData;
-		if (!clipboardData) {
-			console.log('[UI] 无法访问剪贴板');
-			return;
-		}
+    // 传统方式：从 ClipboardEvent 读取文件（需要读取内容）
+    const clipboardData = e.clipboardData || window.clipboardData;
+    if (!clipboardData) {
+      console.log("[UI] 无法访问剪贴板");
+      return;
+    }
 
-		// 检查是否有文件
-		const items = clipboardData.items;
-		if (!items || items.length === 0) {
-			console.log('[UI] 剪贴板中没有内容');
-			return;
-		}
+    // 检查是否有文件
+    const items = clipboardData.items;
+    if (!items || items.length === 0) {
+      console.log("[UI] 剪贴板中没有内容");
+      return;
+    }
 
-		let hasFile = false;
+    let hasFile = false;
 
-		for (let i = 0; i < items.length; i++) {
-			const item = items[i];
-			console.log('[UI] 剪贴板项目类型:', item.type, item.kind);
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      console.log("[UI] 剪贴板项目类型:", item.type, item.kind);
 
-			if (item.kind === 'file') {
-				hasFile = true;
-				e.preventDefault(); // 阻止默认粘贴行为
+      if (item.kind === "file") {
+        hasFile = true;
+        e.preventDefault(); // 阻止默认粘贴行为
 
-				const file = item.getAsFile();
-				if (file) {
-					console.log('[UI] 粘贴的文件:', file.name, file.size, file.type);
-					await sendFile(file);
-				}
-			}
-		}
+        const file = item.getAsFile();
+        if (file) {
+          console.log("[UI] 粘贴的文件:", file.name, file.size, file.type);
+          await sendFile(file);
+        }
+      }
+    }
 
-		if (hasFile) {
-			console.log('[UI] 已处理粘贴的文件');
-		}
-	});
+    if (hasFile) {
+      console.log("[UI] 已处理粘贴的文件");
+    }
+  });
 
-	// 添加快捷键提示
-	console.log('[UI] Ctrl+V 粘贴文件功能已启用（支持零拷贝）');
+  // 添加快捷键提示
+  console.log("[UI] Ctrl+V 粘贴文件功能已启用（支持零拷贝）");
 }
 
 // 初始化"回到底部"悬浮按钮
 function initScrollToBottomBtn() {
-	const chatMessages = document.getElementById('chat-messages');
-	const inputContainer = document.querySelector('.chat-input-container');
+  const chatMessages = document.getElementById("chat-messages");
+  const inputContainer = document.querySelector(".chat-input-container");
 
-	if (!chatMessages || !inputContainer) {
-		console.warn('[UI] 无法初始化回到底部按钮：找不到必要的元素');
-		return;
-	}
+  if (!chatMessages || !inputContainer) {
+    console.warn("[UI] 无法初始化回到底部按钮：找不到必要的元素");
+    return;
+  }
 
-	// 检查是否已经创建过按钮，避免重复创建
-	let btn = document.getElementById('scroll-to-bottom-btn');
-	if (btn) {
-		console.log('[UI] 回到底部按钮已存在，跳过创建');
-		return;
-	}
+  // 检查是否已经创建过按钮，避免重复创建
+  let btn = document.getElementById("scroll-to-bottom-btn");
+  if (btn) {
+    console.log("[UI] 回到底部按钮已存在，跳过创建");
+    return;
+  }
 
-	// 1. 动态创建按钮 DOM
-	btn = document.createElement('div');
-	btn.id = 'scroll-to-bottom-btn';
-	btn.className = 'scroll-bottom-btn';
-	// 注入一个向下箭头的 SVG 图标 和 未读小红点
-	btn.innerHTML = `
+  // 1. 动态创建按钮 DOM
+  btn = document.createElement("div");
+  btn.id = "scroll-to-bottom-btn";
+  btn.className = "scroll-bottom-btn";
+  // 注入一个向下箭头的 SVG 图标 和 未读小红点
+  btn.innerHTML = `
         <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <polyline points="19 12 12 19 5 12"></polyline>
@@ -2050,291 +2233,296 @@ function initScrollToBottomBtn() {
         <div id="unread-dot" class="unread-dot"></div>
     `;
 
-	// 将按钮插入到 chat-messages 的平级，输入框的上方
-	inputContainer.appendChild(btn);
-	console.log('[UI] 回到底部按钮已创建');
+  // 将按钮插入到 chat-messages 的平级，输入框的上方
+  inputContainer.appendChild(btn);
+  console.log("[UI] 回到底部按钮已创建");
 
-	// 2. 绑定点击事件：平滑滚动到底部
-	btn.addEventListener('click', () => {
-		chatMessages.scrollTo({
-			top: chatMessages.scrollHeight,
-			behavior: 'smooth' // 增加平滑滚动效果
-		});
-		// 隐藏未读红点
-		const unreadDot = document.getElementById('unread-dot');
-		if (unreadDot) {
-			unreadDot.classList.remove('show');
-			console.log('[UI] 已隐藏未读红点');
-		}
-	});
+  // 2. 绑定点击事件：平滑滚动到底部
+  btn.addEventListener("click", () => {
+    chatMessages.scrollTo({
+      top: chatMessages.scrollHeight,
+      behavior: "smooth", // 增加平滑滚动效果
+    });
+    // 隐藏未读红点
+    const unreadDot = document.getElementById("unread-dot");
+    if (unreadDot) {
+      unreadDot.classList.remove("show");
+      console.log("[UI] 已隐藏未读红点");
+    }
+  });
 
-	// 3. 监听滚动事件，控制显示/隐藏
-	chatMessages.addEventListener('scroll', () => {
-		// 距离底部 150px 以内都认为是在底部
-		const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 150;
+  // 3. 监听滚动事件，控制显示/隐藏
+  chatMessages.addEventListener("scroll", () => {
+    // 距离底部 150px 以内都认为是在底部
+    const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
+        chatMessages.clientHeight < 150;
 
-		if (isAtBottom) {
-			btn.classList.remove('show');
-			const unreadDot = document.getElementById('unread-dot');
-			if (unreadDot) {
-				unreadDot.classList.remove('show'); // 到达底部自动消除红点
-			}
-		} else {
-			btn.classList.add('show');
-		}
-	});
+    if (isAtBottom) {
+      btn.classList.remove("show");
+      const unreadDot = document.getElementById("unread-dot");
+      if (unreadDot) {
+        unreadDot.classList.remove("show"); // 到达底部自动消除红点
+      }
+    } else {
+      btn.classList.add("show");
+    }
+  });
 }
-
 
 // 多选模式相关
 window.selectMode = {
-	active: false,
-	selectedMessages: new Set()
+  active: false,
+  selectedMessages: new Set(),
 };
 
 // 初始化多选模式
 function initSelectMode() {
-	const selectModeBtn = document.getElementById('select-mode-btn');
+  const selectModeBtn = document.getElementById("select-mode-btn");
 
-	// 确保按钮存在
-	if (!selectModeBtn) return;
+  // 确保按钮存在
+  if (!selectModeBtn) return;
 
-	// 点击多选按钮
-	selectModeBtn.addEventListener('click', () => {
-		if (window.selectMode.active) {
-			exitSelectMode();
-		} else {
-			enterSelectMode();
-		}
-	});
+  // 点击多选按钮
+  selectModeBtn.addEventListener("click", () => {
+    if (window.selectMode.active) {
+      exitSelectMode();
+    } else {
+      enterSelectMode();
+    }
+  });
 }
 
 // 进入多选模式
 function enterSelectMode(initialMessageId = null) {
-	console.log('[UI] 进入多选模式');
-	window.selectMode.active = true;
-	window.selectMode.selectedMessages.clear();
+  console.log("[UI] 进入多选模式");
+  window.selectMode.active = true;
+  window.selectMode.selectedMessages.clear();
 
-	// 只要是移动端（包括安卓平板）或者屏幕够小，都写入历史记录，防止物理返回键直接退出 App
-	const isMobile = navigator.userAgent.includes('Android') || window.innerWidth <= 768;
-	if (isMobile) {
-		window.history.pushState({ selectMode: true }, "", "#chat-select");
-	}
+  // 只要是移动端（包括安卓平板）或者屏幕够小，都写入历史记录，防止物理返回键直接退出 App
+  const isMobile = navigator.userAgent.includes("Android") ||
+    window.innerWidth <= 768;
+  if (isMobile) {
+    window.history.pushState({ selectMode: true }, "", "#chat-select");
+  }
 
-	// 更新UI
-	const selectModeBtn = document.getElementById('select-mode-btn');
-	const sendBtn = document.getElementById('send-btn');
-	const chatInput = document.getElementById('chat-input');
-	const attachFileBtn = document.getElementById('attach-file-btn');
+  // 更新UI
+  const selectModeBtn = document.getElementById("select-mode-btn");
+  const sendBtn = document.getElementById("send-btn");
+  const chatInput = document.getElementById("chat-input");
+  const attachFileBtn = document.getElementById("attach-file-btn");
 
-	// 切换为取消图标，并添加激活样式
-	selectModeBtn.innerHTML = ICON_CANCEL_X;
-	selectModeBtn.classList.add('active');
+  // 切换为取消图标，并添加激活样式
+  selectModeBtn.innerHTML = ICON_CANCEL_X;
+  selectModeBtn.classList.add("active");
 
-	// 发送按钮变为删除，改为红色警告色
-	sendBtn.textContent = '删除';
-	sendBtn.style.backgroundColor = '#ff5555'; // Dracula Red
-	sendBtn.style.borderColor = '#ff5555';
-	sendBtn.style.color = '#fff';
+  // 发送按钮变为删除，改为红色警告色
+  sendBtn.textContent = "删除";
+  sendBtn.style.backgroundColor = "#ff5555"; // Dracula Red
+  sendBtn.style.borderColor = "#ff5555";
+  sendBtn.style.color = "#fff";
 
-	chatInput.disabled = true;
-	attachFileBtn.disabled = true;
-	// 给所有消息添加复选框和点击事件
-	const messages = document.querySelectorAll('.message');
-	messages.forEach(msg => {
-		addSelectCheckbox(msg);
-		msg.classList.add('selectable');
+  chatInput.disabled = true;
+  attachFileBtn.disabled = true;
+  // 给所有消息添加复选框和点击事件
+  const messages = document.querySelectorAll(".message");
+  messages.forEach((msg) => {
+    addSelectCheckbox(msg);
+    msg.classList.add("selectable");
 
-		if (initialMessageId && msg.dataset.msgId === String(initialMessageId)) {
-			msg.classList.add('selected');
-			const checkbox = msg.querySelector('.select-checkbox');
-			if (checkbox) checkbox.checked = true;
-			// 立即将初始消息加入集合
-			window.selectMode.selectedMessages.add(parseInt(initialMessageId));
-		}
-	});
+    if (initialMessageId && msg.dataset.msgId === String(initialMessageId)) {
+      msg.classList.add("selected");
+      const checkbox = msg.querySelector(".select-checkbox");
+      if (checkbox) checkbox.checked = true;
+      // 立即将初始消息加入集合
+      window.selectMode.selectedMessages.add(parseInt(initialMessageId));
+    }
+  });
 }
 
 // 退出多选模式
 function exitSelectMode() {
-	console.log('[UI] 退出多选模式');
-	window.selectMode.active = false;
-	window.selectMode.selectedMessages.clear();
+  console.log("[UI] 退出多选模式");
+  window.selectMode.active = false;
+  window.selectMode.selectedMessages.clear();
 
-	// 如果当前 URL 是 #chat-select，说明是移动端通过按钮退出的，需要后退一步恢复到 #chat
-	// 如果是按返回键触发的 popstate，URL 已经变了，就不需要 back()
-	if (window.location.hash === '#chat-select') {
-		window.history.back();
-	}
+  // 如果当前 URL 是 #chat-select，说明是移动端通过按钮退出的，需要后退一步恢复到 #chat
+  // 如果是按返回键触发的 popstate，URL 已经变了，就不需要 back()
+  if (window.location.hash === "#chat-select") {
+    window.history.back();
+  }
 
-	// 恢复UI
-	const selectModeBtn = document.getElementById('select-mode-btn');
-	const sendBtn = document.getElementById('send-btn');
-	const chatInput = document.getElementById('chat-input');
-	const attachFileBtn = document.getElementById('attach-file-btn');
+  // 恢复UI
+  const selectModeBtn = document.getElementById("select-mode-btn");
+  const sendBtn = document.getElementById("send-btn");
+  const chatInput = document.getElementById("chat-input");
+  const attachFileBtn = document.getElementById("attach-file-btn");
 
-	// 恢复列表图标
-	selectModeBtn.innerHTML = ICON_SELECT_LIST;
-	selectModeBtn.classList.remove('active');
+  // 恢复列表图标
+  selectModeBtn.innerHTML = ICON_SELECT_LIST;
+  selectModeBtn.classList.remove("active");
 
-	// 恢复发送按钮
-	sendBtn.textContent = '发送';
-	sendBtn.style.backgroundColor = ''; // 恢复 CSS 中的默认值
-	sendBtn.style.borderColor = '';
-	sendBtn.style.color = '';
+  // 恢复发送按钮
+  sendBtn.textContent = "发送";
+  sendBtn.style.backgroundColor = ""; // 恢复 CSS 中的默认值
+  sendBtn.style.borderColor = "";
+  sendBtn.style.color = "";
 
-	chatInput.disabled = false;
-	attachFileBtn.disabled = false;
+  chatInput.disabled = false;
+  attachFileBtn.disabled = false;
 
-	// 移除复选框逻辑保持不变
-	const messages = document.querySelectorAll('.message');
-	messages.forEach(msg => {
-		removeSelectCheckbox(msg);
-		msg.classList.remove('selectable', 'selected');
-	});
+  // 移除复选框逻辑保持不变
+  const messages = document.querySelectorAll(".message");
+  messages.forEach((msg) => {
+    removeSelectCheckbox(msg);
+    msg.classList.remove("selectable", "selected");
+  });
 }
 
 // 添加复选框到消息
 function addSelectCheckbox(messageElement) {
-	if (messageElement.querySelector('.select-checkbox')) return;
+  if (messageElement.querySelector(".select-checkbox")) return;
 
-	const checkbox = document.createElement('input');
-	checkbox.type = 'checkbox';
-	checkbox.className = 'select-checkbox';
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = "select-checkbox";
 
-	// 点击复选框
-	checkbox.addEventListener('change', (e) => {
-		e.stopPropagation();
-		toggleMessageSelection(messageElement);
-	});
+  // 点击复选框
+  checkbox.addEventListener("change", (e) => {
+    e.stopPropagation();
+    toggleMessageSelection(messageElement);
+  });
 
-	// 点击消息本身
-	messageElement.addEventListener('click', handleMessageClick);
+  // 点击消息本身
+  messageElement.addEventListener("click", handleMessageClick);
 
-	messageElement.insertBefore(checkbox, messageElement.firstChild);
+  messageElement.insertBefore(checkbox, messageElement.firstChild);
 }
 
 // 移除复选框
 function removeSelectCheckbox(messageElement) {
-	const checkbox = messageElement.querySelector('.select-checkbox');
-	if (checkbox) {
-		checkbox.remove();
-	}
-	messageElement.removeEventListener('click', handleMessageClick);
+  const checkbox = messageElement.querySelector(".select-checkbox");
+  if (checkbox) {
+    checkbox.remove();
+  }
+  messageElement.removeEventListener("click", handleMessageClick);
 }
 
 // 处理消息点击
 function handleMessageClick(e) {
-	if (!window.selectMode.active) return;
+  if (!window.selectMode.active) return;
 
-	// 如果点击的是复选框，不处理（复选框自己会处理）
-	if (e.target.classList.contains('select-checkbox')) return;
+  // 如果点击的是复选框，不处理（复选框自己会处理）
+  if (e.target.classList.contains("select-checkbox")) return;
 
-	const messageElement = e.currentTarget;
-	toggleMessageSelection(messageElement);
+  const messageElement = e.currentTarget;
+  toggleMessageSelection(messageElement);
 }
 
 // 切换消息选中状态
 function toggleMessageSelection(messageElement) {
-	const msgId = parseInt(messageElement.dataset.msgId);
+  const msgId = parseInt(messageElement.dataset.msgId);
 
-	if (!msgId || isNaN(msgId)) {
-		// 这种情况理论上不应该发生，因为没有ID的消息不会被渲染
-		return;
-	}
+  if (!msgId || isNaN(msgId)) {
+    // 这种情况理论上不应该发生，因为没有ID的消息不会被渲染
+    return;
+  }
 
-	const checkbox = messageElement.querySelector('.select-checkbox');
+  const checkbox = messageElement.querySelector(".select-checkbox");
 
-	if (window.selectMode.selectedMessages.has(msgId)) {
-		window.selectMode.selectedMessages.delete(msgId);
-		messageElement.classList.remove('selected');
-		if (checkbox) checkbox.checked = false;
-		console.log('[UI] 取消选中消息:', msgId);
-	} else {
-		window.selectMode.selectedMessages.add(msgId);
-		messageElement.classList.add('selected');
-		if (checkbox) checkbox.checked = true;
-		console.log('[UI] 选中消息:', msgId);
-	}
+  if (window.selectMode.selectedMessages.has(msgId)) {
+    window.selectMode.selectedMessages.delete(msgId);
+    messageElement.classList.remove("selected");
+    if (checkbox) checkbox.checked = false;
+    console.log("[UI] 取消选中消息:", msgId);
+  } else {
+    window.selectMode.selectedMessages.add(msgId);
+    messageElement.classList.add("selected");
+    if (checkbox) checkbox.checked = true;
+    console.log("[UI] 选中消息:", msgId);
+  }
 
-	console.log('[UI] 已选中消息:', Array.from(window.selectMode.selectedMessages));
+  console.log(
+    "[UI] 已选中消息:",
+    Array.from(window.selectMode.selectedMessages),
+  );
 }
 
 // 删除选中的消息
 async function deleteSelectedMessages() {
-	const selectedIds = Array.from(window.selectMode.selectedMessages);
+  const selectedIds = Array.from(window.selectMode.selectedMessages);
 
-	if (selectedIds.length === 0) {
-		alert('请先选择要删除的消息');
-		return;
-	}
+  if (selectedIds.length === 0) {
+    alert("请先选择要删除的消息");
+    return;
+  }
 
-	try {
-		console.log('[UI] 删除消息:', selectedIds);
+  try {
+    console.log("[UI] 删除消息:", selectedIds);
 
-		// 调用API删除
-		await apiDeleteMessages(selectedIds);
+    // 调用API删除
+    await apiDeleteMessages(selectedIds);
 
-		// 从DOM中移除
-		selectedIds.forEach(msgId => {
-			const msgElement = document.querySelector(`.message[data-msg-id="${msgId}"]`);
-			if (msgElement) {
-				msgElement.remove();
-			}
-		});
+    // 从DOM中移除
+    selectedIds.forEach((msgId) => {
+      const msgElement = document.querySelector(
+        `.message[data-msg-id="${msgId}"]`,
+      );
+      if (msgElement) {
+        msgElement.remove();
+      }
+    });
 
-		// 更新已加载数量
-		if (window.currentChatMessages) {
-			window.currentChatMessages.loadedCount -= selectedIds.length;
-			window.currentChatMessages.totalCount -= selectedIds.length;
-		}
+    // 更新已加载数量
+    if (window.currentChatMessages) {
+      window.currentChatMessages.loadedCount -= selectedIds.length;
+      window.currentChatMessages.totalCount -= selectedIds.length;
+    }
 
-		console.log('[UI] 消息删除成功');
+    console.log("[UI] 消息删除成功");
 
-		// 退出多选模式
-		exitSelectMode();
-	} catch (e) {
-		console.error('[UI] 删除消息失败:', e);
-		alert('删除消息失败: ' + e.message);
-	}
+    // 退出多选模式
+    exitSelectMode();
+  } catch (e) {
+    console.error("[UI] 删除消息失败:", e);
+    alert("删除消息失败: " + e.message);
+  }
 }
 
 // 长按进入多选模式（移动端）
 function initLongPressSelectMode() {
-	let longPressTimer = null;
-	let longPressTarget = null;
+  let longPressTimer = null;
+  let longPressTarget = null;
 
-	document.addEventListener('touchstart', (e) => {
-		// 只在聊天消息上触发
-		const messageElement = e.target.closest('.message');
-		if (!messageElement || window.selectMode.active) return;
+  document.addEventListener("touchstart", (e) => {
+    // 只在聊天消息上触发
+    const messageElement = e.target.closest(".message");
+    if (!messageElement || window.selectMode.active) return;
 
-		longPressTarget = messageElement;
-		longPressTimer = setTimeout(() => {
-			const msgId = parseInt(messageElement.dataset.msgId);
-			if (msgId) {
-				enterSelectMode(msgId);
-			}
-		}, 500); // 500ms 长按
-	});
+    longPressTarget = messageElement;
+    longPressTimer = setTimeout(() => {
+      const msgId = parseInt(messageElement.dataset.msgId);
+      if (msgId) {
+        enterSelectMode(msgId);
+      }
+    }, 500); // 500ms 长按
+  });
 
-	document.addEventListener('touchend', () => {
-		if (longPressTimer) {
-			clearTimeout(longPressTimer);
-			longPressTimer = null;
-			longPressTarget = null;
-		}
-	});
+  document.addEventListener("touchend", () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+      longPressTarget = null;
+    }
+  });
 
-	document.addEventListener('touchmove', () => {
-		if (longPressTimer) {
-			clearTimeout(longPressTimer);
-			longPressTimer = null;
-			longPressTarget = null;
-		}
-	});
+  document.addEventListener("touchmove", () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+      longPressTarget = null;
+    }
+  });
 }
 
 // 初始化长按功能
 initLongPressSelectMode();
-

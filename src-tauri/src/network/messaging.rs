@@ -17,17 +17,13 @@ pub struct TextMessage {
 // 握手协议消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandshakeMessage {
-    pub protocol: String,  // "handshake"
-    pub action: String,    // "ready_to_receive" 或 "ack"
-    pub from_id: String,   // 发送者 UUID
+    pub protocol: String, // "handshake"
+    pub action: String,   // "ready_to_receive" 或 "ack"
+    pub from_id: String,  // 发送者 UUID
 }
 
 // 发送握手消息（询问对方是否准备好接收）
-pub async fn send_handshake(
-    peer_addr: &str,
-    from_id: String,
-    action: &str,
-) -> Result<(), String> {
+pub async fn send_handshake(peer_addr: &str, from_id: String, action: &str) -> Result<(), String> {
     let handshake = HandshakeMessage {
         protocol: "handshake".to_string(),
         action: action.to_string(),
@@ -60,7 +56,10 @@ pub async fn send_handshake(
 }
 
 // 通过 TCP 发送握手消息
-async fn send_handshake_via_tcp(peer_addr: &str, handshake: HandshakeMessage) -> Result<(), String> {
+async fn send_handshake_via_tcp(
+    peer_addr: &str,
+    handshake: HandshakeMessage,
+) -> Result<(), String> {
     use tokio::net::TcpStream;
 
     let mut stream = TcpStream::connect(peer_addr)
@@ -236,7 +235,7 @@ async fn handle_message_connection(
     // 首先尝试解析为握手消息
     if let Ok(handshake) = serde_json::from_str::<HandshakeMessage>(&json_str) {
         println!("[Messaging] 收到握手消息: action={}", handshake.action);
-        
+
         if handshake.action == "ready_to_receive" {
             // 对方询问我们是否准备好接收，发送 ack 确认
             let my_id = crate::db::get_user_id(&db_pool).await.unwrap_or_default();
@@ -245,7 +244,7 @@ async fn handle_message_connection(
                 action: "ack".to_string(),
                 from_id: my_id,
             };
-            
+
             if let Ok(ack_json) = serde_json::to_string(&ack) {
                 let len = ack_json.len() as u32;
                 let _ = stream.write_all(&len.to_be_bytes()).await;
@@ -266,7 +265,14 @@ async fn handle_message_connection(
     );
 
     // 保存到数据库
-    save_message_to_db(&db_pool, &message).await?;
+    crate::db::save_network_message(
+        &db_pool,
+        &message.from_id,
+        &message.content,
+        &message.msg_type,
+        message.timestamp,
+    )
+    .await?;
 
     // 发送事件通知前端
     if let Some(app) = app_handle {
@@ -316,7 +322,7 @@ async fn handle_message_connection(
     // 首先尝试解析为握手消息
     if let Ok(handshake) = serde_json::from_str::<HandshakeMessage>(&json_str) {
         println!("[Messaging] 收到握手消息: action={}", handshake.action);
-        
+
         if handshake.action == "ready_to_receive" {
             // 对方询问我们是否准备好接收，发送 ack 确认
             let my_id = crate::db::get_user_id(&db_pool).await.unwrap_or_default();
@@ -325,7 +331,7 @@ async fn handle_message_connection(
                 action: "ack".to_string(),
                 from_id: my_id,
             };
-            
+
             if let Ok(ack_json) = serde_json::to_string(&ack) {
                 let len = ack_json.len() as u32;
                 let _ = stream.write_all(&len.to_be_bytes()).await;
@@ -346,34 +352,17 @@ async fn handle_message_connection(
     );
 
     // 保存到数据库
-    save_message_to_db(&db_pool, &message).await?;
+    crate::db::save_network_message(
+        &db_pool,
+        &message.from_id,
+        &message.content,
+        &message.msg_type,
+        message.timestamp,
+    )
+    .await?;
 
     // Web 端暂时只保存,不通知前端(前端会轮询)
 
-    Ok(())
-}
-
-// 保存消息到数据库
-async fn save_message_to_db(
-    pool: &sqlx::Pool<sqlx::Sqlite>,
-    message: &TextMessage,
-) -> Result<(), String> {
-    // 获取当前用户ID作为接收者
-    let my_id = crate::db::get_user_id(pool).await?;
-
-    sqlx::query(
-        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp) VALUES (?, ?, ?, ?, ?)"
-    )
-    .bind(&message.from_id)  // 发送者ID
-    .bind(&my_id)            // 接收者ID（当前用户）
-    .bind(&message.content)
-    .bind(&message.msg_type)
-    .bind(message.timestamp as i64)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("保存消息失败: {}", e))?;
-
-    println!("[Messaging] 消息已保存到数据库");
     Ok(())
 }
 
@@ -393,38 +382,8 @@ pub async fn get_chat_history_with_offset(
     limit: i32,
     offset: i32,
 ) -> Result<Vec<serde_json::Value>, String> {
-    // 获取当前用户ID
-    let my_id = crate::db::get_user_id(pool).await?;
-
-    // 查询双向对话：
-    // 1. 我发送给对方的消息 (sender_id = my_id AND receiver_id = peer_id)
-    // 2. 对方发送给我的消息 (sender_id = peer_id AND (receiver_id = my_id OR receiver_id IS NULL))
-    // 3. 兼容旧数据：sender_id = 'me' 的消息
-    // 使用子查询先排序再分页，确保获取最新的消息
-    let messages = sqlx::query_as::<_, crate::models::Message>(
-        "SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size 
-         FROM (
-            SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size 
-            FROM messages 
-            WHERE 
-                (sender_id = ? AND receiver_id = ?) OR 
-                (sender_id = ? AND (receiver_id = ? OR receiver_id IS NULL)) OR
-                (sender_id = 'me' AND receiver_id = ?)
-            ORDER BY timestamp DESC 
-            LIMIT ? OFFSET ?
-         ) 
-         ORDER BY timestamp ASC",
-    )
-    .bind(&my_id) // 我发送的消息
-    .bind(peer_id) // 发送给对方
-    .bind(peer_id) // 对方发送的消息
-    .bind(&my_id) // 发送给我
-    .bind(peer_id) // 兼容旧数据
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("查询历史失败: {}", e))?;
+    // 底层 SQL 交给 db.rs 处理，这里只负责序列化 JSON
+    let messages = crate::db::get_chat_history_with_offset(pool, peer_id, limit, offset).await?;
 
     // 转换为 MessageResponse 并序列化为 JSON
     let responses: Vec<serde_json::Value> = messages

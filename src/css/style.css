@@ -1843,8 +1843,6 @@ h2::before {
 	box-shadow: 0 4px 12px rgba(189, 147, 249, 0.4);
 }
 
-
-
 /* =========================================
    Pending 消息样式（离线消息）
    ========================================= */
@@ -1878,13 +1876,10 @@ h2::before {
 }
 
 /* Pending 消息的气泡样式 - 添加特殊视觉效果 */
-.message.sent .message-content:has(.message-pending) {
-	background: linear-gradient(135deg, rgba(241, 250, 140, 0.1) 0%, rgba(189, 147, 249, 0.05) 100%);
-	/* 黄紫渐变半透明背景 */
-	border: 1px solid rgba(241, 250, 140, 0.3);
-	/* 黄色边框 */
-	box-shadow: 0 0 12px rgba(241, 250, 140, 0.15);
-	/* 黄色光晕 */
+.message.sent .message-content.is-pending-wrapper {
+	background: linear-gradient(135deg, rgba(241, 250, 140, 0.1) 0%, rgba(189, 147, 249, 0.05) 100%) !important;
+	border: 1px solid rgba(241, 250, 140, 0.3) !important;
+	box-shadow: 0 0 12px rgba(241, 250, 140, 0.15) !important;
 }
 
 /* Pending 消息的文字颜色调整 */
