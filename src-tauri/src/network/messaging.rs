@@ -264,8 +264,8 @@ async fn handle_message_connection(
         message.from_name, message.content
     );
 
-    // 保存到数据库
-    crate::db::save_network_message(
+    // 保存到数据库，并接住返回的 msg_id
+    let msg_id = crate::db::save_network_message(
         &db_pool,
         &message.from_id,
         &message.content,
@@ -279,6 +279,8 @@ async fn handle_message_connection(
         let _ = app.emit(
             "new-message",
             serde_json::json!({
+                "id": msg_id,
+                "msg_type": message.msg_type,
                 "from_id": message.from_id,
                 "from_name": message.from_name,
                 "content": message.content,
@@ -352,7 +354,7 @@ async fn handle_message_connection(
     );
 
     // 保存到数据库
-    crate::db::save_network_message(
+    let _msg_id = crate::db::save_network_message(
         &db_pool,
         &message.from_id,
         &message.content,

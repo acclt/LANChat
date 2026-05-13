@@ -470,8 +470,9 @@ async function sendMessage() {
 }
 
 function addMessageToChat(message, isSent) {
+  // 如果 ID 依然是无效的，坚决不渲染到 DOM，防止产生无法选中的“僵尸”气泡
+  if (!message.id || message.id === "null") return;
   const chatMessages = document.getElementById("chat-messages");
-  // 如果有重复ID，直接移除旧节点，用最新的渲染
   const existing = chatMessages.querySelector(`[data-msg-id="${message.id}"]`);
   if (existing) {
     existing.remove();
@@ -480,7 +481,6 @@ function addMessageToChat(message, isSent) {
   const messageDiv = createMessageElement(message, isSent);
   chatMessages.appendChild(messageDiv);
 
-  // 更新时间戳
   if (message.timestamp && !String(message.id).startsWith("temp_")) {
     if (message.timestamp > (window.lastMessageTimestamp || 0)) {
       window.lastMessageTimestamp = message.timestamp;
@@ -840,7 +840,10 @@ function initScrollListener() {
 function createMessageElement(message, isSent) {
   const messageDiv = document.createElement("div");
   messageDiv.className = `message ${isSent ? "sent" : "received"}`;
-  if (message.id) messageDiv.dataset.msgId = message.id;
+  // 严谨地检查 ID 是否存在，防止绑定 "undefined"
+  if (message.id !== undefined && message.id !== null) {
+    messageDiv.dataset.msgId = message.id;
+  }
 
   // 把当前状态存入数据集，方便轮询检测
   messageDiv.dataset.status = message.status || "sent";
@@ -1025,62 +1028,39 @@ function onReceiveMessage(message) {
   console.log("[UI] ========== onReceiveMessage 被调用 ==========");
   console.log("[UI] 消息内容:", JSON.stringify(message, null, 2));
   console.log("[UI] 当前聊天对象:", window.currentChatPeer);
-
-  // 如果正在和发送者聊天
+  // 仅在当前聊天窗口时处理
   if (window.currentChatPeer && window.currentChatPeer.id === message.from_id) {
-    console.log("[UI] ✓ 匹配当前聊天对象");
+    if (message.id === undefined || message.id === null) {
+      console.log("[UI] 收到一条暂时没有 ID 的实时通知，等待轮询系统自动同步...");
+      return; 
+    }
 
-    // 检查是否是文件状态更新（downloading -> accepted/pending）
     if (message.msg_type === "file" && message.file_status !== "downloading") {
-      // 如果已经在页面上存在这个ID，先删掉旧的，再刷新，防止闪烁
-      console.log(
-        "[UI] 文件状态更新 (" + message.file_status + ")，刷新聊天历史",
-      );
       const existing = document.querySelector(`[data-msg-id="${message.id}"]`);
       if (existing) existing.remove();
       loadChatHistory(window.currentChatPeer.id, true);
     } else {
-      // 直接显示新消息（增量添加）
-      console.log(
-        "[UI] 直接显示新消息 (msg_type=" + message.msg_type + ", file_status=" +
-          message.file_status + ")",
-      );
-
       const chatMessages = document.getElementById("chat-messages");
-      const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
-          chatMessages.clientHeight < 100;
+      const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 100;
 
       addMessageToChat(message, false);
 
-      // 只有在底部时才滚动
       if (wasAtBottom) {
-        // 使用 setTimeout 确保 DOM 更新后再滚动
-        setTimeout(async () => {
-          await scrollToBottom();
-        }, 50);
+        setTimeout(async () => { await scrollToBottom(); }, 50);
       } else {
-        // 如果用户往上翻看历史记录时来新消息了，点亮小红点
-        console.log("[UI] 用户不在底部，显示未读红点");
-        const unreadDot = document.getElementById("unread-dot");
         const scrollBtn = document.getElementById("scroll-to-bottom-btn");
-        console.log("[UI] unreadDot:", unreadDot, "scrollBtn:", scrollBtn);
-        if (unreadDot && scrollBtn) {
-          scrollBtn.classList.add("show");
-          unreadDot.classList.add("show");
-          console.log("[UI] 已添加 show 类到按钮和红点");
-        } else {
-          console.warn("[UI] 找不到未读红点或滚动按钮元素");
-        }
+        const unreadDot = document.getElementById("unread-dot");
+        if (scrollBtn) scrollBtn.classList.add("show");
+        if (unreadDot) unreadDot.classList.add("show");
       }
     }
   } else {
     console.log("[UI] ✗ 不匹配当前聊天对象");
-    const userLi = document.querySelector(
-      `#user-list li[data-id="${message.from_id}"]`,
-    );
+    // 处理未读红点和排序
+    const userLi = document.querySelector(`#user-list li[data-id="${message.from_id}"]`);
     if (userLi) {
       userLi.classList.add("has-unread");
-      sortUserList();
+      if (typeof sortUserList === "function") sortUserList();
     }
     console.log("[UI]   - message.from_id:", message.from_id);
     console.log(
@@ -1088,7 +1068,6 @@ function onReceiveMessage(message) {
       window.currentChatPeer ? window.currentChatPeer.id : "null",
     );
   }
-
   console.log("[UI] ==========================================");
 }
 
@@ -1882,9 +1861,8 @@ function initScrollToBottomBtn() {
   // 3. 监听滚动事件，控制显示/隐藏
   chatMessages.addEventListener("scroll", () => {
     // 距离底部 150px 以内都认为是在底部
-    const isAtBottom =
-      chatMessages.scrollHeight - chatMessages.scrollTop -
-          chatMessages.clientHeight < 150;
+    const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
+        chatMessages.clientHeight < 150;
 
     if (isAtBottom) {
       // 滚到底部了，隐藏按钮
@@ -2055,8 +2033,12 @@ function handleMessageClick(e) {
 function toggleMessageSelection(messageElement) {
   const msgId = parseInt(messageElement.dataset.msgId);
 
+  // 如果节点缺少合法 ID，直接刷新界面纠正数据，然后退出
   if (!msgId || isNaN(msgId)) {
-    // 这种情况理论上不应该发生，因为没有ID的消息不会被渲染
+    console.warn("[UI] 发现没有合法 ID 的幽灵消息，强制刷新界面...");
+    if (window.currentChatPeer) {
+      loadChatHistory(window.currentChatPeer.id, true);
+    }
     return;
   }
 

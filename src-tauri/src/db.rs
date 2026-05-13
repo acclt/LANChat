@@ -871,11 +871,11 @@ pub async fn save_network_message(
     content: &str,
     msg_type: &str,
     timestamp: u64,
-) -> Result<(), String> {
+) -> Result<i64, String> {
     // 获取当前用户ID作为接收者
     let my_id = get_user_id(pool).await?;
 
-    sqlx::query(
+    let result = sqlx::query(
         "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp) VALUES (?, ?, ?, ?, ?)"
     )
     .bind(from_id) 
@@ -888,7 +888,9 @@ pub async fn save_network_message(
     .map_err(|e| format!("保存网络消息失败: {}", e))?;
 
     println!("[DB] 接收自网络的消息已保存到数据库");
-    Ok(())
+    
+    // 返回生成的数据库行 ID
+    Ok(result.last_insert_rowid())
 }
 
 /// 根据发送者和文件名获取最新的一条消息 ID
@@ -897,12 +899,19 @@ pub async fn get_latest_msg_id_by_file(
     sender_id: &str,
     file_name: &str,
 ) -> Option<i64> {
-    sqlx::query_scalar::<_, i64>(
-        "SELECT id FROM messages WHERE sender_id = ? AND content = ? ORDER BY id DESC LIMIT 1"
-    )
-    .bind(sender_id)
-    .bind(file_name)
-    .fetch_optional(pool)
-    .await
-    .unwrap_or(None)
+    // 尝试最多 3 次查询，每次间隔 50ms，应对写入延迟
+    for _ in 0..3 {
+        let res = sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM messages WHERE sender_id = ? AND content = ? ORDER BY id DESC LIMIT 1"
+        )
+        .bind(sender_id)
+        .bind(file_name)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+        
+        if res.is_some() { return res; }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    }
+    None
 }

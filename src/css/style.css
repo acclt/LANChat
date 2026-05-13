@@ -1671,81 +1671,89 @@ h2::before {
 	transition: padding 0.2s ease, transform 0.2s ease;
 }
 
+/* =========================================
+   多选模式样式重构 (防挤压、防换行重排)
+   ========================================= */
+
+/* 1. 基础消息容器：禁止多选时的文件点击 */
 .message.selectable .message-file {
-	pointer-events: none;
+    pointer-events: none;
 }
 
-/* 2. 进入多选模式时，给消息整体左侧腾出空间 */
-.message.selectable {
-	/* 不使用 margin，改用 padding 防止布局塌陷 */
-	padding-left: 45px !important;
-	cursor: pointer;
-	/* 确保鼠标在整行都能触发点击 */
-	pointer-events: auto;
-}
-
-/* 针对发送的消息（在右边），也需要左侧腾出空间 */
+/* 2. 移除原先会导致挤压的 padding，仅赋予点击属性 */
+.message.selectable,
 .message.sent.selectable {
-	/* 保持原有的右对齐，但左侧增加 padding 放复选框 */
-	padding-left: 45px !important;
+    padding-left: 0 !important;
+    cursor: pointer;
+    pointer-events: auto;
 }
 
-/* 3. 自定义复选框样式 */
+/* 3. 赋予消息体平滑位移的动画能力 */
+.message .message-content,
+.message .message-time {
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 4. 进入多选模式时，【仅接收方】的消息向右平移 40px。
+   不改变宽度，不重排文字，直接丝滑滑动！
+   （发送方的消息因为靠右，左侧本就有 25% 留白，复选框完全放得下，不需要平移） */
+.message.received.selectable .message-content,
+.message.received.selectable .message-time {
+    transform: translateX(40px);
+}
+
+/* 5. 优化复选框：初始隐藏并缩小在左侧外，选中时弹入 */
 .message .select-checkbox {
-	/* 绝对定位 */
-	position: absolute;
-	/* 放在 padding 腾出的空间里 */
-	left: 10px;
-	/* 垂直居中 */
-	top: 50%;
-	transform: translateY(-50%);
+    position: absolute;
+    left: 0px; 
+    top: 50%;
+    
+    /* 默认隐藏状态：稍微靠左一点且缩小 */
+    transform: translate(-10px, -50%) scale(0.5); 
+    opacity: 0;
+    pointer-events: none; /* 隐藏时不可点击 */
 
-	appearance: none;
-	/* 去除原生样式 */
-	-webkit-appearance: none;
-
-	width: 22px;
-	height: 22px;
-	border: 2px solid var(--text-dim, #888);
-	/* 默认灰色边框 */
-	border-radius: 50%;
-	/* 改成圆形更现代，或者 6px 圆角矩形 */
-	background-color: transparent;
-	cursor: pointer;
-	transition: all 0.2s;
-	z-index: 10;
-	/* 确保在最上层 */
+    appearance: none;
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--text-dim, #888);
+    border-radius: 50%;
+    background-color: transparent;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 10;
 }
 
-/* 选中状态的复选框 */
+/* 6. 多选模式下：复选框弹入并显现 */
+.message.selectable .select-checkbox {
+    transform: translate(12px, -50%) scale(1); /* 停靠在距离左侧 12px 处 */
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* 7. 选中状态的打钩和高亮 */
 .message .select-checkbox:checked {
-	background-color: var(--primary, #bd93f9);
-	border-color: var(--primary, #bd93f9);
-	/* 使用 SVG 对号图标 */
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
-	background-size: 70%;
-	background-position: center;
-	background-repeat: no-repeat;
+    background-color: var(--primary, #bd93f9);
+    border-color: var(--primary, #bd93f9);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
+    background-size: 70%;
+    background-position: center;
+    background-repeat: no-repeat;
 }
 
-/* 4. 选中消息的气泡高亮 */
 .message.selected .message-content {
-	/* 使用主题变量的半透明色 */
-	background: rgba(189, 147, 249, 0.2) !important;
-	box-shadow: 0 0 0 1px var(--primary, #bd93f9);
-	/* 细微的紫色描边 */
-	color: #fff;
-	/* 确保文字颜色 */
+    background: rgba(189, 147, 249, 0.2) !important;
+    box-shadow: 0 0 0 1px var(--primary, #bd93f9);
+    color: #fff;
 }
 
-/* 针对发送消息的选中状态 */
 .message.sent.selected .message-content {
-	background: rgba(189, 147, 249, 0.4) !important;
+    background: rgba(189, 147, 249, 0.4) !important;
 }
 
-/* 5. 鼠标悬停时的反馈 (仅在多选模式下) */
 .message.selectable:hover .select-checkbox {
-	border-color: var(--primary, #bd93f9);
+    border-color: var(--primary, #bd93f9);
 }
 
 /* --- 按钮通用基础样式 (包括左边的返回和右边的多选) --- */
