@@ -97,40 +97,20 @@ async function renderPage() {
   }, 1500);
 }
 
-// Web 端轮询用户列表
 async function startPeerPolling() {
   const pollInterval = 1000;
 
   const updatePeerList = async () => {
     const peers = await apiGetPeers();
+    if (!peers) return;
 
-    // 获取当前列表中的所有 ID
-    const currentIds = new Set();
-    const list = document.getElementById("user-list");
-    if (list) {
-      const items = list.querySelectorAll("li");
-      items.forEach((item) => currentIds.add(item.dataset.id));
-    }
-
-    // 更新用户列表
-    const receivedIds = new Set();
+    // 只需要更新状态，不需要比对并移除了
     for (const peer of peers) {
       addUserToList(peer.id, peer.name, peer.addr, peer.is_offline);
-      receivedIds.add(peer.id);
-    }
-
-    // 移除不在服务器列表中的用户（已经超过60秒）
-    for (const id of currentIds) {
-      if (!receivedIds.has(id)) {
-        removeUserFromList(id);
-      }
     }
   };
 
-  // 立即执行一次
   await updatePeerList();
-
-  // 定时轮询
   setInterval(updatePeerList, pollInterval);
 }
 
@@ -336,10 +316,12 @@ async function startMessagePolling() {
       const chatMessages = document.getElementById("chat-messages");
       if (!chatMessages) return;
 
-      const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
-          chatMessages.clientHeight < 150;
+      // 1. 判断当前滚动条是否在底部
+      const isAtBottom =
+        chatMessages.scrollHeight - chatMessages.scrollTop -
+            chatMessages.clientHeight < 150;
 
-      // 1. 获取最近 20 条消息（包含可能状态已改变的旧消息）
+      // 2. 获取最新消息
       const latestMessages = await apiGetChatHistory(
         window.currentChatPeer.id,
         20,
@@ -347,52 +329,40 @@ async function startMessagePolling() {
       );
       if (!latestMessages || latestMessages.length === 0) return;
 
-      // 2. 筛选出：真正的时间戳新消息
       const newMessages = latestMessages.filter((msg) =>
         msg.timestamp > (window.lastMessageTimestamp || 0)
       );
 
-      // 3. 筛选出：时间戳没变但状态变了的消息
       const statusChangedMessages = latestMessages.filter((msg) => {
-        // 如果是已经判定为新消息的，就不在这里处理了
         if (msg.timestamp > (window.lastMessageTimestamp || 0)) return false;
-
         const domEl = document.querySelector(`[data-msg-id="${msg.id}"]`);
-        if (!domEl) return false;
-
-        // 对比 DOM 中的状态与后端返回的状态
-        // 如果后端变成了 'sent' 而 DOM 里还是 'pending'，说明补发成功了
-        return domEl.dataset.status !== msg.status;
+        return domEl && domEl.dataset.status !== msg.status;
       });
 
-      // 4. 执行更新
+      // 3. 如果有新消息或状态变更
       if (newMessages.length > 0 || statusChangedMessages.length > 0) {
-        // 更新所有状态变了的消息（addMessageToChat 内部会自动 existing.remove()）
+        // 处理状态变更（补发成功）
         for (const msg of statusChangedMessages) {
-          console.log(
-            "[JS-App] 检测到消息状态变更，更新 UI:",
-            msg.id,
-            msg.status,
-          );
           addMessageToChat(msg, msg.from_id === "me");
         }
 
-        // 添加全新的消息
-        for (const msg of newMessages) {
-          addMessageToChat(msg, msg.from_id === "me");
-          if (msg.timestamp > (window.lastMessageTimestamp || 0)) {
-            window.lastMessageTimestamp = msg.timestamp;
+        // 处理新消息
+        if (newMessages.length > 0) {
+          for (const msg of newMessages) {
+            addMessageToChat(msg, msg.from_id === "me");
           }
-        }
 
-        // 如果用户在底部，保持滚动
-        if (isAtBottom) {
-          await scrollToBottom();
-        }
-
-        // 更新懒加载计数器
-        if (window.currentChatMessages && newMessages.length > 0) {
-          window.currentChatMessages.loadedCount += newMessages.length;
+          // 核心逻辑：根据位置决定是自动滚动还是提醒
+          if (isAtBottom) {
+            await scrollToBottom();
+          } else {
+            // 不在底部时，强行点亮悬浮按钮和红点
+            const scrollBtn = document.getElementById("scroll-to-bottom-btn");
+            const unreadDot = document.getElementById("unread-dot");
+            if (scrollBtn) scrollBtn.classList.add("show");
+            if (unreadDot) unreadDot.classList.add("show");
+            console.log("[JS-App] 用户在上方，点亮新消息红点");
+          }
         }
       }
     } catch (e) {
@@ -476,10 +446,7 @@ async function startUnreadMessageCheck() {
           ) {
             console.log("[JS-App] 检测到用户", userId, "有新消息，显示红点");
             userItem.classList.add("has-unread");
-
-            // 把有新消息的用户置顶
-            userList.prepend(userItem);
-
+            sortUserList();
             // 更新时间戳
             window.userLastMessageTimestamps[userId] = latestMsg.timestamp;
           }

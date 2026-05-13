@@ -121,6 +121,7 @@ async function addUserToList(id, name, addr, isOffline = false) {
   });
 
   list.appendChild(li);
+  sortUserList();
 
   // 初始化新用户的时间戳，避免误报未读消息
   if (!window.userLastMessageTimestamps) {
@@ -159,89 +160,56 @@ async function addUserToList(id, name, addr, isOffline = false) {
 }
 
 // 更新用户状态
-// 更新用户状态 - 赛博神医微创版
 function updateUserStatus(item, name, addr, isOffline) {
   const statusSpan = item.querySelector(".user-status");
   const nameSpan = item.querySelector(".user-name");
   const addrSpan = item.querySelector(".user-addr");
 
-  // 1. 更新基础信息
   if (nameSpan) nameSpan.textContent = name;
   if (addrSpan) addrSpan.textContent = addr;
+  if (statusSpan) statusSpan.textContent = isOffline ? "OFF" : "";
 
-  // 2. 更新状态标签的文字
-  if (statusSpan) {
-    // 离线显示 OFFLINE，在线清空
-    statusSpan.textContent = isOffline ? "OFF" : "";
-  }
-
-  // 3. 类名手术：使用你的原有逻辑，但确保 CSS 能跟上
   const wasOffline = item.classList.contains("offline");
+
   if (isOffline) {
-    if (!wasOffline) {
-      console.log("[UI] 用户离线:", name);
-    }
     item.classList.add("offline");
   } else {
-    if (wasOffline) {
-      console.log("[UI] 用户重新上线:", name);
-      // 用户从离线变为在线，调整顺序：移到在线用户末尾
-      reorderUserOnline(item);
-    }
     item.classList.remove("offline");
   }
+
+  // 只要状态发生了变化（上线或下线），就重排一次列表
+  if (wasOffline !== isOffline) {
+    console.log(`[UI] 用户 ${name} 状态变更为: ${isOffline ? "离线" : "在线"}`);
+    sortUserList();
+  }
 }
 
-// 用户上线时调整顺序：移到在线用户末尾
-function reorderUserOnline(userItem) {
+// 通用排序函数：未读 > 在线 > 字母顺序
+function sortUserList() {
   const list = document.getElementById("user-list");
   if (!list) return;
 
-  // 找到最后一个在线用户（不含 offline 类的最后一个）
-  const allItems = Array.from(list.querySelectorAll("li"));
-  let lastOnlineIndex = -1;
+  const items = Array.from(list.querySelectorAll("li"));
 
-  for (let i = allItems.length - 1; i >= 0; i--) {
-    if (
-      !allItems[i].classList.contains("offline") && allItems[i] !== userItem
-    ) {
-      lastOnlineIndex = i;
-      break;
-    }
-  }
+  items.sort((a, b) => {
+    // 1. 检查未读状态 (最高优先级)
+    const aUnread = a.classList.contains("has-unread") ? 1 : 0;
+    const bUnread = b.classList.contains("has-unread") ? 1 : 0;
+    if (aUnread !== bUnread) return bUnread - aUnread;
 
-  if (lastOnlineIndex >= 0 && lastOnlineIndex < allItems.length - 1) {
-    // 在最后一个在线用户之后插入
-    const nextSibling = allItems[lastOnlineIndex].nextElementSibling;
-    if (nextSibling && nextSibling !== userItem) {
-      list.insertBefore(userItem, nextSibling);
-    }
-  } else if (lastOnlineIndex === -1) {
-    // 没有其他在线用户，移到最前面
-    list.insertBefore(userItem, list.firstChild);
-  }
+    // 2. 检查离线状态 (在线 > 离线)
+    const aOffline = a.classList.contains("offline") ? 1 : 0;
+    const bOffline = b.classList.contains("offline") ? 1 : 0;
+    if (aOffline !== bOffline) return aOffline - bOffline;
 
-  console.log(
-    "[UI] 用户",
-    userItem.querySelector(".user-name").textContent,
-    "已移到在线用户末尾",
-  );
-}
+    // 3. 按名称排序 (稳定性排序)
+    const aName = a.querySelector(".user-name").textContent.toLowerCase();
+    const bName = b.querySelector(".user-name").textContent.toLowerCase();
+    return aName.localeCompare(bName);
+  });
 
-// 从列表中移除用户
-function removeUserFromList(id) {
-  const list = document.getElementById("user-list");
-  if (!list) return;
-
-  const items = list.querySelectorAll("li");
-  for (let item of items) {
-    if (item.dataset.id === id) {
-      const name = item.querySelector(".user-name").textContent;
-      item.remove();
-      console.log("[UI] 移除用户:", name, id);
-      return;
-    }
-  }
+  // 重新按顺序添加进 DOM
+  items.forEach((item) => list.appendChild(item));
 }
 
 // 当前聊天对象 - 全局变量
@@ -875,7 +843,7 @@ function createMessageElement(message, isSent) {
   if (message.id) messageDiv.dataset.msgId = message.id;
 
   // 把当前状态存入数据集，方便轮询检测
-  messageDiv.dataset.status = message.status || 'sent'; 
+  messageDiv.dataset.status = message.status || "sent";
 
   const contentDiv = document.createElement("div");
   contentDiv.className = "message-content";
@@ -1112,9 +1080,7 @@ function onReceiveMessage(message) {
     );
     if (userLi) {
       userLi.classList.add("has-unread");
-      // 把有新消息的用户置顶排到列表最上面，体验更好
-      const list = document.getElementById("user-list");
-      list.prepend(userLi);
+      sortUserList();
     }
     console.log("[UI]   - message.from_id:", message.from_id);
     console.log(
@@ -1916,16 +1882,21 @@ function initScrollToBottomBtn() {
   // 3. 监听滚动事件，控制显示/隐藏
   chatMessages.addEventListener("scroll", () => {
     // 距离底部 150px 以内都认为是在底部
-    const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
-        chatMessages.clientHeight < 150;
+    const isAtBottom =
+      chatMessages.scrollHeight - chatMessages.scrollTop -
+          chatMessages.clientHeight < 150;
 
     if (isAtBottom) {
+      // 滚到底部了，隐藏按钮
       btn.classList.remove("show");
+
+      // 滚到底部时必须清除红点状态
       const unreadDot = document.getElementById("unread-dot");
       if (unreadDot) {
-        unreadDot.classList.remove("show"); // 到达底部自动消除红点
+        unreadDot.classList.remove("show");
       }
     } else {
+      // 不在底部，按钮应该显示（但不一定有红点，红点由新消息触发）
       btn.classList.add("show");
     }
   });
