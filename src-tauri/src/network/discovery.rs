@@ -314,7 +314,21 @@ async fn resend_file_background(
     file_size: i64,
 ) -> Result<(), String> {
     println!("[UDP] 正在后台补发文件: {}", file_name);
+    // 区分 Android content URI 和普通文件路径
+    #[cfg(target_os = "android")]
+    let mut file = if file_path.starts_with("content://") {
+        println!("[UDP] 检测到 content URI，调用 Android 专用 FD 获取机制");
+        let android_file = crate::android_fd::AndroidFile::from_content_uri(file_path)
+            .map_err(|e| format!("无法从 Content URI 获取文件: {}", e))?;
+        // 将 std::fs::File 转换为 tokio::fs::File
+        tokio::fs::File::from_std(android_file.into_file())
+    } else {
+        tokio::fs::File::open(file_path)
+            .await
+            .map_err(|e| format!("无法打开文件: {}", e))?
+    };
 
+    #[cfg(not(target_os = "android"))]
     let mut file = tokio::fs::File::open(file_path)
         .await
         .map_err(|e| format!("无法打开文件: {}", e))?;
