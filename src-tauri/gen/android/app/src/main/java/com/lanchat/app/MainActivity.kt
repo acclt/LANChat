@@ -56,6 +56,11 @@ class MainActivity : TauriActivity() {
         if (files == null || files.isEmpty()) return
 
         println("[MainActivity] 准备推送 ${files.size} 个文件到前端")
+        
+        // 一旦取出数据，立刻清空保险箱！
+        // 这样哪怕 onResume 和 广播 同时触发，第二个进来的也只能拿到 null，彻底杜绝双重注入！
+        ShareDataHolder.sharedFiles = null
+
         val jsonArray = JSONArray()
         files.forEach { file ->
             val jsonObj = JSONObject().apply {
@@ -63,7 +68,7 @@ class MainActivity : TauriActivity() {
                 put("fileName", file.fileName)
                 put("fileSize", file.fileSize)
                 put("mimeType", file.mimeType)
-                put("fd", file.fd) // 极为关键：原生层的 fd 直接塞给前端
+                put("fd", file.fd)
             }
             jsonArray.put(jsonObj)
         }

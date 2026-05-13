@@ -166,14 +166,17 @@ window.shareDialogInterval = null;
 function showShareDialog(sharedFiles) {
   console.log("[JS-App] showShareDialog 被调用，文件数:", sharedFiles.length);
 
-  // 防止重复弹窗，先尝试清理旧的
-  closeShareDialog();
+  // 仅清理旧 DOM，绝不能在这里调用 apiClearAndroidSharedFiles 误杀 FD！
+  if (window.shareDialogInterval) {
+    clearInterval(window.shareDialogInterval);
+    window.shareDialogInterval = null;
+  }
+  const oldDialog = document.querySelector(".share-dialog");
+  if (oldDialog) oldDialog.remove();
 
-  // 创建弹窗 DOM
+  // 创建新弹窗 DOM
   const dialog = document.createElement("div");
   dialog.className = "share-dialog";
-
-  // 【关键修复 1】把 onclick 去掉，给按钮加一个专门的 id
   dialog.innerHTML = `
         <div class="share-dialog-content">
             <h3>选择接收者</h3>
@@ -184,20 +187,16 @@ function showShareDialog(sharedFiles) {
     `;
 
   document.body.appendChild(dialog);
-  console.log("[JS-App] 对话框已添加到 DOM");
 
-  // 【关键修复 2】在 DOM 插入页面后，用安全的 JS 方式绑定事件
+  // 绑定专门的取消事件
   const cancelBtn = document.getElementById("share-cancel-btn");
   if (cancelBtn) {
-    cancelBtn.addEventListener("click", closeShareDialog);
+    cancelBtn.addEventListener("click", cancelShareDialog);
   }
 
-  // 首次立刻渲染列表
   syncShareUserList(sharedFiles);
 
-  // 开启定时器，每秒无感同步一次主界面的在线用户
   window.shareDialogInterval = setInterval(() => {
-    // 如果弹窗已被移除（比如用户点击了取消），自动停止并清理定时器
     if (!document.getElementById("share-user-list")) {
       clearInterval(window.shareDialogInterval);
       window.shareDialogInterval = null;
@@ -266,18 +265,16 @@ function syncShareUserList(sharedFiles) {
   }
 }
 
-// 关闭分享对话框
-function closeShareDialog() {
-  // 关闭时精准切断定时器，绝不浪费一点手机性能
+// 用户主动取消分享
+function cancelShareDialog() {
   if (window.shareDialogInterval) {
     clearInterval(window.shareDialogInterval);
     window.shareDialogInterval = null;
   }
-
   const dialog = document.querySelector(".share-dialog");
-  if (dialog) {
-    dialog.remove();
-  }
+  if (dialog) dialog.remove();
+
+  // 只有用户主动取消，才安全释放所有底层 FD
   apiClearAndroidSharedFiles();
 }
 
@@ -285,20 +282,25 @@ function closeShareDialog() {
 async function handleShareToUser(userId, userName, userAddr, sharedFiles) {
   console.log("[JS-App] 分享文件到:", userName);
 
-  // 关闭对话框
-  closeShareDialog();
+  // 用户确认发送，前端立刻交出 FD 的管理权！
+  // 这样无论后续弹窗怎么销毁，前端都不会再去误杀这些 FD，后端的 Rust 拿到 FD 传完会自动释放
+  window.__ANDROID_SHARED_FILES__ = null;
 
-  // 打开该用户的聊天界面
+  // 清理弹窗 DOM
+  if (window.shareDialogInterval) {
+    clearInterval(window.shareDialogInterval);
+    window.shareDialogInterval = null;
+  }
+  const dialog = document.querySelector(".share-dialog");
+  if (dialog) dialog.remove();
+
+  // 打开聊天窗口并发送
   openChat({ id: userId, name: userName, addr: userAddr });
 
-  // 发送所有文件
   for (const fileInfo of sharedFiles) {
     try {
       console.log("[JS-App] 发送文件:", fileInfo.fileName);
-
-      // 发送文件（Rust 会自动创建数据库记录）
       await apiSendFileFromAndroidUri(userId, userAddr, fileInfo);
-
       console.log("[JS-App] 文件发送成功:", fileInfo.fileName);
     } catch (e) {
       console.error("[JS-App] 文件发送失败:", fileInfo.fileName, e);
@@ -306,10 +308,6 @@ async function handleShareToUser(userId, userName, userAddr, sharedFiles) {
     }
   }
 
-  // 清除待处理的分享文件
-  apiClearAndroidSharedFiles();
-
-  // 重新加载聊天历史以显示最新状态
   console.log("[JS-App] 重新加载聊天历史");
   await loadChatHistory(userId);
 }
@@ -338,9 +336,8 @@ async function startMessagePolling() {
       const chatMessages = document.getElementById("chat-messages");
       if (!chatMessages) return;
 
-      const isAtBottom =
-        chatMessages.scrollHeight - chatMessages.scrollTop -
-            chatMessages.clientHeight < 150;
+      const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
+          chatMessages.clientHeight < 150;
 
       // 1. 获取最近 20 条消息（包含可能状态已改变的旧消息）
       const latestMessages = await apiGetChatHistory(
