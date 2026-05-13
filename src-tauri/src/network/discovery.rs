@@ -8,9 +8,6 @@ use tauri::{AppHandle, Emitter};
 
 use crate::peers::PeerManager;
 
-#[cfg(not(feature = "desktop"))]
-type AppHandle = ();
-
 const MULTICAST_IP: &str = "224.0.0.167";
 
 // 创建支持广播和组播的 UDP socket
@@ -182,7 +179,7 @@ pub async fn start_listening(
 
                     // 扔进后台线程执行，不要阻挡 UDP 监听其他用户的广播！
                     tokio::spawn(async move {
-                        if let Err(e) = resend_pending_messages(
+                        if let Err(e) = crate::network::messaging::resend_pending_messages(
                             &pool_clone,
                             &peer_id_clone,
                             &peer_addr_clone,
@@ -267,7 +264,7 @@ pub async fn start_listening(
 
                     // 扔进后台线程执行，不要阻挡 UDP 监听其他用户的广播！
                     tokio::spawn(async move {
-                        if let Err(e) = resend_pending_messages(
+                        if let Err(e) = crate::network::messaging::resend_pending_messages(
                             &pool_clone,
                             &peer_id_clone,
                             &peer_addr_clone,
@@ -303,209 +300,3 @@ pub async fn send_single_broadcast(
     Ok(())
 }
 
-// ======================================
-// 补发挂起的文件（后台静默文件传输）
-// ======================================
-async fn resend_file_background(
-    my_id: &str,
-    peer_addr: &str,
-    file_name: &str,
-    file_path: &str,
-    file_size: i64,
-) -> Result<(), String> {
-    println!("[UDP] 正在后台补发文件: {}", file_name);
-    // 区分 Android content URI 和普通文件路径
-    #[cfg(target_os = "android")]
-    let mut file = if file_path.starts_with("content://") {
-        println!("[UDP] 检测到 content URI，调用 Android 专用 FD 获取机制");
-        let android_file = crate::android_fd::AndroidFile::from_content_uri(file_path)
-            .map_err(|e| format!("无法从 Content URI 获取文件: {}", e))?;
-        // 将 std::fs::File 转换为 tokio::fs::File
-        tokio::fs::File::from_std(android_file.into_file())
-    } else {
-        tokio::fs::File::open(file_path)
-            .await
-            .map_err(|e| format!("无法打开文件: {}", e))?
-    };
-
-    #[cfg(not(target_os = "android"))]
-    let mut file = tokio::fs::File::open(file_path)
-        .await
-        .map_err(|e| format!("无法打开文件: {}", e))?;
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300)) // 5 分钟超时
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
-
-    let upload_url = format!("http://{}/api/upload", peer_addr);
-
-    // 使用保守的固定分块大小 (50MB) 跑在后台
-    let chunk_size = 50 * 1024 * 1024;
-    let total_chunks = (file_size + chunk_size - 1) / chunk_size;
-
-    let mut offset = 0;
-    let mut chunk_index = 0;
-
-    loop {
-        let mut buf = vec![0u8; chunk_size as usize];
-        let mut bytes_read = 0;
-
-        while bytes_read < chunk_size as usize {
-            use tokio::io::AsyncReadExt;
-            let n = file.read(&mut buf[bytes_read..]).await.unwrap_or(0);
-            if n == 0 {
-                break;
-            }
-            bytes_read += n;
-        }
-
-        if bytes_read == 0 {
-            break;
-        }
-        buf.truncate(bytes_read); // 截断到实际读取长度
-
-        let form = reqwest::multipart::Form::new()
-            .text("peer_id", my_id.to_string())
-            .text("file_name", file_name.to_string())
-            .text("file_size", file_size.to_string())
-            .text("chunk_index", chunk_index.to_string())
-            .text("chunk_total", total_chunks.to_string())
-            .part(
-                "chunk",
-                reqwest::multipart::Part::bytes(buf)
-                    .mime_str("application/octet-stream")
-                    .unwrap(),
-            );
-
-        let resp = client
-            .post(&upload_url)
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if !resp.status().is_success() {
-            return Err(format!("HTTP 返回错误: {}", resp.status()));
-        }
-
-        offset += bytes_read as i64;
-        chunk_index += 1;
-        if chunk_index % 5 == 0 {
-            // 每 5 块打印一次，避免日志刷屏
-            println!(
-                "[UDP] 文件 {} 补发中: {}/{} MB",
-                file_name,
-                offset / (1024 * 1024),
-                file_size / (1024 * 1024)
-            );
-        }
-    }
-
-    Ok(())
-}
-
-// 补发挂起的消息给上线的用户
-async fn resend_pending_messages(
-    pool: &sqlx::Pool<sqlx::Sqlite>,
-    peer_id: &str,
-    peer_addr: &str,
-    #[allow(unused_variables)] app: Option<AppHandle>,
-) -> Result<(), String> {
-    println!("[UDP] 检查用户 {} 的挂起消息...", peer_id);
-
-    let pending_messages = crate::db::get_pending_messages(pool, peer_id).await?;
-
-    if pending_messages.is_empty() {
-        println!("[UDP] 用户 {} 没有挂起消息", peer_id);
-        return Ok(());
-    }
-
-    println!(
-        "[UDP] 发现 {} 条挂起消息，开始握手...",
-        pending_messages.len()
-    );
-
-    // 第一步：发送握手请求，询问对方是否准备好接收
-    let my_id = crate::db::get_user_id(pool).await?;
-
-    match crate::network::messaging::send_handshake(peer_addr, my_id.clone(), "ready_to_receive")
-        .await
-    {
-        Ok(_) => {
-            println!("[UDP] ✓ 握手请求已发送");
-
-            // 等待一段时间让对方处理握手
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-            // 第二步：补发所有挂起的消息
-            let mut msg_ids_to_mark = Vec::new();
-
-            for (msg_id, content, msg_type, _timestamp, file_path, file_size) in pending_messages {
-                if msg_type == "text" {
-                    // 补发文本消息
-                    match crate::network::messaging::send_text_message(
-                        peer_addr,
-                        my_id.clone(),
-                        "System".to_string(),
-                        content.clone(),
-                    )
-                    .await
-                    {
-                        Ok(_) => {
-                            println!("[UDP] ✓ 文本消息 {} 补发成功", msg_id);
-                            msg_ids_to_mark.push(msg_id);
-                        }
-                        Err(e) => {
-                            eprintln!("[UDP] ✗ 文本消息 {} 补发失败: {}", msg_id, e);
-                        }
-                    }
-
-                    // 消息之间稍微延迟，避免过快
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                }
-                // 加入了文件补发逻辑分支
-                else if msg_type == "file" {
-                    match (file_path.as_ref(), file_size) {
-                        (Some(path), Some(size)) if !path.trim().is_empty() => {
-                            // 只有路径非空时，才尝试读取文件补发
-                            match resend_file_background(&my_id, peer_addr, &content, path, size)
-                                .await
-                            {
-                                Ok(_) => {
-                                    println!("[UDP] ✓ 文件消息 {} 补发成功", msg_id);
-                                    msg_ids_to_mark.push(msg_id);
-                                }
-                                Err(e) => {
-                                    eprintln!("[UDP] ✗ 文件消息 {} 补发失败: {}", msg_id, e);
-                                }
-                            }
-                        }
-                        _ => {
-                            // 如果文件路径为空（Web端发送）或信息不全
-                            // 我们不能让它一直卡在 pending 状态不停报错
-                            eprintln!("[UDP] ⚠ 跳过无法补发的文件消息 {}: 路径缺失(Web端记录或数据异常)。将其移出挂起队列。", msg_id);
-                            // 把它加入“待标记”列表，让数据库把它状态改成 sent，
-                            // 这样它就再也不会进入补发循环了。
-                            msg_ids_to_mark.push(msg_id);
-                        }
-                    }
-                }
-            }
-
-            // 标记已发送的消息
-            if !msg_ids_to_mark.is_empty() {
-                crate::db::mark_messages_as_sent(pool, msg_ids_to_mark).await?;
-                #[cfg(feature = "desktop")]
-                if let Some(app_handle) = app {
-                    let _ = app_handle.emit("messages-resent", peer_id.to_string());
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("[UDP] ✗ 握手失败: {}", e);
-        }
-    }
-
-    Ok(())
-}
