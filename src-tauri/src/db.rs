@@ -131,14 +131,21 @@ pub async fn init_db(app_handle: &AppHandle) -> Result<Pool<Sqlite>, sqlx::Error
     init_db_with_path(app_dir).await
 }
 
-// 为 Web 端初始化数据库（使用自定义路径）
+// 为 Web 端初始化数据库（自动匹配平台标准路径）
 pub async fn init_db_standalone(custom_path: Option<PathBuf>) -> Result<Pool<Sqlite>, sqlx::Error> {
     let app_dir = if let Some(path) = custom_path {
         path
     } else {
-        // 默认使用与桌面端相同的路径: ~/.local/share/com.lanchat.app/
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".local/share/com.lanchat.app")
+        // Windows: C:\Users\用户名\AppData\Roaming\com.lanchat.app
+        // Linux: /home/用户名/.local/share/com.lanchat.app
+        // macOS: /Users/用户名/Library/Application Support/com.lanchat.app
+        dirs::data_dir()
+            .map(|p| p.join("com.lanchat.app"))
+            .unwrap_or_else(|| {
+                // 如果实在拿不到系统路径（极罕见），回退到当前目录下的 data 文件夹
+                eprintln!("[DB] 无法获取系统数据目录，回退到本地路径");
+                PathBuf::from(".").join("data")
+            })
     };
 
     init_db_with_path(app_dir).await
