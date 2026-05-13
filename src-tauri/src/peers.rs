@@ -29,9 +29,9 @@ impl PeerManager {
     // 从数据库加载历史用户
     pub async fn load_from_db(&self, pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<(), String> {
         println!("[PeerManager] 从数据库加载历史用户...");
-        
+
         let users = crate::db::get_all_users(pool).await?;
-        
+
         let mut peers = self.peers.write().unwrap();
         for (id, name, addr, _last_seen, is_offline, available_memory_mb) in users {
             let peer = Peer {
@@ -44,7 +44,7 @@ impl PeerManager {
             };
             peers.insert(id, peer);
         }
-        
+
         println!("[PeerManager] 已加载 {} 个历史用户", peers.len());
         Ok(())
     }
@@ -107,6 +107,19 @@ impl PeerManager {
         }
     }
 
+    pub fn force_mark_offline(&self, id: &str) {
+        let mut peers = self.peers.write().unwrap();
+        if let Some(peer) = peers.get_mut(id) {
+            if !peer.is_offline {
+                println!(
+                    "[PeerManager] 探测发现用户确已离线: {} ({})",
+                    peer.name, peer.id
+                );
+                peer.is_offline = true;
+            }
+        }
+    }
+
     // 标记所有用户为"待确认"状态,然后检查哪些用户离线
     pub fn mark_stale_as_offline(&self) {
         let now = SystemTime::now()
@@ -116,10 +129,10 @@ impl PeerManager {
 
         let mut peers = self.peers.write().unwrap();
 
-        // 标记超过 6 秒未见的用户为离线
+        // 标记超过 5 秒未见的用户为离线
         for peer in peers.values_mut() {
             let time_since_seen = now - peer.last_seen;
-            if time_since_seen > 6 && !peer.is_offline {
+            if time_since_seen > 5 && !peer.is_offline {
                 println!(
                     "[PeerManager] 用户离线: {} ({}) - {}秒未见",
                     peer.name, peer.id, time_since_seen
@@ -127,8 +140,6 @@ impl PeerManager {
                 peer.is_offline = true;
             }
         }
-
-        // 不再删除超过 60 秒的用户，保留所有历史用户
     }
 
     // 获取所有用户（包括离线的）

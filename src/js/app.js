@@ -44,6 +44,17 @@ async function renderPage() {
     onReceiveMessage(event.payload);
   });
 
+  // 监听补发完成事件，自动剥除“待上线”黄点
+  await apiListen("messages-resent", async (event) => {
+    const peerId = event.payload;
+    console.log("[JS-App] 收到补发完成事件，准备刷新用户:", peerId);
+
+    // 如果当前正好在这个用户的聊天界面里，静默刷新一下历史记录即可
+    if (window.currentChatPeer && window.currentChatPeer.id === peerId) {
+      await loadChatHistory(peerId, true);
+    }
+  });
+
   // 启动用户列表轮询（桌面端和 Web 端都需要）
   console.log("[JS-App] 启动用户列表轮询");
   startPeerPolling();

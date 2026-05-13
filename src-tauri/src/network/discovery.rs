@@ -8,6 +8,9 @@ use tauri::{AppHandle, Emitter};
 
 use crate::peers::PeerManager;
 
+#[cfg(not(feature = "desktop"))]
+type AppHandle = ();
+
 const MULTICAST_IP: &str = "224.0.0.167";
 
 // 创建支持广播和组播的 UDP socket
@@ -104,7 +107,7 @@ pub async fn start_announcing(port: u16, user_id: String, pool: sqlx::Pool<sqlx:
         // 成功数量通常是 2~4 个（组播 + 全局 + 刚好撞中的你的 84 热点网段等）
         // println!("[UDP] 心跳发送成功，激活了 {} 个真实路由网段", success_count);
 
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
 
@@ -146,7 +149,7 @@ pub async fn start_listening(
                 }
 
                 let peer_addr = format!("{}:{}", addr.ip(), peer_port);
-                
+
                 let is_new_or_reconnected = peer_manager.add_or_update_with_memory(
                     peer_id.clone(),
                     name.clone(),
@@ -162,19 +165,34 @@ pub async fn start_listening(
                     peer_addr.clone(),
                     false,
                     available_memory_mb,
-                ).await;
+                )
+                .await;
 
                 // 只在新用户或重新上线时打印日志
                 if is_new_or_reconnected {
                     println!(
-                        "[UDP] 发现用户: {} ({}) at {} (可用内存: {} MB)",
+                        "[UDP] 发现用户: {} ({}) at {} (可用内存: {} MB)，准备检查补发队列...",
                         name, peer_id, peer_addr, available_memory_mb
                     );
 
-                    // 用户重新上线，补发挂起的消息
-                    if let Err(e) = resend_pending_messages(&pool, &peer_id, &peer_addr).await {
-                        eprintln!("[UDP] 补发消息失败: {}", e);
-                    }
+                    let pool_clone = pool.clone();
+                    let peer_id_clone = peer_id.clone();
+                    let peer_addr_clone = peer_addr.clone();
+                    let app_clone = app.clone();
+
+                    // 扔进后台线程执行，不要阻挡 UDP 监听其他用户的广播！
+                    tokio::spawn(async move {
+                        if let Err(e) = resend_pending_messages(
+                            &pool_clone,
+                            &peer_id_clone,
+                            &peer_addr_clone,
+                            app_clone,
+                        )
+                        .await
+                        {
+                            eprintln!("[UDP] 补发消息严重失败: {}", e);
+                        }
+                    });
                 }
 
                 if let Some(app_handle) = &app {
@@ -221,7 +239,7 @@ pub async fn start_listening(
                     continue;
                 }
                 let peer_addr = format!("{}:{}", addr.ip(), peer_port);
-                
+
                 let is_new_or_reconnected = peer_manager.add_or_update_with_memory(
                     peer_id.clone(),
                     name.clone(),
@@ -237,13 +255,29 @@ pub async fn start_listening(
                     peer_addr.clone(),
                     false,
                     available_memory_mb,
-                ).await;
+                )
+                .await;
 
                 // 用户重新上线，补发挂起的消息
                 if is_new_or_reconnected {
-                    if let Err(e) = resend_pending_messages(&pool, &peer_id, &peer_addr).await {
-                        eprintln!("[UDP] 补发消息失败: {}", e);
-                    }
+                    println!("[UDP] 发现用户或重新上线，准备检查补发队列...");
+                    let pool_clone = pool.clone();
+                    let peer_id_clone = peer_id.clone();
+                    let peer_addr_clone = peer_addr.clone();
+
+                    // 扔进后台线程执行，不要阻挡 UDP 监听其他用户的广播！
+                    tokio::spawn(async move {
+                        if let Err(e) = resend_pending_messages(
+                            &pool_clone,
+                            &peer_id_clone,
+                            &peer_addr_clone,
+                            None,
+                        )
+                        .await
+                        {
+                            eprintln!("[UDP] 补发消息严重失败: {}", e);
+                        }
+                    });
                 }
             }
         }
@@ -269,11 +303,100 @@ pub async fn send_single_broadcast(
     Ok(())
 }
 
+// ======================================
+// 补发挂起的文件（后台静默文件传输）
+// ======================================
+async fn resend_file_background(
+    my_id: &str,
+    peer_addr: &str,
+    file_name: &str,
+    file_path: &str,
+    file_size: i64,
+) -> Result<(), String> {
+    println!("[UDP] 正在后台补发文件: {}", file_name);
+
+    let mut file = tokio::fs::File::open(file_path)
+        .await
+        .map_err(|e| format!("无法打开文件: {}", e))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300)) // 5 分钟超时
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+
+    let upload_url = format!("http://{}/api/upload", peer_addr);
+
+    // 使用保守的固定分块大小 (50MB) 跑在后台
+    let chunk_size = 50 * 1024 * 1024;
+    let total_chunks = (file_size + chunk_size - 1) / chunk_size;
+
+    let mut offset = 0;
+    let mut chunk_index = 0;
+
+    loop {
+        let mut buf = vec![0u8; chunk_size as usize];
+        let mut bytes_read = 0;
+
+        while bytes_read < chunk_size as usize {
+            use tokio::io::AsyncReadExt;
+            let n = file.read(&mut buf[bytes_read..]).await.unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            bytes_read += n;
+        }
+
+        if bytes_read == 0 {
+            break;
+        }
+        buf.truncate(bytes_read); // 截断到实际读取长度
+
+        let form = reqwest::multipart::Form::new()
+            .text("peer_id", my_id.to_string())
+            .text("file_name", file_name.to_string())
+            .text("file_size", file_size.to_string())
+            .text("chunk_index", chunk_index.to_string())
+            .text("chunk_total", total_chunks.to_string())
+            .part(
+                "chunk",
+                reqwest::multipart::Part::bytes(buf)
+                    .mime_str("application/octet-stream")
+                    .unwrap(),
+            );
+
+        let resp = client
+            .post(&upload_url)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            return Err(format!("HTTP 返回错误: {}", resp.status()));
+        }
+
+        offset += bytes_read as i64;
+        chunk_index += 1;
+        if chunk_index % 5 == 0 {
+            // 每 5 块打印一次，避免日志刷屏
+            println!(
+                "[UDP] 文件 {} 补发中: {}/{} MB",
+                file_name,
+                offset / (1024 * 1024),
+                file_size / (1024 * 1024)
+            );
+        }
+    }
+
+    Ok(())
+}
+
 // 补发挂起的消息给上线的用户
 async fn resend_pending_messages(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     peer_id: &str,
     peer_addr: &str,
+    #[allow(unused_variables)] app: Option<AppHandle>,
 ) -> Result<(), String> {
     println!("[UDP] 检查用户 {} 的挂起消息...", peer_id);
 
@@ -284,22 +407,27 @@ async fn resend_pending_messages(
         return Ok(());
     }
 
-    println!("[UDP] 发现 {} 条挂起消息，开始握手...", pending_messages.len());
+    println!(
+        "[UDP] 发现 {} 条挂起消息，开始握手...",
+        pending_messages.len()
+    );
 
     // 第一步：发送握手请求，询问对方是否准备好接收
     let my_id = crate::db::get_user_id(pool).await?;
-    
-    match crate::network::messaging::send_handshake(peer_addr, my_id.clone(), "ready_to_receive").await {
+
+    match crate::network::messaging::send_handshake(peer_addr, my_id.clone(), "ready_to_receive")
+        .await
+    {
         Ok(_) => {
             println!("[UDP] ✓ 握手请求已发送");
-            
+
             // 等待一段时间让对方处理握手
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            
+
             // 第二步：补发所有挂起的消息
             let mut msg_ids_to_mark = Vec::new();
 
-            for (msg_id, content, msg_type, _timestamp) in pending_messages {
+            for (msg_id, content, msg_type, _timestamp, file_path, file_size) in pending_messages {
                 if msg_type == "text" {
                     // 补发文本消息
                     match crate::network::messaging::send_text_message(
@@ -311,22 +439,43 @@ async fn resend_pending_messages(
                     .await
                     {
                         Ok(_) => {
-                            println!("[UDP] ✓ 消息 {} 补发成功", msg_id);
+                            println!("[UDP] ✓ 文本消息 {} 补发成功", msg_id);
                             msg_ids_to_mark.push(msg_id);
                         }
                         Err(e) => {
-                            eprintln!("[UDP] ✗ 消息 {} 补发失败: {}", msg_id, e);
+                            eprintln!("[UDP] ✗ 文本消息 {} 补发失败: {}", msg_id, e);
                         }
                     }
-                    
+
                     // 消息之间稍微延迟，避免过快
                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                }
+                // 加入了文件补发逻辑分支
+                else if msg_type == "file" {
+                    if let (Some(path), Some(size)) = (file_path, file_size) {
+                        match resend_file_background(&my_id, peer_addr, &content, &path, size).await
+                        {
+                            Ok(_) => {
+                                println!("[UDP] ✓ 文件消息 {} 补发成功", msg_id);
+                                msg_ids_to_mark.push(msg_id);
+                            }
+                            Err(e) => {
+                                eprintln!("[UDP] ✗ 文件消息 {} 补发失败: {}", msg_id, e);
+                            }
+                        }
+                    } else {
+                        eprintln!("[UDP] ✗ 无法补发文件消息 {}，缺少路径或大小信息", msg_id);
+                    }
                 }
             }
 
             // 标记已发送的消息
             if !msg_ids_to_mark.is_empty() {
                 crate::db::mark_messages_as_sent(pool, msg_ids_to_mark).await?;
+                #[cfg(feature = "desktop")]
+                if let Some(app_handle) = app {
+                    let _ = app_handle.emit("messages-resent", peer_id.to_string());
+                }
             }
         }
         Err(e) => {

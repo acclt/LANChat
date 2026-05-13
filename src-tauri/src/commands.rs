@@ -79,27 +79,38 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
     file_size: usize,
     file_path_for_db: String,
     mut file: R,
+    is_online: bool,
 ) -> Result<serde_json::Value, String> {
-    // 立即创建数据库记录（状态为 uploading）
-    let message_id = match crate::db::save_file_message(
+    // 决定存入数据库的状态：如果离线，那就是 pending 且不用显示上传中
+    let overall_status = if is_online {
+        "sent".to_string()
+    } else {
+        "pending".to_string()
+    };
+    let file_status = if is_online {
+        "uploading".to_string()
+    } else {
+        "accepted".to_string()
+    };
+
+    let message_id = crate::db::save_file_message(
         &state.pool,
         peer_id.clone(),
         file_name.clone(),
         file_size,
         file_path_for_db.clone(),
-        "uploading".to_string(),
+        file_status,
+        overall_status, // 传入状态
     )
     .await
-    {
-        Ok(id) => {
-            println!("[Command] ✓ 已创建上传中记录，ID: {}", id);
-            Some(id)
-        }
-        Err(e) => {
-            eprintln!("[Command] ✗ 创建上传记录失败: {}", e);
-            None
-        }
-    };
+    .ok();
+
+    if !is_online {
+        println!("[Command] 对方离线，文件保存为待上线");
+        return Ok(serde_json::json!({
+            "success": true, "file_name": file_name, "file_size": file_size,
+        }));
+    }
 
     // 获取自己的 ID（发送者 ID）
     let my_id = crate::db::get_user_id(&state.pool).await?;
@@ -369,26 +380,66 @@ pub async fn send_message(
     content: String,
 ) -> Result<(), String> {
     println!("[Command] 收到发送消息请求: 发送给 {}", peer_id);
-
-    // 获取自己的信息
     let my_id = crate::db::get_user_id(&state.pool).await?;
     let my_name = crate::db::get_username(&state.pool).await?;
 
-    // 检查用户是否在线
-    let peers = peer_state.manager.get_all_peers();
-    let is_online = peers.iter().any(|p| p.id == peer_id && !p.is_offline);
+    // 1. 获取用户当前状态
+    let (is_offline_now, peer_name) = {
+        let peers = peer_state.manager.get_all_peers();
+        let p = peers.iter().find(|p| p.id == peer_id);
+        (
+            p.map(|p| p.is_offline).unwrap_or(true),
+            p.map(|p| p.name.clone()).unwrap_or_else(|| "未知".into()),
+        )
+    };
 
-    if is_online {
-        // 用户在线，直接发送
-        crate::network::messaging::send_text_message(&peer_addr, my_id, my_name, content.clone())
+    // 2. 如果已经判定离线，直接走 Pending 流程
+    if is_offline_now {
+        println!(
+            "[Command] 用户 {} 处于离线记录中，直接保存为挂起状态",
+            peer_id
+        );
+        crate::db::save_text_message_with_status(
+            &state.pool,
+            peer_id,
+            content,
+            "pending".to_string(),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    // 3. 尝试发送（这同时也是一种探测）
+    println!("[Command] 尝试发送消息给 {}({})...", peer_name, peer_addr);
+    match crate::network::messaging::send_text_message(&peer_addr, my_id, my_name, content.clone())
+        .await
+    {
+        Ok(_) => {
+            // 发送成功
+            crate::db::save_text_message_with_status(
+                &state.pool,
+                peer_id,
+                content,
+                "sent".to_string(),
+            )
             .await?;
+        }
+        Err(e) => {
+            // 发送失败（探测到实际已离线或网络故障）
+            eprintln!("[Command] 发送失败(网络探测): {}. 消息将转入挂起队列。", e);
 
-        // 保存到数据库(标记为已发送)
-        crate::db::save_text_message_with_status(&state.pool, peer_id, content, "sent".to_string()).await?;
-    } else {
-        // 用户离线，保存为挂起状态
-        println!("[Command] 用户 {} 离线，消息保存为挂起状态", peer_id);
-        crate::db::save_text_message_with_status(&state.pool, peer_id, content, "pending".to_string()).await?;
+            // 立即更新本地状态，避免下次发送再次空转
+            peer_state.manager.force_mark_offline(&peer_id);
+
+            // 保存为挂起
+            crate::db::save_text_message_with_status(
+                &state.pool,
+                peer_id,
+                content,
+                "pending".to_string(),
+            )
+            .await?;
+        }
     }
 
     Ok(())
@@ -490,6 +541,15 @@ pub async fn send_file(
 
             // 使用统一的上传函数
             let peer_state = app.try_state::<PeerState>();
+            let is_online = peer_state
+                .as_ref()
+                .map(|s| {
+                    s.manager
+                        .get_all_peers()
+                        .iter()
+                        .any(|p| p.id == peer_id && !p.is_offline)
+                })
+                .unwrap_or(true);
             return upload_file_internal(
                 &app,
                 &state,
@@ -500,6 +560,7 @@ pub async fn send_file(
                 file_size as usize,
                 actual_path,
                 file,
+                is_online,
             )
             .await;
         }
@@ -530,6 +591,15 @@ pub async fn send_file(
 
     // 使用统一的上传函数
     let peer_state = app.try_state::<PeerState>();
+    let is_online = peer_state
+        .as_ref()
+        .map(|s| {
+            s.manager
+                .get_all_peers()
+                .iter()
+                .any(|p| p.id == peer_id && !p.is_offline)
+        })
+        .unwrap_or(true);
     upload_file_internal(
         &app,
         &state,
@@ -540,6 +610,7 @@ pub async fn send_file(
         file_size,
         actual_path,
         file,
+        is_online,
     )
     .await
 }
@@ -706,6 +777,7 @@ pub async fn save_file_message(
         file_size,
         file_path,
         status,
+        "sent".to_string(),
     )
     .await
 }
@@ -890,6 +962,15 @@ pub async fn send_file_from_fd(
 
         // 使用统一的上传函数
         let peer_state = app.try_state::<PeerState>();
+        let is_online = peer_state
+            .as_ref()
+            .map(|s| {
+                s.manager
+                    .get_all_peers()
+                    .iter()
+                    .any(|p| p.id == peerId && !p.is_offline)
+            })
+            .unwrap_or(true);
         upload_file_internal(
             &app,
             &state,
@@ -900,6 +981,7 @@ pub async fn send_file_from_fd(
             fileSize,
             file_path,
             file,
+            is_online,
         )
         .await
     }

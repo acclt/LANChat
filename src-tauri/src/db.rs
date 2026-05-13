@@ -1,5 +1,5 @@
 use crate::utils::generate_random_name;
-use sqlx::{sqlite::SqlitePool, Pool, Sqlite};
+use sqlx::{Pool, Sqlite, sqlite::SqlitePool};
 use std::path::PathBuf;
 
 #[cfg(feature = "desktop")]
@@ -266,69 +266,50 @@ async fn init_db_with_path(app_dir: PathBuf) -> Result<Pool<Sqlite>, sqlx::Error
 // ==================== 文件相关的数据库函数 ====================
 
 /// 保存文件消息到数据库
-/// 如果存在相同文件名和状态为 uploading 的消息，则更新；否则新建
 pub async fn save_file_message(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     peer_id: String,
     file_name: String,
     file_size: usize,
     file_path: String,
-    status: String,
+    file_status: String,
+    overall_status: String,
 ) -> Result<i64, String> {
     println!(
         "[DB] 保存文件消息: 文件={}, 大小={}, 状态={}",
-        file_name, file_size, status
+        file_name, file_size, file_status
     );
-
-    // 检查是否存在相同文件名和状态为 uploading 的消息
+    // 检查是否存在
     let existing = sqlx::query_as::<_, (i64,)>(
         "SELECT id FROM messages WHERE receiver_id = ? AND content = ? AND msg_type = 'file' AND file_status = 'uploading' ORDER BY id DESC LIMIT 1"
     )
-    .bind(&peer_id)
-    .bind(&file_name)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("查询消息失败: {}", e))?;
+    .bind(&peer_id).bind(&file_name).fetch_optional(pool).await.map_err(|e| e.to_string())?;
 
     if let Some((msg_id,)) = existing {
-        // 更新现有的 uploading 消息
-        println!(
-            "[DB] 更新现有消息 ID: {}, 状态: {} -> {}",
-            msg_id, "uploading", status
-        );
-        sqlx::query("UPDATE messages SET file_path = ?, file_status = ? WHERE id = ?")
+        sqlx::query("UPDATE messages SET file_path = ?, file_status = ?, status = ? WHERE id = ?") // <--- 【修改 2】更新 status
             .bind(&file_path)
-            .bind(&status)
+            .bind(&file_status)
+            .bind(&overall_status)
             .bind(msg_id)
             .execute(pool)
             .await
-            .map_err(|e| format!("更新消息失败: {}", e))?;
-
-        println!("[DB] 消息已更新");
+            .map_err(|e| e.to_string())?;
         Ok(msg_id)
     } else {
-        // 插入新消息
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
 
+        // <--- 【修改 3】把 status 写入 INSERT
         let result = sqlx::query(
-            "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size) VALUES ('me', ?, ?, 'file', ?, ?, ?, ?)"
+            "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, status) VALUES ('me', ?, ?, 'file', ?, ?, ?, ?, ?)"
         )
-        .bind(&peer_id)
-        .bind(&file_name)
-        .bind(timestamp)
-        .bind(&file_path)
-        .bind(&status)
-        .bind(file_size as i64)
-        .execute(pool)
-        .await
-        .map_err(|e| format!("保存消息失败: {}", e))?;
+        .bind(&peer_id).bind(&file_name).bind(timestamp).bind(&file_path)
+        .bind(&file_status).bind(file_size as i64).bind(&overall_status)
+        .execute(pool).await.map_err(|e| e.to_string())?;
 
-        let msg_id = result.last_insert_rowid();
-        println!("[DB] 新消息已保存，ID: {}", msg_id);
-        Ok(msg_id)
+        Ok(result.last_insert_rowid())
     }
 }
 
@@ -674,22 +655,23 @@ pub async fn delete_messages_by_ids(
     if msg_ids.is_empty() {
         return Ok(());
     }
-    
+
     println!("[DB] 批量删除消息: {} 条", msg_ids.len());
-    
+
     // 构建 IN 子句的占位符
     let placeholders = msg_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let query_str = format!("DELETE FROM messages WHERE id IN ({})", placeholders);
-    
+
     let mut query = sqlx::query(&query_str);
     for id in msg_ids {
         query = query.bind(id);
     }
-    
-    query.execute(pool)
+
+    query
+        .execute(pool)
         .await
         .map_err(|e| format!("批量删除消息失败: {}", e))?;
-    
+
     println!("[DB] 消息已批量删除");
     Ok(())
 }
@@ -749,9 +731,9 @@ pub async fn get_all_users(
 pub async fn get_pending_messages(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     receiver_id: &str,
-) -> Result<Vec<(i64, String, String, i64)>, String> {
-    let rows = sqlx::query_as::<_, (i64, String, String, i64)>(
-        "SELECT id, content, msg_type, timestamp FROM messages WHERE receiver_id = ? AND status = 'pending' ORDER BY timestamp ASC"
+) -> Result<Vec<(i64, String, String, i64, Option<String>, Option<i64>)>, String> {
+    let rows = sqlx::query_as::<_, (i64, String, String, i64, Option<String>, Option<i64>)>(
+        "SELECT id, content, msg_type, timestamp, file_path, file_size FROM messages WHERE receiver_id = ? AND status = 'pending' ORDER BY timestamp ASC"
     )
     .bind(receiver_id)
     .fetch_all(pool)
@@ -785,14 +767,18 @@ pub async fn mark_messages_as_sent(
     }
 
     let placeholders = msg_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-    let query_str = format!("UPDATE messages SET status = 'sent' WHERE id IN ({})", placeholders);
+    let query_str = format!(
+        "UPDATE messages SET status = 'sent' WHERE id IN ({})",
+        placeholders
+    );
 
     let mut query = sqlx::query(&query_str);
     for id in msg_ids {
         query = query.bind(id);
     }
 
-    query.execute(pool)
+    query
+        .execute(pool)
         .await
         .map_err(|e| format!("批量更新消息状态失败: {}", e))?;
 
@@ -898,4 +884,20 @@ pub async fn save_network_message(
 
     println!("[DB] 接收自网络的消息已保存到数据库");
     Ok(())
+}
+
+/// 根据发送者和文件名获取最新的一条消息 ID
+pub async fn get_latest_msg_id_by_file(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    sender_id: &str,
+    file_name: &str,
+) -> Option<i64> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM messages WHERE sender_id = ? AND content = ? ORDER BY id DESC LIMIT 1"
+    )
+    .bind(sender_id)
+    .bind(file_name)
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None)
 }

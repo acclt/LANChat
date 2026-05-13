@@ -269,7 +269,9 @@ async fn send_message_http(
 
     // 检查用户是否在线
     let peers = state.peer_manager.get_all_peers();
-    let is_online = peers.iter().any(|p| p.id == payload.peer_id && !p.is_offline);
+    let is_online = peers
+        .iter()
+        .any(|p| p.id == payload.peer_id && !p.is_offline);
 
     if is_online {
         // 用户在线，直接发送
@@ -305,7 +307,10 @@ async fn send_message_http(
         }
     } else {
         // 用户离线，保存为挂起状态
-        println!("[Web Server] 用户 {} 离线，消息保存为挂起状态", payload.peer_id);
+        println!(
+            "[Web Server] 用户 {} 离线，消息保存为挂起状态",
+            payload.peer_id
+        );
         if let Err(e) = crate::db::save_text_message_with_status(
             &state.pool,
             payload.peer_id,
@@ -335,13 +340,20 @@ async fn get_chat_history_http(
         .get("limit")
         .and_then(|s| s.parse::<i32>().ok())
         .unwrap_or(10);
-    
+
     let offset = params
         .get("offset")
         .and_then(|s| s.parse::<i32>().ok())
         .unwrap_or(0);
-    
-    match crate::network::messaging::get_chat_history_with_offset(&state.pool, &peer_id, limit, offset).await {
+
+    match crate::network::messaging::get_chat_history_with_offset(
+        &state.pool,
+        &peer_id,
+        limit,
+        offset,
+    )
+    .await
+    {
         Ok(messages) => Json(serde_json::json!({ "messages": messages })).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -350,7 +362,6 @@ async fn get_chat_history_http(
             .into_response(),
     }
 }
-
 
 // WebSocket 处理器
 async fn websocket_handler(
@@ -548,8 +559,14 @@ async fn upload_file_http(
         // 拆分主文件名和扩展名
         let (stem, ext) = {
             let p = std::path::Path::new(&file_name);
-            let s = p.file_stem().and_then(|s| s.to_str()).unwrap_or(&file_name).to_string();
-            let e = p.extension().and_then(|s| s.to_str())
+            let s = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&file_name)
+                .to_string();
+            let e = p
+                .extension()
+                .and_then(|s| s.to_str())
                 .map(|e| format!(".{}", e))
                 .unwrap_or_default();
             (s, e)
@@ -561,13 +578,17 @@ async fn upload_file_http(
 
         if candidate.exists() && !downloading_path.exists() {
             // 目标文件存在且完整，比较大小
-            let existing_size = tokio::fs::metadata(&candidate).await
+            let existing_size = tokio::fs::metadata(&candidate)
+                .await
                 .map(|m| m.len())
                 .unwrap_or(0);
 
             if existing_size == file_size {
                 // 大小完全相同 → 秒传：直接复用已有文件，写入数据库记录
-                println!("[Web Server] ✓ 秒传命中: {:?} (大小相同: {} 字节)", candidate, file_size);
+                println!(
+                    "[Web Server] ✓ 秒传命中: {:?} (大小相同: {} 字节)",
+                    candidate, file_size
+                );
 
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -586,8 +607,29 @@ async fn upload_file_http(
                 {
                     Ok(msg_id) => {
                         // 立即标记为 accepted（文件已完整）
-                        let _ = crate::db::update_file_status_by_id(&state.pool, msg_id, "accepted").await;
-                        println!("[Web Server] ✓ 秒传记录已创建并标记为 accepted，ID: {}", msg_id);
+                        let _ =
+                            crate::db::update_file_status_by_id(&state.pool, msg_id, "accepted")
+                                .await;
+                        println!(
+                            "[Web Server] ✓ 秒传记录已创建并标记为 accepted，ID: {}",
+                            msg_id
+                        );
+                        #[cfg(feature = "desktop")]
+                        if let Some(app) = &state.app_handle {
+                            #[cfg(feature = "desktop")]
+                            use tauri::Emitter;
+                            let _ = app.emit(
+                                "new-message",
+                                serde_json::json!({
+                                    "id": msg_id,
+                                    "from_id": sender_id,
+                                    "msg_type": "file",
+                                    "file_status": "accepted",
+                                    "content": file_name,
+                                    "timestamp": timestamp // 使用刚才定义的 timestamp
+                                }),
+                            );
+                        }
                     }
                     Err(e) => {
                         eprintln!("[Web Server] ✗ 秒传记录创建失败: {}", e);
@@ -604,7 +646,10 @@ async fn upload_file_http(
                 .into_response();
             } else {
                 // 大小不同 → 冲突，需要重命名
-                println!("[Web Server] 同名文件大小不同 (已有: {}, 新: {})，触发重命名", existing_size, file_size);
+                println!(
+                    "[Web Server] 同名文件大小不同 (已有: {}, 新: {})，触发重命名",
+                    existing_size, file_size
+                );
             }
         }
 
@@ -637,21 +682,33 @@ async fn upload_file_http(
             match crate::db::get_downloading_file(&state.pool, &sender_id).await {
                 Ok(Some(name)) => {
                     final_file_name = name;
-                    println!("[Web Server] 后续块从数据库查询到文件名: {}", final_file_name);
+                    println!(
+                        "[Web Server] 后续块从数据库查询到文件名: {}",
+                        final_file_name
+                    );
                 }
                 Ok(None) => {
-                    eprintln!("[Web Server] ✗ 无法确定后续块文件名 (sender_id={})", sender_id);
+                    eprintln!(
+                        "[Web Server] ✗ 无法确定后续块文件名 (sender_id={})",
+                        sender_id
+                    );
                     return (
                         StatusCode::BAD_REQUEST,
-                        Json(ErrorResponse { error: "无法确定文件名".to_string() }),
-                    ).into_response();
+                        Json(ErrorResponse {
+                            error: "无法确定文件名".to_string(),
+                        }),
+                    )
+                        .into_response();
                 }
                 Err(e) => {
                     eprintln!("[Web Server] ✗ 数据库查询失败: {}", e);
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse { error: format!("数据库查询失败: {}", e) }),
-                    ).into_response();
+                        Json(ErrorResponse {
+                            error: format!("数据库查询失败: {}", e),
+                        }),
+                    )
+                        .into_response();
                 }
             }
         } else {
@@ -748,7 +805,8 @@ async fn upload_file_http(
     }
 
     // 检查是否是最后一块
-    let temp_size = tokio::fs::metadata(&temp_path).await
+    let temp_size = tokio::fs::metadata(&temp_path)
+        .await
         .map(|m| m.len())
         .unwrap_or(0);
 
@@ -756,9 +814,37 @@ async fn upload_file_http(
         // 最后一块写完：将临时文件重命名为最终文件（原子操作，绕过 Android 覆盖限制）
         match tokio::fs::rename(&temp_path, &final_path).await {
             Ok(_) => {
-                println!("[Web Server] ✓ 临时文件已重命名为最终文件: {:?}", final_path);
-                match crate::db::update_file_status(&state.pool, &final_file_name, "accepted").await {
-                    Ok(_) => println!("[Web Server] ✓ 文件状态已更新为 accepted"),
+                println!(
+                    "[Web Server] ✓ 临时文件已重命名为最终文件: {:?}",
+                    final_path
+                );
+                match crate::db::update_file_status(&state.pool, &final_file_name, "accepted").await
+                {
+                    Ok(_) => {
+                        println!("[Web Server] ✓ 文件状态已更新为 accepted");
+
+                        // 落盘成功，通知前端刷新！
+                        #[cfg(feature = "desktop")]
+                        if let Some(app) = &state.app_handle {
+                            // 查一下这条消息的 ID
+                            let msg_id = crate::db::get_latest_msg_id_by_file(
+                                &state.pool,
+                                &sender_id,
+                                &final_file_name,
+                            )
+                            .await;
+                            #[cfg(feature = "desktop")]
+                            use tauri::Emitter;
+                            let _ = app.emit("new-message", serde_json::json!({
+                            "id": msg_id,
+                            "from_id": sender_id,
+                            "msg_type": "file",
+                            "file_status": "accepted",
+                            "content": final_file_name,
+                            "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+                        }));
+                        }
+                    }
                     Err(e) => eprintln!("[Web Server] ✗ 更新文件状态失败: {}", e),
                 }
             }
@@ -950,16 +1036,16 @@ async fn download_file_http(
     Path(file_id): Path<String>,
 ) -> impl IntoResponse {
     println!("[Web Server] 下载文件请求: {}", file_id);
-    
+
     // 首先尝试从数据库查询文件路径
     // 通过 file_path 的文件名匹配
     let file_path_result = sqlx::query_scalar::<_, String>(
         "SELECT file_path FROM messages 
          WHERE file_path IS NOT NULL 
          AND (file_path LIKE ? OR content = ?)
-         ORDER BY timestamp DESC LIMIT 1"
+         ORDER BY timestamp DESC LIMIT 1",
     )
-    .bind(format!("%/{}", file_id))  // 匹配路径末尾的文件名
+    .bind(format!("%/{}", file_id)) // 匹配路径末尾的文件名
     .bind(&file_id)
     .fetch_optional(&state.pool)
     .await;
@@ -1009,7 +1095,11 @@ async fn download_file_http(
             eprintln!("[Web Server] 文件不存在: {} - {}", file_path.display(), e);
             Response::builder()
                 .status(StatusCode::NOT_FOUND)
-                .body(Body::from(format!("文件不存在: {} - {}", file_path.display(), e)))
+                .body(Body::from(format!(
+                    "文件不存在: {} - {}",
+                    file_path.display(),
+                    e
+                )))
                 .unwrap()
         }
     }
@@ -1032,7 +1122,7 @@ async fn get_download_dir(pool: &Pool<Sqlite>) -> std::path::PathBuf {
 struct CreateUploadRecordRequest {
     file_name: String,
     timestamp: i64,
-    receiver_id: String, // 新增接收者ID
+    receiver_id: String,
 }
 
 async fn create_upload_record_http(
@@ -1325,7 +1415,7 @@ async fn delete_messages_http(
                 .into_response();
         }
     };
-    
+
     match crate::db::delete_messages_by_ids(&state.pool, msg_ids).await {
         Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
         Err(e) => (
@@ -1382,9 +1472,8 @@ async fn serve_media_http(
     };
 
     // 获取 MIME 类型（用于 Content-Type header）
-    let mime = mime_guess::from_path(
-        params.uri.split('/').last().unwrap_or("file")
-    ).first_or_octet_stream();
+    let mime = mime_guess::from_path(params.uri.split('/').last().unwrap_or("file"))
+        .first_or_octet_stream();
 
     // 转为 tokio 异步文件，流式返回
     let std_file = android_file.into_file();

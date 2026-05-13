@@ -117,9 +117,7 @@ async function addUserToList(id, name, addr, isOffline = false) {
 
   // 添加点击事件
   li.addEventListener("click", () => {
-    if (!isOffline) {
-      openChat({ id, name, addr });
-    }
+    openChat({ id, name, addr });
   });
 
   list.appendChild(li);
@@ -330,8 +328,10 @@ function initChat() {
 
 // 打开聊天
 function openChat(peer) {
-  // 如果已经是当前聊天的用户，且窗口开着，就别折腾了
   const chatContainer = document.getElementById("chat-container");
+  if (!chatContainer) return;
+
+  // 1. 检查是否已经是当前聊天的用户且窗口已开
   if (
     window.currentChatPeer && window.currentChatPeer.id === peer.id &&
     chatContainer.style.display === "flex"
@@ -339,7 +339,7 @@ function openChat(peer) {
     return;
   }
 
-  // 如果是在手机端，确保 Hash 状态同步
+  // 2. 手机端 Hash 处理
   if (window.innerWidth <= 768) {
     if (window.location.hash !== "#chat") {
       window.history.pushState({ chatOpen: true }, "", "#chat");
@@ -348,24 +348,28 @@ function openChat(peer) {
 
   window.currentChatPeer = peer;
 
-  // 消除未读红点
-  const userLi = document.querySelector(`#user-list li[data-id="${peer.id}"]`);
-  if (userLi) {
-    userLi.classList.remove("has-unread");
-  }
+  // 3. 立即显示界面（提升响应感）
+  chatContainer.style.display = "flex";
 
   const chatWithName = document.getElementById("chat-with-name");
   const chatMessages = document.getElementById("chat-messages");
 
-  chatContainer.style.display = "flex";
-  chatWithName.textContent = `${peer.name}`;
-  chatMessages.innerHTML = "";
+  if (chatWithName) chatWithName.textContent = `${peer.name}`;
+  if (chatMessages) chatMessages.innerHTML = ""; // 加载前清空
 
-  // 高亮逻辑
+  // 4. 消除红点和高亮
+  const userLi = document.querySelector(`#user-list li[data-id="${peer.id}"]`);
+  if (userLi) {
+    userLi.classList.remove("has-unread");
+  }
   updateListHighlight(peer.id);
 
+  // 5. 异步加载历史
   window.lastMessageTimestamp = 0;
-  loadChatHistory(peer.id);
+  loadChatHistory(peer.id).catch((e) => {
+    console.error("[UI] 加载历史失败:", e);
+  });
+
   console.log("[UI] 成功进入聊天:", peer.name);
 }
 
@@ -477,73 +481,23 @@ async function sendMessage() {
   const content = chatInput.value.trim();
   if (!content) return;
 
-  const tempId = "temp_" + Date.now();
-  const timestamp = Date.now() / 1000;
-
-  // 1. 乐观更新：立即显示“待发送”状态（黄色小圆点）
-  const tempMsg = {
-    id: tempId,
-    from_id: "me",
-    content: content,
-    timestamp: timestamp,
-    status: "pending",
-  };
-  addMessageToChat(tempMsg, true);
-  await scrollToBottom();
-
   chatInput.value = "";
   chatInput.style.height = "auto";
 
   try {
-    // 2. 调用 API
+    // 1. 发送 API
     await apiSendMessage(
       window.currentChatPeer.id,
       window.currentChatPeer.addr,
       content,
     );
 
-    // 3. 轮询捞取真实消息
-    let realMsg = null;
-    for (let i = 0; i < 5; i++) {
-      const latestMessages = await apiGetChatHistory(
-        window.currentChatPeer.id,
-        10,
-        0,
-      );
-      realMsg = latestMessages.find((m) =>
-        m.from_id === "me" && m.content === content &&
-        !String(m.id).startsWith("temp_")
-      );
-      if (realMsg) break;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-
-    const tempEl = document.querySelector(`[data-msg-id="${tempId}"]`);
-    if (realMsg && tempEl) {
-      const existingRealMsg = document.querySelector(
-        `[data-msg-id="${realMsg.id}"]`,
-      );
-      if (existingRealMsg) {
-        tempEl.remove();
-      } else {
-        // --- 核心转变逻辑 ---
-        tempEl.dataset.msgId = realMsg.id;
-
-        const contentDiv = tempEl.querySelector(".message-content");
-        const statusDiv = tempEl.querySelector(".file-pending");
-
-        if (realMsg.status === "pending") {
-          // 如果后端确认还是 pending（离线），保留黄色小圆点，仅改文字
-          if (statusDiv) statusDiv.textContent = "待上线)";
-        } else {
-          // 如果发送成功，直接移除状态标签，回归纯紫色气泡
-          if (statusDiv) statusDiv.remove();
-        }
-      }
-    }
+    // 2. 发送完后，纯粹地通过刷新历史记录让它显示出来
+    await loadChatHistory(window.currentChatPeer.id, true);
+    await scrollToBottom();
   } catch (e) {
     console.error("[UI] 发送异常:", e);
-    // 出错时保留原样，不做变红处理，用户可以刷新或重发
+    alert("发送失败: " + e.message);
   }
 }
 
@@ -914,47 +868,27 @@ function initScrollListener() {
   window.scrollListenerAttached = true;
 }
 
-// 创建消息元素（从 addMessageToChat 中提取）
+// 创建消息元素
 function createMessageElement(message, isSent) {
   const messageDiv = document.createElement("div");
   messageDiv.className = `message ${isSent ? "sent" : "received"}`;
-
-  // 添加消息ID作为data属性
-  if (message.id) {
-    messageDiv.dataset.msgId = message.id;
-  }
+  if (message.id) messageDiv.dataset.msgId = message.id;
 
   const contentDiv = document.createElement("div");
   contentDiv.className = "message-content";
 
+  // ---- 构建消息主体 ----
   if (message.msg_type === "file") {
     const fileContainer = document.createElement("div");
     fileContainer.className = "message-file";
 
-    // 检查是否是图片文件
     const isImage = isImageFile(message.file_name || message.content);
-
-    console.log(
-      "[Image-Debug] 消息ID:",
-      message.id,
-      "file_name:",
-      message.file_name || message.content,
-      "isImage:",
-      isImage,
-      "file_path:",
-      message.file_path,
-      "file_status:",
-      message.file_status,
-    );
-
     if (
       isImage && message.file_path &&
       (message.file_status === "sent" || message.file_status === "accepted")
     ) {
-      // 图片预览
       const imgPreview = document.createElement("div");
       imgPreview.className = "image-preview";
-
       const img = document.createElement("img");
 
       const tauri = window.__TAURI__;
@@ -964,45 +898,20 @@ function createMessageElement(message, isSent) {
           isAndroid && message.file_path &&
           message.file_path.startsWith("content://")
         ) {
-          // Android content URI：通过本地媒体代理服务获取
           apiGetMediaToken().then((token) => {
-            const url = `http://127.0.0.1:8888/api/media?uri=${
+            img.src = `http://127.0.0.1:8888/api/media?uri=${
               encodeURIComponent(message.file_path)
             }&token=${token}`;
-            console.log(
-              "[Image] Android content URI 预览, url:",
-              url,
-              "file_path:",
-              message.file_path,
-            );
-            img.src = url;
           });
         } else {
-          // 桌面端或普通路径：使用 convertFileSrc
-          const assetUrl = tauri.core.convertFileSrc(message.file_path);
-          console.log(
-            "[Image] convertFileSrc 预览, assetUrl:",
-            assetUrl,
-            "file_path:",
-            message.file_path,
-          );
-          img.src = assetUrl;
+          img.src = tauri.core.convertFileSrc(message.file_path);
         }
-      } else {
-        // Web 端：使用下载 API
-        if (message.file_id) {
-          img.src = `/api/download/${message.file_id}`;
-        }
+      } else if (message.file_id) {
+        img.src = `/api/download/${message.file_id}`;
       }
 
       img.alt = message.file_name || message.content;
       img.loading = "lazy";
-
-      img.onload = () => {
-        console.log("[Image] 加载成功:", img.src);
-      };
-
-      // 图片加载失败时显示文件图标
       img.onerror = () => {
         console.error(
           "[Image] 加载失败:",
@@ -1015,53 +924,20 @@ function createMessageElement(message, isSent) {
         imgPreview.innerHTML = "";
         imgPreview.appendChild(createFileIcon(message));
       };
-
       imgPreview.appendChild(img);
       fileContainer.appendChild(imgPreview);
     } else {
-      // 非图片或未完成的文件：显示文件图标
       fileContainer.appendChild(createFileIcon(message));
     }
-
     contentDiv.appendChild(fileContainer);
 
-    // 3. 状态标签 (保留类名，供默认模式显示圆点，伪装模式显示注释)
-    const fileStatus = message.file_status || "accepted";
-    const statusDiv = document.createElement("div");
-    if (fileStatus === "downloading") {
-      statusDiv.className = "file-downloading";
-      const speed = message.transfer_speed
-        ? Math.round(message.transfer_speed) + " MB/s"
-        : "下载中...";
-      statusDiv.textContent = speed;
-    } else if (fileStatus === "uploading") {
-      statusDiv.className = "file-uploading";
-      const speed = message.transfer_speed
-        ? Math.round(message.transfer_speed) + " MB/s"
-        : "上传中...";
-      statusDiv.textContent = speed;
-    } else if (fileStatus === "accepted" && !isSent) {
-      statusDiv.className = "file-finish";
-      statusDiv.textContent = "finish";
-    }
-
-    if (statusDiv.className) {
-      contentDiv.appendChild(statusDiv);
-    }
-
-    // 对于已完成的文件（sent 或 accepted），添加点击处理
-    if (fileStatus === "sent" || fileStatus === "accepted") {
+    // 文件点击事件
+    if (message.file_status === "sent" || message.file_status === "accepted") {
       fileContainer.style.cursor = "pointer";
-
       const tauri = window.__TAURI__;
       if (tauri) {
-        // 桌面端/Android：点击打开文件所在位置或分享
         if (message.file_path) {
-          // 检查是否是 Android
-          const isAndroid = navigator.userAgent.includes("Android");
-
-          if (isAndroid) {
-            // 1. 给主体绑定打开文件的事件
+          if (navigator.userAgent.includes("Android")) {
             fileContainer.addEventListener("click", async () => {
               try {
                 await apiOpenFileInAndroid(message.file_path);
@@ -1069,34 +945,27 @@ function createMessageElement(message, isSent) {
                 alert("打开失败: " + e.message);
               }
             });
-
-            // 2. 创建分享按钮
             const shareBtn = document.createElement("button");
             shareBtn.className = "file-share-btn";
             shareBtn.title = "分享到其他应用";
             shareBtn.innerHTML =
               `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>`;
             shareBtn.addEventListener("click", async (e) => {
-              e.stopPropagation(); // 阻止冒泡，防止触发打开文件
+              e.stopPropagation();
               try {
                 await apiShareFileToOtherApp(message.file_path);
               } catch (e) {
                 alert("分享失败: " + e.message);
               }
             });
-
-            // 【普通文件模式】：创建横向容器
             const row = document.createElement("div");
             row.className = "file-action-row";
-
             if (isSent) {
-              // 发送方（靠右）：分享按钮在左，文件信息在右
               row.appendChild(shareBtn);
               while (fileContainer.firstChild) {
                 row.appendChild(fileContainer.firstChild);
               }
             } else {
-              // 接收方（靠左）：文件信息在左，分享按钮在右
               while (fileContainer.firstChild) {
                 row.appendChild(fileContainer.firstChild);
               }
@@ -1104,25 +973,18 @@ function createMessageElement(message, isSent) {
             }
             fileContainer.appendChild(row);
           } else {
-            // 桌面端：点击打开文件位置
             fileContainer.addEventListener(
               "click",
               () => openFileLocation(message.file_path),
             );
           }
         }
-      } else {
-        // Web 端：点击下载文件
-        if (message.file_id) {
-          fileContainer.addEventListener(
-            "click",
-            () =>
-              downloadFile(
-                message.file_id,
-                message.file_name || message.content,
-              ),
-          );
-        }
+      } else if (message.file_id) {
+        fileContainer.addEventListener(
+          "click",
+          () =>
+            downloadFile(message.file_id, message.file_name || message.content),
+        );
       }
     }
   } else {
@@ -1130,14 +992,33 @@ function createMessageElement(message, isSent) {
     textSpan.className = "message-text";
     textSpan.textContent = message.content;
     contentDiv.appendChild(textSpan);
+  }
 
-    // 统一复用文件传输的样式
-    if (message.status === "pending") {
-      const statusDiv = document.createElement("div");
-      statusDiv.className = "file-pending";
-      statusDiv.textContent = "待发送...";
-      contentDiv.appendChild(statusDiv);
+  // ---- 统一处理纯净版的状态展示 ----
+  const statusDiv = document.createElement("div");
+
+  // 优先级 1: 只要数据库中 status 是 pending，一律展示“待上线”
+  if (message.status === "pending") {
+    statusDiv.className = "file-pending";
+    statusDiv.textContent = "待上线";
+  } // 优先级 2: 如果不是 pending 且是文件，展示上传/下载进度
+  else if (message.msg_type === "file") {
+    if (message.file_status === "downloading") {
+      statusDiv.className = "file-downloading";
+      statusDiv.textContent = message.transfer_speed
+        ? Math.round(message.transfer_speed) + " MB/s"
+        : "下载中...";
+    } else if (message.file_status === "uploading") {
+      statusDiv.className = "file-uploading";
+      statusDiv.textContent = message.transfer_speed
+        ? Math.round(message.transfer_speed) + " MB/s"
+        : "上传中...";
     }
+    // 成功状态（sent/accepted）不再塞入任何多余的文本，保持极简
+  }
+
+  if (statusDiv.className) {
+    contentDiv.appendChild(statusDiv);
   }
 
   const timeDiv = document.createElement("div");
@@ -1152,18 +1033,10 @@ function createMessageElement(message, isSent) {
   messageDiv.appendChild(contentDiv);
   messageDiv.appendChild(timeDiv);
 
-  // ============================================================
-  // 适配懒加载和新消息的多选模式
-  // ============================================================
+  // 多选模式拦截
   if (window.selectMode && window.selectMode.active) {
-    // 1. 给新生成的消息添加 selectable 类
     messageDiv.classList.add("selectable");
-
-    // 2. 立即添加复选框和监听器
     addSelectCheckbox(messageDiv);
-
-    // 3. 保持选中状态（比如这是刚刚加载出来的历史消息，
-    //    但在逻辑上它之前被选中过），可以在这里判断 id 是否在 selectedMessages 里
     if (
       message.id && window.selectMode.selectedMessages.has(parseInt(message.id))
     ) {
@@ -1172,7 +1045,6 @@ function createMessageElement(message, isSent) {
       if (checkbox) checkbox.checked = true;
     }
   }
-  // ============================================================
 
   return messageDiv;
 }
@@ -1254,75 +1126,29 @@ function onReceiveMessage(message) {
 // 通过文件路径发送文件（桌面端零拷贝，直接从硬盘读取）
 async function sendFileByPath(filePath) {
   if (!window.currentChatPeer) return;
-
   const tauri = window.__TAURI__;
-
-  if (!tauri) {
-    console.error("[UI] sendFileByPath 只能在桌面端使用");
-    return;
-  }
-
-  console.log("[UI] 通过路径发送文件（零拷贝）:", filePath);
+  if (!tauri) return;
 
   try {
-    // 处理 file:// URI 格式
     let actualPath = filePath;
     if (filePath.startsWith("file://")) {
-      // 移除 file:// 前缀并解码 URL 编码
       actualPath = decodeURIComponent(filePath.substring(7));
       console.log("[UI] 转换 URI 为路径:", actualPath);
     }
 
-    // 获取文件名
-    const fileName = actualPath.split(/[\\/]/).pop();
-
-    // 获取文件大小
-    let fileSize = 0;
-    try {
-      const metadata = await tauri.fs.stat(actualPath);
-      fileSize = metadata.size;
-    } catch (e) {
-      console.warn("[UI] 无法获取文件大小:", e);
-    }
-
-    // 显示上传中的临时消息
-    const tempFileId = "temp_" + Date.now();
-    addMessageToChat({
-      msg_type: "file",
-      from_id: "me",
-      content: fileName,
-      file_name: fileName,
-      file_size: fileSize,
-      file_id: tempFileId,
-      file_status: "uploading",
-      timestamp: Date.now() / 1000,
-    }, true);
-
-    // 直接调用 send_file 命令，传递文件路径
-    // Rust 会直接从硬盘读取文件，零拷贝
-    const result = await apiSendFile(
+    await apiSendFile(
       window.currentChatPeer.id,
       window.currentChatPeer.addr,
       null,
       actualPath,
     );
 
-    // 上传完成，刷新聊天历史
-    if (window.currentChatPeer) {
-      await loadChatHistory(window.currentChatPeer.id);
-    }
-
-    // 滚动到底部
+    // 纯洁地刷新
+    await loadChatHistory(window.currentChatPeer.id, true);
     await scrollToBottom();
-
-    console.log("[UI] 文件发送成功（零拷贝）");
   } catch (e) {
-    console.error("[UI] 文件发送失败:", e);
     alert("文件发送失败: " + e.message);
-    // 刷新聊天历史以移除失败的消息
-    if (window.currentChatPeer) {
-      await loadChatHistory(window.currentChatPeer.id);
-    }
+    await loadChatHistory(window.currentChatPeer.id, true);
   }
 }
 
@@ -1333,157 +1159,70 @@ async function sendFile(file) {
   const tauri = window.__TAURI__;
 
   if (tauri) {
-    // 桌面端
-    console.log("[UI] 桌面端发送文件");
-
-    // 如果传入了 file 参数（拖拽或粘贴），需要特殊处理
     if (file) {
-      console.log("[UI] 处理拖拽/粘贴的文件:", file.name, file.size);
-
-      // 桌面端拖拽/粘贴时，我们需要先将文件保存到临时目录
-      // 然后再调用 send_file 命令
       try {
-        // 显示上传中的临时消息
-        const tempFileId = "temp_" + Date.now();
-        addMessageToChat({
-          msg_type: "file",
-          id: tempFileId,
-          from_id: "me",
-          content: file.name,
-          file_name: file.name,
-          file_size: file.size,
-          file_id: tempFileId,
-          file_status: "uploading",
-          timestamp: Date.now() / 1000,
-        }, true);
-
-        // 读取文件内容
         const arrayBuffer = await file.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
-
-        // 获取临时目录路径
         const tempDir = await tauri.path.tempDir();
         const tempFilePath = await tauri.path.join(tempDir, file.name);
-
-        // 写入临时文件
         await tauri.fs.writeFile(tempFilePath, uint8Array);
-        console.log("[UI] 文件已保存到临时目录:", tempFilePath);
 
-        // 调用 send_file 命令
-        const result = await apiSendFile(
+        // 调用后端命令
+        await apiSendFile(
           window.currentChatPeer.id,
           window.currentChatPeer.addr,
           null,
-          tempFilePath, // 传递临时文件路径
+          tempFilePath,
         );
 
-        // 上传完成，刷新聊天历史
-        if (window.currentChatPeer) {
-          await loadChatHistory(window.currentChatPeer.id);
-        }
-
-        // 滚动到底部
+        // 发送完刷新数据库渲染
+        await loadChatHistory(window.currentChatPeer.id, true);
         await scrollToBottom();
 
-        // 删除临时文件
         try {
           await tauri.fs.remove(tempFilePath);
-          console.log("[UI] 临时文件已删除");
-        } catch (e) {
-          console.warn("[UI] 删除临时文件失败:", e);
-        }
-
-        console.log("[UI] 文件发送成功");
+        } catch (e) {}
       } catch (e) {
-        console.error("[UI] 文件发送失败:", e);
         alert("文件发送失败: " + e.message);
-        // 刷新聊天历史以移除失败的消息
-        if (window.currentChatPeer) {
-          await loadChatHistory(window.currentChatPeer.id);
-        }
       }
     } else {
-      // 没有传入 file 参数，使用文件对话框选择
       try {
-        const result = await apiSendFile(
+        await apiSendFile(
           window.currentChatPeer.id,
           window.currentChatPeer.addr,
-          null, // 桌面端不需要
+          null,
         );
-
-        // 上传完成，刷新聊天历史以显示正确的文件信息
-        if (window.currentChatPeer) {
-          await loadChatHistory(window.currentChatPeer.id);
-        }
-
-        // 滚动到底部
+        await loadChatHistory(window.currentChatPeer.id, true);
         await scrollToBottom();
-
-        console.log("[UI] 文件发送成功");
       } catch (e) {
         console.error("[UI] 文件发送失败:", e);
         alert("文件发送失败: " + e.message);
-        // 刷新聊天历史以移除失败的消息
-        if (window.currentChatPeer) {
-          await loadChatHistory(window.currentChatPeer.id);
-        }
       }
     }
   } else {
-    // Web 端 - 使用传入的 file 参数
-    console.log("[UI] ========== Web 端发送文件 ==========");
-    console.log("[UI] 文件名:", file.name);
-    console.log("[UI] 文件大小:", file.size);
-    console.log("[UI] 目标地址:", window.currentChatPeer.addr);
-
-    // 立即显示发送中的消息
-    const tempFileId = "temp_" + Date.now();
+    // Web 端
     const timestamp = Math.floor(Date.now() / 1000);
-
-    console.log("[UI] 1. 在前端显示上传中消息");
-    addMessageToChat({
-      msg_type: "file",
-      id: tempFileId, // 必须包含 ID
-      from_id: "me",
-      content: file.name,
-      file_name: file.name,
-      file_size: file.size,
-      file_id: tempFileId,
-      file_status: "uploading",
-      timestamp: Date.now() / 1000,
-    }, true);
-
     try {
-      // 先在本地数据库创建上传记录
-      console.log("[UI] 2. 调用 /api/create_upload_record");
-      const createResp = await fetch("/api/create_upload_record", {
+      await fetch("/api/create_upload_record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           file_name: file.name,
           timestamp: timestamp,
-          receiver_id: window.currentChatPeer.id, // 添加接收者ID
+          receiver_id: window.currentChatPeer.id,
         }),
       });
+      // 让UI渲染出刚存入数据库的 uploading 状态
+      await loadChatHistory(window.currentChatPeer.id, true);
+      await scrollToBottom();
 
-      if (!createResp.ok) {
-        throw new Error("创建上传记录失败: " + createResp.status);
-      }
-
-      console.log("[UI] ✓ 上传记录已创建");
-
-      console.log("[UI] 3. 开始上传文件到对方");
-      const result = await apiSendFile(
+      await apiSendFile(
         window.currentChatPeer.id,
         window.currentChatPeer.addr,
         file,
       );
 
-      console.log("[UI] ✓ 文件上传成功");
-
-      // 上传成功，更新本地数据库状态为 'sent'
-      console.log("[UI] 4. 更新上传状态为 sent");
-      const updateResp = await fetch("/api/update_upload_status", {
+      await fetch("/api/update_upload_status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1493,39 +1232,17 @@ async function sendFile(file) {
         }),
       });
 
-      if (!updateResp.ok) {
-        console.warn("[UI] ⚠ 更新上传状态失败:", updateResp.status);
-      } else {
-        console.log("[UI] ✓ 上传状态已更新");
-      }
-
-      // 刷新聊天历史以显示正确的状态
-      console.log("[UI] 5. 刷新聊天历史");
-      if (window.currentChatPeer) {
-        await loadChatHistory(window.currentChatPeer.id);
-      }
-
-      // 滚动到底部
-      await scrollToBottom();
-
-      console.log("[UI] ========== 文件发送完成 ==========");
+      // 完成后再刷一次
+      await loadChatHistory(window.currentChatPeer.id, true);
     } catch (e) {
       console.error("[UI] ✗ 文件发送失败:", e);
       alert("文件发送失败: " + e.message);
-      // 删除失败的上传记录
-      console.log("[UI] 删除失败的上传记录");
       await fetch("/api/delete_upload_record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file_name: file.name,
-          timestamp: timestamp,
-        }),
+        body: JSON.stringify({ file_name: file.name, timestamp: timestamp }),
       });
-      // 刷新聊天历史以移除失败的消息
-      if (window.currentChatPeer) {
-        await loadChatHistory(window.currentChatPeer.id);
-      }
+      await loadChatHistory(window.currentChatPeer.id, true);
     }
   }
 }

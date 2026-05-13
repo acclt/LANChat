@@ -50,7 +50,7 @@ async fn main() {
     let pool_clone = pool.clone();
     let peer_manager_clone = peer_manager.clone();
     tokio::spawn(async move {
-        lanchat::web_server::start_server(port, port, pool_clone, peer_manager_clone, None).await;
+        lanchat::web_server::start_server(port, port, pool_clone, peer_manager_clone).await;
     });
 
     // 2. 启动 UDP 监听
