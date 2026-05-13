@@ -452,19 +452,29 @@ async fn resend_pending_messages(
                 }
                 // 加入了文件补发逻辑分支
                 else if msg_type == "file" {
-                    if let (Some(path), Some(size)) = (file_path, file_size) {
-                        match resend_file_background(&my_id, peer_addr, &content, &path, size).await
-                        {
-                            Ok(_) => {
-                                println!("[UDP] ✓ 文件消息 {} 补发成功", msg_id);
-                                msg_ids_to_mark.push(msg_id);
-                            }
-                            Err(e) => {
-                                eprintln!("[UDP] ✗ 文件消息 {} 补发失败: {}", msg_id, e);
+                    match (file_path.as_ref(), file_size) {
+                        (Some(path), Some(size)) if !path.trim().is_empty() => {
+                            // 只有路径非空时，才尝试读取文件补发
+                            match resend_file_background(&my_id, peer_addr, &content, path, size)
+                                .await
+                            {
+                                Ok(_) => {
+                                    println!("[UDP] ✓ 文件消息 {} 补发成功", msg_id);
+                                    msg_ids_to_mark.push(msg_id);
+                                }
+                                Err(e) => {
+                                    eprintln!("[UDP] ✗ 文件消息 {} 补发失败: {}", msg_id, e);
+                                }
                             }
                         }
-                    } else {
-                        eprintln!("[UDP] ✗ 无法补发文件消息 {}，缺少路径或大小信息", msg_id);
+                        _ => {
+                            // 如果文件路径为空（Web端发送）或信息不全
+                            // 我们不能让它一直卡在 pending 状态不停报错
+                            eprintln!("[UDP] ⚠ 跳过无法补发的文件消息 {}: 路径缺失(Web端记录或数据异常)。将其移出挂起队列。", msg_id);
+                            // 把它加入“待标记”列表，让数据库把它状态改成 sent，
+                            // 这样它就再也不会进入补发循环了。
+                            msg_ids_to_mark.push(msg_id);
+                        }
                     }
                 }
             }

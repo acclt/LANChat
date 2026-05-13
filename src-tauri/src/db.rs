@@ -359,26 +359,31 @@ pub async fn create_upload_record(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     receiver_id: String,
     file_name: String,
+    file_size: u64,
     timestamp: i64,
+    file_status: String,
+    overall_status: String,
 ) -> Result<i64, String> {
     println!(
-        "[DB] 创建上传记录: 接收者={}, 文件={}",
-        receiver_id, file_name
+        "[DB] 创建上传记录: 接收者={}, 文件={}, 状态={}",
+        receiver_id, file_name, overall_status
     );
 
     let result = sqlx::query(
-        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status) VALUES ('me', ?, ?, 'file', ?, '', 'uploading')"
+        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, status) 
+         VALUES ('me', ?, ?, 'file', ?, '', ?, ?, ?)"
     )
     .bind(&receiver_id)
     .bind(&file_name)
     .bind(timestamp)
+    .bind(&file_status)
+    .bind(file_size as i64)
+    .bind(&overall_status)
     .execute(pool)
     .await
     .map_err(|e| format!("创建记录失败: {}", e))?;
 
-    let msg_id = result.last_insert_rowid();
-    println!("[DB] 上传记录已创建，ID: {}", msg_id);
-    Ok(msg_id)
+    Ok(result.last_insert_rowid())
 }
 
 /// 更新上传状态
@@ -387,10 +392,10 @@ pub async fn update_upload_status(
     file_name: String,
     status: String,
 ) -> Result<(), String> {
-    println!("[DB] 更新上传状态: {} -> {}", file_name, status);
-
+    println!("[DB] Web前端确认发送完毕，强制同步更新状态: {} -> {}", file_name, status);
+    // 只要前端说传完了，不管后端之前以为它是 pending 还是 uploading，统统强制标为已发送！
     sqlx::query(
-        "UPDATE messages SET file_status = ? WHERE sender_id = 'me' AND content = ? AND file_status = 'uploading'"
+        "UPDATE messages SET file_status = ?, status = 'sent' WHERE sender_id = 'me' AND content = ?"
     )
     .bind(&status)
     .bind(&file_name)
@@ -398,7 +403,7 @@ pub async fn update_upload_status(
     .await
     .map_err(|e| format!("更新状态失败: {}", e))?;
 
-    println!("[DB] 上传状态已更新");
+    println!("[DB] 上传状态已强制更新为 sent，移出补发队列");
     Ok(())
 }
 

@@ -1121,6 +1121,7 @@ async fn get_download_dir(pool: &Pool<Sqlite>) -> std::path::PathBuf {
 #[derive(Deserialize)]
 struct CreateUploadRecordRequest {
     file_name: String,
+    file_size: u64, // 新增
     timestamp: i64,
     receiver_id: String,
 }
@@ -1129,30 +1130,37 @@ async fn create_upload_record_http(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateUploadRecordRequest>,
 ) -> impl IntoResponse {
-    println!("[Web Server] 创建上传记录: {}", payload.file_name);
+    let is_online = state
+        .peer_manager
+        .get_active_peers()
+        .iter()
+        .any(|p| p.id == payload.receiver_id);
+
+    let (file_status, overall_status) = if is_online {
+        ("uploading".to_string(), "sent".to_string())
+    } else {
+        ("accepted".to_string(), "pending".to_string())
+    };
 
     match crate::db::create_upload_record(
         &state.pool,
         payload.receiver_id.clone(),
         payload.file_name.clone(),
+        payload.file_size,
         payload.timestamp,
+        file_status,
+        overall_status,
     )
     .await
     {
-        Ok(_) => {
-            println!("[Web Server] ✓ 上传记录已创建");
-            Json(serde_json::json!({ "success": true })).into_response()
+        Ok(msg_id) => {
+            Json(serde_json::json!({ "success": true, "msg_id": msg_id })).into_response()
         }
-        Err(e) => {
-            eprintln!("[Web Server] ✗ 创建上传记录失败: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("创建记录失败: {}", e),
-                }),
-            )
-                .into_response()
-        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response(),
     }
 }
 

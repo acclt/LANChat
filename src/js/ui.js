@@ -874,6 +874,9 @@ function createMessageElement(message, isSent) {
   messageDiv.className = `message ${isSent ? "sent" : "received"}`;
   if (message.id) messageDiv.dataset.msgId = message.id;
 
+  // 把当前状态存入数据集，方便轮询检测
+  messageDiv.dataset.status = message.status || 'sent'; 
+
   const contentDiv = document.createElement("div");
   contentDiv.className = "message-content";
 
@@ -1208,6 +1211,7 @@ async function sendFile(file) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           file_name: file.name,
+          file_size: file.size,
           timestamp: timestamp,
           receiver_id: window.currentChatPeer.id,
         }),
