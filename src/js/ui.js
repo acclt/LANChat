@@ -2204,9 +2204,19 @@ function showConfirm(message, onOk) {
 // 2. 完整的用户管理弹窗函数
 // ==========================================
 async function showUserActionDialog(peerId, userName) {
-  // 检测是否有聊天记录
+  // 1. 判断是否离线（通过检查左侧列表中是否有 offline 灰显类名）
+  const userLi = document.querySelector(`#user-list li[data-id="${peerId}"]`);
+  const isOffline = userLi ? userLi.classList.contains("offline") : true;
+
+  // 2. 检测是否有聊天记录
   const history = await apiGetChatHistory(peerId, 1, 0);
   const hasHistory = history && history.length > 0;
+
+  // 如果是在线用户，且连聊天记录都没有，那完全没有任何可管理的操作，直接忽略长按/右键
+  if (!isOffline && !hasHistory) {
+    console.log(`[UI] 在线用户 "${userName}" 无聊天记录，无需弹出管理菜单`);
+    return;
+  }
 
   const old = document.getElementById("user-mgmt-panel");
   if (old) old.remove();
@@ -2217,16 +2227,28 @@ async function showUserActionDialog(peerId, userName) {
   panel.className = "edit-panel";
   panel.style.display = "block";
 
+  // 动态生成按钮的 HTML
+  let buttonsHtml = "";
+
+  // 只有“离线用户”才允许显示删除按钮
+  if (isOffline) {
+    buttonsHtml +=
+      `<button id="mgmt-del-btn" class="mgmt-action-btn btn-grad-danger">删除用户</button>`;
+  }
+
+  // 只要有历史记录，就允许清空
+  if (hasHistory) {
+    buttonsHtml +=
+      `<button id="mgmt-clear-btn" class="mgmt-action-btn btn-grad-warning">清空聊天记录</button>`;
+  }
+
+  buttonsHtml +=
+    `<button id="mgmt-cancel-btn" class="btn-cancel-custom">取消</button>`;
+
   panel.innerHTML = `
         <h2>管理 ${userName}</h2>
         <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
-            <button id="mgmt-del-btn" class="mgmt-action-btn btn-grad-danger">删除用户</button>
-            ${
-    hasHistory
-      ? `<button id="mgmt-clear-btn" class="mgmt-action-btn btn-grad-warning">清空聊天记录</button>`
-      : ""
-  }
-            <button id="mgmt-cancel-btn" class="btn-cancel-custom">取消</button>
+            ${buttonsHtml}
         </div>
     `;
 
@@ -2235,39 +2257,39 @@ async function showUserActionDialog(peerId, userName) {
   const closeMgmt = () => panel.remove();
   document.getElementById("mgmt-cancel-btn").onclick = closeMgmt;
 
-  // --- 绑定删除逻辑 ---
-  document.getElementById("mgmt-del-btn").onclick = () => {
-    // 调用我们刚刚写的 showConfirm，将包含 peerId 的业务逻辑作为回调传进去
-    showConfirm(
-      `确定要彻底删除用户 "${userName}" 吗？此操作不可恢复。`,
-      async () => {
-        // 如果正开着这个人的聊天界面，关闭它
-        if (window.currentChatPeer && window.currentChatPeer.id === peerId) {
-          performCloseChatUI();
-        }
+  // --- 绑定删除逻辑 (注意加判空，因为在线用户没有这个按钮) ---
+  const delBtn = document.getElementById("mgmt-del-btn");
+  if (delBtn) {
+    delBtn.onclick = () => {
+      showConfirm(
+        `确定要彻底删除离线用户 "${userName}" 吗？此操作不可恢复。`,
+        async () => {
+          if (window.currentChatPeer && window.currentChatPeer.id === peerId) {
+            performCloseChatUI();
+          }
 
-        // 呼叫后端删除数据库和内存
-        await apiDeleteUserComplete(peerId);
+          await apiDeleteUserComplete(peerId);
 
-        // 物理移除列表项
-        const el = document.querySelector(`#user-list li[data-id="${peerId}"]`);
-        if (el) el.remove();
+          const el = document.querySelector(
+            `#user-list li[data-id="${peerId}"]`,
+          );
+          if (el) el.remove();
 
-        // 重新排列剩余列表项
-        if (typeof sortUserList === "function") sortUserList();
+          if (typeof sortUserList === "function") sortUserList();
 
-        closeMgmt(); // 操作完成后，关闭底下的管理弹窗
-      },
-    );
-  };
+          closeMgmt();
+        },
+      );
+    };
+  }
 
-  // --- 绑定清空记录逻辑 ---
-  if (hasHistory) {
-    document.getElementById("mgmt-clear-btn").onclick = () => {
+  // --- 绑定清空记录逻辑---
+  const clearBtn = document.getElementById("mgmt-clear-btn");
+  if (clearBtn) {
+    clearBtn.onclick = () => {
       showConfirm(`确定要清空与 "${userName}" 的所有聊天记录吗？`, async () => {
         await apiClearChatHistory(peerId);
 
-        // 如果恰好看着这个人的界面，刷新清空
         if (window.currentChatPeer && window.currentChatPeer.id === peerId) {
           const box = document.getElementById("chat-messages");
           if (box) box.innerHTML = "";
