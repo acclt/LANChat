@@ -104,10 +104,26 @@ async function startPeerPolling() {
     const peers = await apiGetPeers();
     if (!peers) return;
 
-    // 只需要更新状态，不需要比对并移除了
+    // 1. 记录 API 返回的所有用户 ID
+    const apiPeerIds = new Set(peers.map((p) => p.id));
+
+    // 2. 处理“更新”和“添加”
     for (const peer of peers) {
       addUserToList(peer.id, peer.name, peer.addr, peer.is_offline);
     }
+
+    // 3. 处理“自动移除”：如果 DOM 中的用户 ID 不在 API 列表中，说明该用户被删除了
+    const userListItems = document.querySelectorAll("#user-list li");
+    userListItems.forEach((li) => {
+      const domId = li.dataset.id;
+      if (!apiPeerIds.has(domId)) {
+        console.log(`[JS-App] 用户 ${domId} 不在列表，执行移除`);
+        li.remove();
+      }
+    });
+
+    // 4. 最后统一排序一次（确保未读/在线顺序正确）
+    sortUserList();
   };
 
   await updatePeerList();
@@ -317,9 +333,8 @@ async function startMessagePolling() {
       if (!chatMessages) return;
 
       // 1. 判断当前滚动条是否在底部
-      const isAtBottom =
-        chatMessages.scrollHeight - chatMessages.scrollTop -
-            chatMessages.clientHeight < 150;
+      const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
+          chatMessages.clientHeight < 150;
 
       // 2. 获取最新消息
       const latestMessages = await apiGetChatHistory(

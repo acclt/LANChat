@@ -812,3 +812,31 @@ async function apiDeleteMessages(msgIds) {
     }
   }
 }
+
+async function apiClearChatHistory(peerId) {
+  const tauri = getTauri();
+  if (tauri) {
+    return await tauri.core.invoke("clear_chat_history", { peerId });
+  } else {
+    const resp = await fetch("/api/clear_chat_history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ peer_id: peerId }),
+    });
+    return await resp.json();
+  }
+}
+
+async function apiDeleteUserComplete(peerId) {
+  const tauri = getTauri();
+  if (tauri) {
+    return await tauri.core.invoke("delete_user_complete", { peerId });
+  } else {
+    const resp = await fetch("/api/delete_user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ peer_id: peerId }),
+    });
+    return await resp.json();
+  }
+}

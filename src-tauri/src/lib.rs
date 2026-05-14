@@ -49,7 +49,9 @@ pub fn run() {
             commands::share_file_to_other_app,
             commands::open_file_in_android,
             commands::get_media_token,
-            commands::delete_messages
+            commands::delete_messages,
+            commands::clear_chat_history,
+            commands::delete_user_complete,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

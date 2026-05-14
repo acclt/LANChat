@@ -104,3 +104,13 @@ commands.allow = ["read_clipboard_files"]
 identifier = "allow-delete-messages"
 description = "Allows deleting messages from chat history"
 commands.allow = ["delete_messages"]
+
+[[permission]]
+identifier = "allow-clear-chat-history"
+description = "Allows clearing all messages for a specific peer"
+commands.allow = ["clear_chat_history"]
+
+[[permission]]
+identifier = "allow-delete-user-complete"
+description = "Allows deleting a user and their full chat history"
+commands.allow = ["delete_user_complete"]

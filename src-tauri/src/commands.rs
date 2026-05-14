@@ -1250,3 +1250,29 @@ pub async fn delete_messages(
     println!("[Command] 批量删除消息: {:?}", msg_ids);
     crate::db::delete_messages_by_ids(&state.pool, msg_ids).await
 }
+
+#[tauri::command]
+pub async fn clear_chat_history(
+    state: tauri::State<'_, crate::db::DbState>,
+    peer_id: String,
+) -> Result<(), String> {
+    let my_id = crate::db::get_user_id(&state.pool).await?;
+    crate::db::clear_chat_history(&state.pool, &my_id, &peer_id).await
+}
+
+#[tauri::command]
+pub async fn delete_user_complete(
+    state: tauri::State<'_, crate::db::DbState>,
+    peer_state: tauri::State<'_, PeerState>, // 必须引入这个来操作内存
+    peer_id: String,
+) -> Result<(), String> {
+    let my_id = crate::db::get_user_id(&state.pool).await?;
+
+    // 1. 删除数据库记录
+    crate::db::delete_user_and_history(&state.pool, &my_id, &peer_id).await?;
+
+    // 2. 同步删除内存中的用户状态，否则 apiGetPeers 还会返回它
+    peer_state.manager.remove_peer(&peer_id);
+
+    Ok(())
+}

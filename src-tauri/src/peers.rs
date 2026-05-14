@@ -26,6 +26,13 @@ impl PeerManager {
         }
     }
 
+    pub fn remove_peer(&self, id: &str) {
+        let mut peers = self.peers.write().unwrap();
+        if peers.remove(id).is_some() {
+            println!("[PeerManager] 已从内存中彻底移除用户: {}", id);
+        }
+    }
+
     // 从数据库加载历史用户
     pub async fn load_from_db(&self, pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<(), String> {
         println!("[PeerManager] 从数据库加载历史用户...");

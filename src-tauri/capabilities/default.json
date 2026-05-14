@@ -38,6 +38,8 @@
     "allow-open-file-location",
     "allow-read-clipboard-files",
     "allow-delete-messages",
+		"allow-clear-chat-history",
+		"allow-delete-user-complete",
     {
       "identifier": "opener:allow-reveal-item-in-dir",
       "allow": [

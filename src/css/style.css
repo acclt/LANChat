@@ -12,7 +12,6 @@
 	--radius-md: 10px;
 	--radius-pill: 50px;
 	--radius-btn: 12px;
-	/* 新增：按钮专用圆角 */
 }
 
 body {
@@ -34,7 +33,6 @@ h2 {
 	letter-spacing: 1.5px;
 	/* 增加字间距，更显高级 */
 	color: var(--text-dim);
-	text-transform: uppercase;
 	display: flex;
 	align-items: center;
 	position: relative;
@@ -412,10 +410,11 @@ h2::before {
 
 /* 确保状态标签在文本下方有足够的间距 */
 .message-content .file-pending {
-    margin-top: 8px;
-    display: flex;
-    align-items: center;
-    font-size: 11px; /* 状态文字稍微小一点更精致 */
+	margin-top: 8px;
+	display: flex;
+	align-items: center;
+	font-size: 11px;
+	/* 状态文字稍微小一点更精致 */
 }
 
 /* --- 消息普通文本内容 --- */
@@ -1677,21 +1676,21 @@ h2::before {
 
 /* 1. 基础消息容器：禁止多选时的文件点击 */
 .message.selectable .message-file {
-    pointer-events: none;
+	pointer-events: none;
 }
 
 /* 2. 移除原先会导致挤压的 padding，仅赋予点击属性 */
 .message.selectable,
 .message.sent.selectable {
-    padding-left: 0 !important;
-    cursor: pointer;
-    pointer-events: auto;
+	padding-left: 0 !important;
+	cursor: pointer;
+	pointer-events: auto;
 }
 
 /* 3. 赋予消息体平滑位移的动画能力 */
 .message .message-content,
 .message .message-time {
-    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+	transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* 4. 进入多选模式时，【仅接收方】的消息向右平移 40px。
@@ -1699,61 +1698,63 @@ h2::before {
    （发送方的消息因为靠右，左侧本就有 25% 留白，复选框完全放得下，不需要平移） */
 .message.received.selectable .message-content,
 .message.received.selectable .message-time {
-    transform: translateX(40px);
+	transform: translateX(40px);
 }
 
 /* 5. 优化复选框：初始隐藏并缩小在左侧外，选中时弹入 */
 .message .select-checkbox {
-    position: absolute;
-    left: 0px; 
-    top: 50%;
-    
-    /* 默认隐藏状态：稍微靠左一点且缩小 */
-    transform: translate(-10px, -50%) scale(0.5); 
-    opacity: 0;
-    pointer-events: none; /* 隐藏时不可点击 */
+	position: absolute;
+	left: 0px;
+	top: 50%;
 
-    appearance: none;
-    -webkit-appearance: none;
-    width: 22px;
-    height: 22px;
-    border: 2px solid var(--text-dim, #888);
-    border-radius: 50%;
-    background-color: transparent;
-    cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-    z-index: 10;
+	/* 默认隐藏状态：稍微靠左一点且缩小 */
+	transform: translate(-10px, -50%) scale(0.5);
+	opacity: 0;
+	pointer-events: none;
+	/* 隐藏时不可点击 */
+
+	appearance: none;
+	-webkit-appearance: none;
+	width: 22px;
+	height: 22px;
+	border: 2px solid var(--text-dim, #888);
+	border-radius: 50%;
+	background-color: transparent;
+	cursor: pointer;
+	transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+	z-index: 10;
 }
 
 /* 6. 多选模式下：复选框弹入并显现 */
 .message.selectable .select-checkbox {
-    transform: translate(12px, -50%) scale(1); /* 停靠在距离左侧 12px 处 */
-    opacity: 1;
-    pointer-events: auto;
+	transform: translate(12px, -50%) scale(1);
+	/* 停靠在距离左侧 12px 处 */
+	opacity: 1;
+	pointer-events: auto;
 }
 
 /* 7. 选中状态的打钩和高亮 */
 .message .select-checkbox:checked {
-    background-color: var(--primary, #bd93f9);
-    border-color: var(--primary, #bd93f9);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
-    background-size: 70%;
-    background-position: center;
-    background-repeat: no-repeat;
+	background-color: var(--primary, #bd93f9);
+	border-color: var(--primary, #bd93f9);
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
+	background-size: 70%;
+	background-position: center;
+	background-repeat: no-repeat;
 }
 
 .message.selected .message-content {
-    background: rgba(189, 147, 249, 0.2) !important;
-    box-shadow: 0 0 0 1px var(--primary, #bd93f9);
-    color: #fff;
+	background: rgba(189, 147, 249, 0.2) !important;
+	box-shadow: 0 0 0 1px var(--primary, #bd93f9);
+	color: #fff;
 }
 
 .message.sent.selected .message-content {
-    background: rgba(189, 147, 249, 0.4) !important;
+	background: rgba(189, 147, 249, 0.4) !important;
 }
 
 .message.selectable:hover .select-checkbox {
-    border-color: var(--primary, #bd93f9);
+	border-color: var(--primary, #bd93f9);
 }
 
 /* --- 按钮通用基础样式 (包括左边的返回和右边的多选) --- */
@@ -1825,7 +1826,8 @@ h2::before {
 	display: flex;
 	align-items: center;
 	width: 100%;
-	gap: 12px; /* 拉开文件内容与按钮的间距 */
+	gap: 12px;
+	/* 拉开文件内容与按钮的间距 */
 }
 
 /* 基础分享按钮（普通文件卡片使用） */
@@ -1836,9 +1838,12 @@ h2::before {
 	flex-shrink: 0;
 	width: 34px;
 	height: 34px;
-	border-radius: 10px; /* 圆角矩形，彻底告别头像的错觉 */
-	border: none; /* 去掉边框，更加扁平化 */
-	background: rgba(255, 255, 255, 0.08); /* 极弱的背景色 */
+	border-radius: 10px;
+	/* 圆角矩形，彻底告别头像的错觉 */
+	border: none;
+	/* 去掉边框，更加扁平化 */
+	background: rgba(255, 255, 255, 0.08);
+	/* 极弱的背景色 */
 	color: var(--text-main);
 	cursor: pointer;
 	transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
@@ -1857,4 +1862,110 @@ h2::before {
 	color: #fff;
 	transform: scale(1.05);
 	box-shadow: 0 4px 12px rgba(189, 147, 249, 0.4);
+}
+
+/* 华丽的红色渐变（删除） */
+.btn-grad-danger {
+    background: linear-gradient(135deg, #ff5555 0%, #ff79c6 100%) !important;
+    box-shadow: 0 4px 15px rgba(255, 85, 85, 0.3);
+}
+
+/* 华丽的紫色渐变（清空） */
+.btn-grad-warning {
+    background: linear-gradient(135deg, #bd93f9 0%, #ff79c6 100%) !important;
+    box-shadow: 0 4px 15px rgba(189, 147, 249, 0.4);
+}
+
+.btn-cancel-custom {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: #b3b3b3 !important;
+    padding: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    min-height: 44px;
+}
+
+/* 统一动作按钮的基础样式 */
+.mgmt-action-btn {
+    width: 100%;
+    border: none;
+    padding: 14px;
+    border-radius: 10px;
+    color: white !important;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: 1px;
+}
+
+.mgmt-action-btn:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+}
+
+.mgmt-action-btn:active {
+    transform: translateY(0) scale(0.98);
+}
+
+/* 二次确认弹窗特有样式 */
+.confirm-dialog-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    z-index: 3000; /* 确保在管理弹窗之上 */
+    display: flex; align-items: center; justify-content: center;
+}
+
+.confirm-dialog-content {
+    width: 320px;
+    background: #282a36;
+    border: 1px solid rgba(255, 85, 85, 0.4);
+    border-radius: 16px;
+    padding: 25px;
+    text-align: center;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    animation: popIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.confirm-dialog-content p {
+    color: #f8f8f2;
+    margin-bottom: 25px;
+    line-height: 1.6;
+    font-size: 15px;
+}
+
+/* 按钮位置修正：危险在左，安全在右 */
+.confirm-button-group {
+    display: flex;
+    gap: 12px;
+}
+
+.confirm-btn-ok {
+    flex: 1;
+    background: #ff5555;
+    color: white;
+    border: none;
+    padding: 10px;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.confirm-btn-cancel {
+    flex: 1;
+    background: #44475a;
+    color: #f8f8f2;
+    border: none;
+    padding: 10px;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
 }

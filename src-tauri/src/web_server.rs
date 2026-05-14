@@ -42,9 +42,14 @@ struct ErrorResponse {
 
 #[derive(Deserialize)]
 struct SendMessageRequest {
-    peer_id: String, // 新增接收者ID
+    peer_id: String,
     peer_addr: String,
     content: String,
+}
+
+#[derive(Deserialize)]
+struct PeerIdRequest {
+    peer_id: String,
 }
 
 // Web 服务器的状态
@@ -106,6 +111,8 @@ pub async fn start_server(
         .route("/api/create_upload_record", post(create_upload_record_http))
         .route("/api/update_upload_status", post(update_upload_status_http))
         .route("/api/delete_upload_record", post(delete_upload_record_http))
+        .route("/api/clear_chat_history", post(clear_chat_history_http))
+        .route("/api/delete_user", post(delete_user_http))
         .route("/api/delete_messages", post(delete_messages_http))
         .route("/api/get_theme_list", get(get_theme_list_http))
         .route("/api/get_theme_css/:theme_name", get(get_theme_css_http))
@@ -1426,6 +1433,70 @@ async fn delete_messages_http(
 
     match crate::db::delete_messages_by_ids(&state.pool, msg_ids).await {
         Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+            .into_response(),
+    }
+}
+
+async fn clear_chat_history_http(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PeerIdRequest>,
+) -> impl IntoResponse {
+    println!(
+        "[Web Server] 收到清空聊天记录请求: peer_id={}",
+        payload.peer_id
+    );
+
+    // 获取自己的 ID
+    let my_id = match crate::db::get_user_id(&state.pool).await {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+                .into_response()
+        }
+    };
+
+    match crate::db::clear_chat_history(&state.pool, &my_id, &payload.peer_id).await {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+            .into_response(),
+    }
+}
+
+async fn delete_user_http(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PeerIdRequest>,
+) -> impl IntoResponse {
+    println!("[Web Server] 收到删除用户请求: peer_id={}", payload.peer_id);
+
+    // 获取自己的 ID
+    let my_id = match crate::db::get_user_id(&state.pool).await {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+                .into_response()
+        }
+    };
+
+    match crate::db::delete_user_and_history(&state.pool, &my_id, &payload.peer_id).await {
+        Ok(_) => {
+            // 同步删除 Web Server 内存中的用户状态，防止轮询再次下发
+            state.peer_manager.remove_peer(&payload.peer_id);
+
+            (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),

@@ -120,6 +120,22 @@ async function addUserToList(id, name, addr, isOffline = false) {
     openChat({ id, name, addr });
   });
 
+  // 桌面端右键
+  li.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    showUserActionDialog(id, name);
+  });
+
+  // 移动端长按逻辑
+  let touchTimer;
+  li.addEventListener("touchstart", (e) => {
+    touchTimer = setTimeout(() => {
+      showUserActionDialog(id, name);
+    }, 600); // 600ms 定义为长按
+  });
+  li.addEventListener("touchend", () => clearTimeout(touchTimer));
+  li.addEventListener("touchmove", () => clearTimeout(touchTimer));
+
   list.appendChild(li);
   sortUserList();
 
@@ -1031,8 +1047,10 @@ function onReceiveMessage(message) {
   // 仅在当前聊天窗口时处理
   if (window.currentChatPeer && window.currentChatPeer.id === message.from_id) {
     if (message.id === undefined || message.id === null) {
-      console.log("[UI] 收到一条暂时没有 ID 的实时通知，等待轮询系统自动同步...");
-      return; 
+      console.log(
+        "[UI] 收到一条暂时没有 ID 的实时通知，等待轮询系统自动同步...",
+      );
+      return;
     }
 
     if (message.msg_type === "file" && message.file_status !== "downloading") {
@@ -1041,12 +1059,15 @@ function onReceiveMessage(message) {
       loadChatHistory(window.currentChatPeer.id, true);
     } else {
       const chatMessages = document.getElementById("chat-messages");
-      const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 100;
+      const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
+          chatMessages.clientHeight < 100;
 
       addMessageToChat(message, false);
 
       if (wasAtBottom) {
-        setTimeout(async () => { await scrollToBottom(); }, 50);
+        setTimeout(async () => {
+          await scrollToBottom();
+        }, 50);
       } else {
         const scrollBtn = document.getElementById("scroll-to-bottom-btn");
         const unreadDot = document.getElementById("unread-dot");
@@ -1057,7 +1078,9 @@ function onReceiveMessage(message) {
   } else {
     console.log("[UI] ✗ 不匹配当前聊天对象");
     // 处理未读红点和排序
-    const userLi = document.querySelector(`#user-list li[data-id="${message.from_id}"]`);
+    const userLi = document.querySelector(
+      `#user-list li[data-id="${message.from_id}"]`,
+    );
     if (userLi) {
       userLi.classList.add("has-unread");
       if (typeof sortUserList === "function") sortUserList();
@@ -2139,5 +2162,119 @@ function initLongPressSelectMode() {
   });
 }
 
-// 初始化长按功能
-initLongPressSelectMode();
+// ==========================================
+// 1. 完全独立的二次确认弹窗工具函数
+// ==========================================
+function showConfirm(message, onOk) {
+  const overlay = document.createElement("div");
+  overlay.className = "confirm-dialog-overlay";
+
+  overlay.innerHTML = `
+        <div class="confirm-dialog-content">
+            <p>${message}</p>
+            <div class="confirm-button-group">
+                <button class="confirm-btn-ok" id="confirm-ok">确定</button>
+                <button class="confirm-btn-cancel" id="confirm-cancel">取消</button>
+            </div>
+        </div>
+    `;
+
+  document.body.appendChild(overlay);
+
+  // 取消：直接移除 DOM
+  document.getElementById("confirm-cancel").onclick = () => overlay.remove();
+
+  // 确定：拦截处理状态，并执行传入的 onOk 回调
+  document.getElementById("confirm-ok").onclick = async () => {
+    const btn = document.getElementById("confirm-ok");
+    btn.disabled = true;
+    btn.textContent = "处理中...";
+    try {
+      await onOk(); // 这里才真正执行删除动作
+    } catch (e) {
+      console.error("执行失败:", e);
+      alert("操作失败: " + e.message);
+    } finally {
+      overlay.remove(); // 无论成功失败，都关闭确认弹窗
+    }
+  };
+}
+
+// ==========================================
+// 2. 完整的用户管理弹窗函数
+// ==========================================
+async function showUserActionDialog(peerId, userName) {
+  // 检测是否有聊天记录
+  const history = await apiGetChatHistory(peerId, 1, 0);
+  const hasHistory = history && history.length > 0;
+
+  const old = document.getElementById("user-mgmt-panel");
+  if (old) old.remove();
+
+  // 绘制管理弹窗
+  const panel = document.createElement("div");
+  panel.id = "user-mgmt-panel";
+  panel.className = "edit-panel";
+  panel.style.display = "block";
+
+  panel.innerHTML = `
+        <h2>管理 ${userName}</h2>
+        <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
+            <button id="mgmt-del-btn" class="mgmt-action-btn btn-grad-danger">删除用户</button>
+            ${
+    hasHistory
+      ? `<button id="mgmt-clear-btn" class="mgmt-action-btn btn-grad-warning">清空聊天记录</button>`
+      : ""
+  }
+            <button id="mgmt-cancel-btn" class="btn-cancel-custom">取消</button>
+        </div>
+    `;
+
+  document.body.appendChild(panel);
+
+  const closeMgmt = () => panel.remove();
+  document.getElementById("mgmt-cancel-btn").onclick = closeMgmt;
+
+  // --- 绑定删除逻辑 ---
+  document.getElementById("mgmt-del-btn").onclick = () => {
+    // 调用我们刚刚写的 showConfirm，将包含 peerId 的业务逻辑作为回调传进去
+    showConfirm(
+      `确定要彻底删除用户 "${userName}" 吗？此操作不可恢复。`,
+      async () => {
+        // 如果正开着这个人的聊天界面，关闭它
+        if (window.currentChatPeer && window.currentChatPeer.id === peerId) {
+          performCloseChatUI();
+        }
+
+        // 呼叫后端删除数据库和内存
+        await apiDeleteUserComplete(peerId);
+
+        // 物理移除列表项
+        const el = document.querySelector(`#user-list li[data-id="${peerId}"]`);
+        if (el) el.remove();
+
+        // 重新排列剩余列表项
+        if (typeof sortUserList === "function") sortUserList();
+
+        closeMgmt(); // 操作完成后，关闭底下的管理弹窗
+      },
+    );
+  };
+
+  // --- 绑定清空记录逻辑 ---
+  if (hasHistory) {
+    document.getElementById("mgmt-clear-btn").onclick = () => {
+      showConfirm(`确定要清空与 "${userName}" 的所有聊天记录吗？`, async () => {
+        await apiClearChatHistory(peerId);
+
+        // 如果恰好看着这个人的界面，刷新清空
+        if (window.currentChatPeer && window.currentChatPeer.id === peerId) {
+          const box = document.getElementById("chat-messages");
+          if (box) box.innerHTML = "";
+          window.lastMessageTimestamp = 0;
+        }
+        closeMgmt();
+      });
+    };
+  }
+}

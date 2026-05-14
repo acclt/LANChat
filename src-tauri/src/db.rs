@@ -922,3 +922,34 @@ pub async fn get_latest_msg_id_by_file(
     }
     None
 }
+
+/// 清空与某个用户的聊天记录
+pub async fn clear_chat_history(pool: &sqlx::Pool<sqlx::Sqlite>, my_id: &str, peer_id: &str) -> Result<(), String> {
+    println!("[DB] 清空与用户 {} 的聊天记录", peer_id);
+    sqlx::query(
+        "DELETE FROM messages WHERE 
+        (sender_id = 'me' AND receiver_id = ?) OR 
+        (sender_id = ? AND (receiver_id = ? OR receiver_id IS NULL))"
+    )
+    .bind(peer_id)
+    .bind(peer_id)
+    .bind(my_id)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("清空聊天记录失败: {}", e))?;
+    Ok(())
+}
+
+/// 删除用户及其所有聊天记录
+pub async fn delete_user_and_history(pool: &sqlx::Pool<sqlx::Sqlite>, my_id: &str, peer_id: &str) -> Result<(), String> {
+    // 1. 删除消息
+    clear_chat_history(pool, my_id, peer_id).await?;
+    // 2. 从用户表删除
+    sqlx::query("DELETE FROM users WHERE id = ?")
+        .bind(peer_id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("删除用户失败: {}", e))?;
+    println!("[DB] 用户 {} 及其记录已彻底删除", peer_id);
+    Ok(())
+}
