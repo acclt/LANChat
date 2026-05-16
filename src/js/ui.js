@@ -115,22 +115,29 @@ async function addUserToList(id, name, addr, isOffline = false) {
     li.classList.add("offline");
   }
 
-  // 添加点击事件
-  li.addEventListener("click", () => {
-    openChat({ id, name, addr });
+  // 添加点击事件，从 dataset 动态读取最新数据，而不是使用闭包里的旧变量
+  li.addEventListener("click", function(e) {
+    const targetLi = e.currentTarget;
+    openChat({ 
+        id: targetLi.dataset.id, 
+        name: targetLi.dataset.name, 
+        addr: targetLi.dataset.addr 
+    });
   });
 
   // 桌面端右键
-  li.addEventListener("contextmenu", (e) => {
+  li.addEventListener("contextmenu", function(e) {
     e.preventDefault();
-    showUserActionDialog(id, name);
+    const targetLi = e.currentTarget;
+    showUserActionDialog(targetLi.dataset.id, targetLi.dataset.name);
   });
 
   // 移动端长按逻辑
   let touchTimer;
-  li.addEventListener("touchstart", (e) => {
+  li.addEventListener("touchstart", function(e) {
+    const targetLi = e.currentTarget;
     touchTimer = setTimeout(() => {
-      showUserActionDialog(id, name);
+      showUserActionDialog(targetLi.dataset.id, targetLi.dataset.name);
     }, 600); // 600ms 定义为长按
   });
   li.addEventListener("touchend", () => clearTimeout(touchTimer));
@@ -184,6 +191,10 @@ function updateUserStatus(item, name, addr, isOffline) {
   if (nameSpan) nameSpan.textContent = name;
   if (addrSpan) addrSpan.textContent = addr;
   if (statusSpan) statusSpan.textContent = isOffline ? "OFF" : "";
+
+  // 实时更新 DOM 的隐式数据属性
+  item.dataset.name = name;
+  item.dataset.addr = addr;
 
   const wasOffline = item.classList.contains("offline");
 
@@ -1083,7 +1094,7 @@ function onReceiveMessage(message) {
     );
     if (userLi) {
       userLi.classList.add("has-unread");
-      if (typeof sortUserList === "function") sortUserList();
+      sortUserList();
     }
     console.log("[UI]   - message.from_id:", message.from_id);
     console.log(
@@ -2275,7 +2286,7 @@ async function showUserActionDialog(peerId, userName) {
           );
           if (el) el.remove();
 
-          if (typeof sortUserList === "function") sortUserList();
+          sortUserList();
 
           closeMgmt();
         },

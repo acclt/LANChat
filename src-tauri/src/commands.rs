@@ -376,24 +376,34 @@ pub async fn send_message(
     state: State<'_, DbState>,
     peer_state: State<'_, PeerState>,
     peer_id: String,
-    peer_addr: String,
+    mut peer_addr: String,
     content: String,
 ) -> Result<(), String> {
     println!("[Command] 收到发送消息请求: 发送给 {}", peer_id);
     let my_id = crate::db::get_user_id(&state.pool).await?;
     let my_name = crate::db::get_username(&state.pool).await?;
 
-    // 1. 获取用户当前状态
-    let (is_offline_now, peer_name) = {
+    // 提取状态时，顺便把后端内存里最新的 IP 拿出来
+    let (is_offline_now, peer_name, backend_addr) = {
         let peers = peer_state.manager.get_all_peers();
-        let p = peers.iter().find(|p| p.id == peer_id);
-        (
-            p.map(|p| p.is_offline).unwrap_or(true),
-            p.map(|p| p.name.clone()).unwrap_or_else(|| "未知".into()),
-        )
+        if let Some(p) = peers.iter().find(|p| p.id == peer_id) {
+            (p.is_offline, p.name.clone(), Some(p.addr.clone()))
+        } else {
+            (true, "未知".into(), None)
+        }
     };
 
-    // 2. 如果已经判定离线，直接走 Pending 流程
+    // 后端终极校验：如果前端传来的 IP 和后端最新的不一致，强制纠正！
+    if let Some(latest_addr) = backend_addr {
+        if latest_addr != peer_addr {
+            println!(
+                "[Command] 🛡️ 拦截到过期 IP，后端强行纠正: {} -> {}",
+                peer_addr, latest_addr
+            );
+            peer_addr = latest_addr;
+        }
+    }
+
     if is_offline_now {
         println!(
             "[Command] 用户 {} 处于离线记录中，直接保存为挂起状态",
@@ -469,7 +479,7 @@ pub async fn send_file(
     app: tauri::AppHandle,
     state: State<'_, DbState>,
     peer_id: String,
-    peer_addr: String,
+    mut peer_addr: String,
     file_path: String,
 ) -> Result<serde_json::Value, String> {
     println!(
@@ -541,15 +551,27 @@ pub async fn send_file(
 
             // 使用统一的上传函数
             let peer_state = app.try_state::<PeerState>();
-            let is_online = peer_state
+            let (is_online, backend_addr) = peer_state
                 .as_ref()
                 .map(|s| {
-                    s.manager
-                        .get_all_peers()
-                        .iter()
-                        .any(|p| p.id == peer_id && !p.is_offline)
+                    if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peer_id) {
+                        (!p.is_offline, Some(p.addr.clone()))
+                    } else {
+                        (false, None)
+                    }
                 })
-                .unwrap_or(true);
+                .unwrap_or((true, None));
+
+            // 强制纠正文件接收端 IP
+            if let Some(latest_addr) = backend_addr {
+                if latest_addr != peer_addr {
+                    println!(
+                        "[Command] 🛡️ 拦截到过期文件传输 IP，后端强行纠正: {} -> {}",
+                        peer_addr, latest_addr
+                    );
+                    peer_addr = latest_addr;
+                }
+            }
             return upload_file_internal(
                 &app,
                 &state,
@@ -591,15 +613,29 @@ pub async fn send_file(
 
     // 使用统一的上传函数
     let peer_state = app.try_state::<PeerState>();
-    let is_online = peer_state
+
+    // 获取在线状态和最新的后端 IP
+    let (is_online, backend_addr) = peer_state
         .as_ref()
         .map(|s| {
-            s.manager
-                .get_all_peers()
-                .iter()
-                .any(|p| p.id == peer_id && !p.is_offline)
+            if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peer_id) {
+                (!p.is_offline, Some(p.addr.clone()))
+            } else {
+                (false, None)
+            }
         })
-        .unwrap_or(true);
+        .unwrap_or((true, None));
+
+    // 强制纠正文件接收端 IP
+    if let Some(latest_addr) = backend_addr {
+        if latest_addr != peer_addr {
+            println!(
+                "[Command] 🛡️ 拦截到过期文件传输 IP，后端强行纠正: {} -> {}",
+                peer_addr, latest_addr
+            );
+            peer_addr = latest_addr; // 这里发生了修改，编译器的 mut 警告就会消失！
+        }
+    }
     upload_file_internal(
         &app,
         &state,
@@ -960,23 +996,39 @@ pub async fn send_file_from_fd(
         // 使用原始 URI 作为 file_path（如果有），否则使用 fd:xxx
         let file_path = originalUri.unwrap_or_else(|| format!("fd:{}", fd));
 
-        // 使用统一的上传函数
+        // 使用统一的上传函数，后端校验文件发送的 IP
         let peer_state = app.try_state::<PeerState>();
-        let is_online = peer_state
+        let (is_online, backend_addr) = peer_state
             .as_ref()
             .map(|s| {
-                s.manager
-                    .get_all_peers()
-                    .iter()
-                    .any(|p| p.id == peerId && !p.is_offline)
+                if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peerId) {
+                    (!p.is_offline, Some(p.addr.clone()))
+                } else {
+                    (false, None)
+                }
             })
-            .unwrap_or(true);
+            .unwrap_or((true, None));
+
+        let peerAddr = if let Some(latest_addr) = backend_addr {
+            if latest_addr != peerAddr {
+                println!(
+                    "[Command] 🛡️ 拦截到过期文件传输 IP，后端强行纠正: {} -> {}",
+                    peerAddr, latest_addr
+                );
+                latest_addr
+            } else {
+                peerAddr
+            }
+        } else {
+            peerAddr
+        };
+
         upload_file_internal(
             &app,
             &state,
             peer_state.as_ref(),
-            peerId,
-            peerAddr,
+            peerId,   // 驼峰
+            peerAddr, // 驼峰
             fileName.clone(),
             fileSize,
             file_path,

@@ -247,7 +247,7 @@ async fn serve_assets(axum::extract::Path(path): axum::extract::Path<String>) ->
 
 async fn send_message_http(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<SendMessageRequest>,
+    Json(mut payload): Json<SendMessageRequest>,
 ) -> impl IntoResponse {
     println!("[Web Server] 收到发送消息请求");
 
@@ -274,15 +274,24 @@ async fn send_message_http(
         }
     };
 
-    // 检查用户是否在线
+    // 检查用户状态的同时，执行后端 IP 二次校验
     let peers = state.peer_manager.get_all_peers();
-    let is_online = peers
-        .iter()
-        .any(|p| p.id == payload.peer_id && !p.is_offline);
+    let mut is_online = false;
+
+    if let Some(p) = peers.iter().find(|p| p.id == payload.peer_id) {
+        if !p.is_offline {
+            is_online = true;
+            // 发现 IP 不一致，强行改写前端的请求载荷！
+            if p.addr != payload.peer_addr {
+                println!("[Web Server] 🛡️ 拦截到过期 Web 请求 IP，后端强行纠正: {} -> {}", payload.peer_addr, p.addr);
+                payload.peer_addr = p.addr.clone();
+            }
+        }
+    }
 
     if is_online {
-        // 用户在线，直接发送
-        if let Err(e) = crate::network::messaging::send_text_message(
+        // 用户在线，尝试发送（这也是一种网络探测）
+        match crate::network::messaging::send_text_message(
             &payload.peer_addr,
             my_id,
             my_name,
@@ -290,30 +299,52 @@ async fn send_message_http(
         )
         .await
         {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: e }),
-            )
-                .into_response();
-        }
+            Ok(_) => {
+                // 发送成功，保存到数据库(标记为已发送)
+                if let Err(e) = crate::db::save_text_message_with_status(
+                    &state.pool,
+                    payload.peer_id,
+                    payload.content,
+                    "sent".to_string(),
+                )
+                .await
+                {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse { error: e }),
+                    )
+                        .into_response();
+                }
+            }
+            Err(e) => {
+                // 发送失败（探测到实际已离线或网络故障，比如 IP 刚变但心跳还没发）
+                eprintln!(
+                    "[Web Server] 发送失败(网络探测): {}. 消息将转入挂起队列。",
+                    e
+                );
 
-        // 保存到数据库(标记为已发送)
-        if let Err(e) = crate::db::save_text_message_with_status(
-            &state.pool,
-            payload.peer_id,
-            payload.content,
-            "sent".to_string(),
-        )
-        .await
-        {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { error: e }),
-            )
-                .into_response();
+                // 1. 立即更新 Web Server 内存中的状态，标记为离线
+                state.peer_manager.force_mark_offline(&payload.peer_id);
+
+                // 2. 保存为挂起状态 (pending)
+                if let Err(db_e) = crate::db::save_text_message_with_status(
+                    &state.pool,
+                    payload.peer_id.clone(),
+                    payload.content,
+                    "pending".to_string(),
+                )
+                .await
+                {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse { error: db_e }),
+                    )
+                        .into_response();
+                }
+            }
         }
     } else {
-        // 用户离线，保存为挂起状态
+        // 用户本来就在离线记录中，直接保存为挂起状态
         println!(
             "[Web Server] 用户 {} 离线，消息保存为挂起状态",
             payload.peer_id

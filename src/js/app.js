@@ -104,15 +104,30 @@ async function startPeerPolling() {
     const peers = await apiGetPeers();
     if (!peers) return;
 
-    // 1. 记录 API 返回的所有用户 ID
     const apiPeerIds = new Set(peers.map((p) => p.id));
 
-    // 2. 处理“更新”和“添加”
     for (const peer of peers) {
+      // 更新左侧列表 UI
       addUserToList(peer.id, peer.name, peer.addr, peer.is_offline);
+
+      // 如果该用户正处于聊天窗口中，实时同步他的最新 IP 和名字
+      if (window.currentChatPeer && window.currentChatPeer.id === peer.id) {
+        if (window.currentChatPeer.addr !== peer.addr) {
+          console.log(
+            `[JS-App] ⚡ 当前聊天对象 IP 已更新: ${window.currentChatPeer.addr} -> ${peer.addr}`,
+          );
+          window.currentChatPeer.addr = peer.addr;
+        }
+        if (window.currentChatPeer.name !== peer.name) {
+          window.currentChatPeer.name = peer.name;
+          // 顶部标题也改了
+          const chatWithName = document.getElementById("chat-with-name");
+          if (chatWithName) chatWithName.textContent = peer.name;
+        }
+      }
     }
 
-    // 3. 处理“自动移除”：如果 DOM 中的用户 ID 不在 API 列表中，说明该用户被删除了
+    // 处理“自动移除”：如果 DOM 中的用户 ID 不在 API 列表中，说明该用户被删除了
     const userListItems = document.querySelectorAll("#user-list li");
     userListItems.forEach((li) => {
       const domId = li.dataset.id;
@@ -122,7 +137,6 @@ async function startPeerPolling() {
       }
     });
 
-    // 4. 最后统一排序一次（确保未读/在线顺序正确）
     sortUserList();
   };
 
