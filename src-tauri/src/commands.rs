@@ -1009,7 +1009,7 @@ pub async fn send_file_from_fd(
             })
             .unwrap_or((true, None));
 
-        let peerAddr = if let Some(latest_addr) = backend_addr {
+        let peer_addr = if let Some(latest_addr) = backend_addr {
             if latest_addr != peerAddr {
                 println!(
                     "[Command] 🛡️ 拦截到过期文件传输 IP，后端强行纠正: {} -> {}",
@@ -1027,8 +1027,8 @@ pub async fn send_file_from_fd(
             &app,
             &state,
             peer_state.as_ref(),
-            peerId,   // 驼峰
-            peerAddr, // 驼峰
+            peerId, 
+            peer_addr,
             fileName.clone(),
             fileSize,
             file_path,

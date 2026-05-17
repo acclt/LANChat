@@ -79,6 +79,8 @@ h2::before {
 	height: 100dvh;
 	/* 顶部增加内边距，避开手机状态栏 */
 	padding-top: env(safe-area-inset-top);
+	/* 底部增加内边距，避开三大金刚键/导航栏 */
+	padding-bottom: env(safe-area-inset-bottom);
 	box-sizing: border-box;
 	/* 确保 padding 不会撑大整体宽度 */
 }
@@ -1279,7 +1281,9 @@ h2::before {
 		height: 100dvh;
 		/* 2. 顶部增加内边距，把内容(Header)挤下来，露出状态栏 */
 		padding-top: env(safe-area-inset-top);
-		/* 3. 必须加上这个，否则 padding 会导致高度溢出出现滚动条 */
+		/* 3. 底部增加内边距，避开三大金刚键/导航栏 */
+		padding-bottom: env(safe-area-inset-bottom);
+		/* 4. 必须加上这个，否则 padding 会导致高度溢出出现滚动条 */
 		box-sizing: border-box;
 		will-change: transform, opacity;
 		backface-visibility: hidden;
