@@ -116,17 +116,17 @@ async function addUserToList(id, name, addr, isOffline = false) {
   }
 
   // 添加点击事件，从 dataset 动态读取最新数据，而不是使用闭包里的旧变量
-  li.addEventListener("click", function(e) {
+  li.addEventListener("click", function (e) {
     const targetLi = e.currentTarget;
-    openChat({ 
-        id: targetLi.dataset.id, 
-        name: targetLi.dataset.name, 
-        addr: targetLi.dataset.addr 
+    openChat({
+      id: targetLi.dataset.id,
+      name: targetLi.dataset.name,
+      addr: targetLi.dataset.addr,
     });
   });
 
   // 桌面端右键
-  li.addEventListener("contextmenu", function(e) {
+  li.addEventListener("contextmenu", function (e) {
     e.preventDefault();
     const targetLi = e.currentTarget;
     showUserActionDialog(targetLi.dataset.id, targetLi.dataset.name);
@@ -134,7 +134,7 @@ async function addUserToList(id, name, addr, isOffline = false) {
 
   // 移动端长按逻辑
   let touchTimer;
-  li.addEventListener("touchstart", function(e) {
+  li.addEventListener("touchstart", function (e) {
     const targetLi = e.currentTarget;
     touchTimer = setTimeout(() => {
       showUserActionDialog(targetLi.dataset.id, targetLi.dataset.name);
@@ -2121,6 +2121,12 @@ async function deleteSelectedMessages() {
       }
     });
 
+    // 手动派发 scroll 事件，强制更新“回到底部”按钮的状态
+    const chatMessages = document.getElementById("chat-messages");
+    if (chatMessages) {
+      chatMessages.dispatchEvent(new Event("scroll"));
+    }
+
     // 更新已加载数量
     if (window.currentChatMessages) {
       window.currentChatMessages.loadedCount -= selectedIds.length;
@@ -2137,7 +2143,7 @@ async function deleteSelectedMessages() {
   }
 }
 
-// 长按进入多选模式（移动端）
+// 长按进入多选模式（移动端）暂未使用
 function initLongPressSelectMode() {
   let longPressTimer = null;
   let longPressTarget = null;
