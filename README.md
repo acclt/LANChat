@@ -192,9 +192,14 @@ LANChat/
 └── README.md                # 本文件
 ```
 
-## 贡献
+## 疑难解答
 
-欢迎提交 Issue 和 Pull Request！
+**Windows运行软件时提示找不到`VCRUNTIME140_1.dll`、`VCRUNTIME140_1.dll`：**（安装下面的软件）  
+[https://aka.ms/vs/17/release/vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe)  
+[https://aka.ms/vs/17/release/vc_redist.x86.exe](https://aka.ms/vs/17/release/vc_redist.x86.exe)
+
+**Windows运行软件时提示未安装WebView2：**（安装WebView2）  
+[https://developer.microsoft.com/zh-cn/microsoft-edge/webview2](https://developer.microsoft.com/zh-cn/microsoft-edge/webview2)
 
 ## 许可证
 
