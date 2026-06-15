@@ -426,30 +426,32 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                     serde_json::from_str::<crate::network::messaging::TextMessage>(&text)
                 {
                     // 保存到数据库
-                    if let Err(e) = save_message_to_db(&state.pool, &message).await {
-                        eprintln!("[WebSocket] 保存消息失败: {}", e);
-                    } else {
-                        println!(
-                            "[WebSocket] 消息已保存: {} 说: {}",
-                            message.from_name, message.content
-                        );
-
-                        // 桌面端: 发送 Tauri 事件通知前端
-                        #[cfg(feature = "desktop")]
-                        if let Some(ref app) = state.app_handle {
-                            use tauri::Emitter;
-                            let _ = app.emit(
-                                "new-message",
-                                serde_json::json!({
-                                    "from_id": message.from_id,
-                                    "from_name": message.from_name,
-                                    "content": message.content,
-                                    "timestamp": message.timestamp,
-                                    "msg_type": message.msg_type,
-                                }),
+                    match save_message_to_db(&state.pool, &message).await {
+                        Ok(msg_id) => {
+                            println!(
+                                "[WebSocket] 消息已保存: {} 说: {} (id={})",
+                                message.from_name, message.content, msg_id
                             );
-                            println!("[WebSocket] 已发送 Tauri 事件: new-message");
+
+                            // 桌面端: 发送 Tauri 事件通知前端
+                            #[cfg(feature = "desktop")]
+                            if let Some(ref app) = state.app_handle {
+                                use tauri::Emitter;
+                                let _ = app.emit(
+                                    "new-message",
+                                    serde_json::json!({
+                                        "id": msg_id,
+                                        "from_id": message.from_id,
+                                        "from_name": message.from_name,
+                                        "content": message.content,
+                                        "timestamp": message.timestamp,
+                                        "msg_type": message.msg_type,
+                                    }),
+                                );
+                                println!("[WebSocket] 已发送 Tauri 事件: new-message");
+                            }
                         }
+                        Err(e) => eprintln!("[WebSocket] 保存消息失败: {}", e)
                     }
                 } else {
                     eprintln!("[WebSocket] 无法解析消息");
@@ -472,7 +474,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
 async fn save_message_to_db(
     pool: &Pool<Sqlite>,
     message: &crate::network::messaging::TextMessage,
-) -> Result<(), String> {
+) -> Result<i64, String> {
     crate::db::save_received_text_message(
         pool,
         message.from_id.clone(),

@@ -537,14 +537,14 @@ pub async fn save_received_text_message(
     content: String,
     msg_type: String,
     timestamp: i64,
-) -> Result<(), String> {
+) -> Result<i64, String> {
     println!(
         "[DB] 保存接收到的文本消息: 发送者={}, 内容长度={}",
         sender_id,
         content.len()
     );
 
-    sqlx::query(
+    let result = sqlx::query(
         "INSERT INTO messages (sender_id, content, msg_type, timestamp) VALUES (?, ?, ?, ?)",
     )
     .bind(&sender_id)
@@ -555,8 +555,9 @@ pub async fn save_received_text_message(
     .await
     .map_err(|e| format!("保存消息失败: {}", e))?;
 
-    println!("[DB] 接收到的消息已保存");
-    Ok(())
+    let msg_id = result.last_insert_rowid();
+    println!("[DB] 接收到的消息已保存, ID: {}", msg_id);
+    Ok(msg_id)
 }
 
 /// 更新文件状态（通过文件路径）
