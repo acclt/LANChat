@@ -421,40 +421,88 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
             Ok(Message::Text(text)) => {
                 println!("[WebSocket] 收到文本消息: {}", text);
 
-                // 解析消息
-                if let Ok(message) =
-                    serde_json::from_str::<crate::network::messaging::TextMessage>(&text)
-                {
-                    // 保存到数据库
-                    match save_message_to_db(&state.pool, &message).await {
-                        Ok(msg_id) => {
-                            println!(
-                                "[WebSocket] 消息已保存: {} 说: {} (id={})",
-                                message.from_name, message.content, msg_id
-                            );
+                match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(val) => {
+                        let stream_id = val.get("stream_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let stream_final = val.get("stream_final").and_then(|v| v.as_bool()).unwrap_or(true);
 
-                            // 桌面端: 发送 Tauri 事件通知前端
-                            #[cfg(feature = "desktop")]
-                            if let Some(ref app) = state.app_handle {
-                                use tauri::Emitter;
-                                let _ = app.emit(
-                                    "new-message",
-                                    serde_json::json!({
-                                        "id": msg_id,
-                                        "from_id": message.from_id,
-                                        "from_name": message.from_name,
-                                        "content": message.content,
-                                        "timestamp": message.timestamp,
-                                        "msg_type": message.msg_type,
-                                    }),
-                                );
-                                println!("[WebSocket] 已发送 Tauri 事件: new-message");
+                        if let Ok(message) = serde_json::from_value::<crate::network::messaging::TextMessage>(val) {
+                            if let Some(ref sid) = stream_id {
+                                if !stream_final {
+                                    // 流式中间块：不存 DB，直接推前端
+                                    println!("[WebSocket] 流式块: {} (stream={})", message.content.chars().take(40).collect::<String>(), sid);
+                                    #[cfg(feature = "desktop")]
+                                    if let Some(ref app) = state.app_handle {
+                                        use tauri::Emitter;
+                                        let _ = app.emit(
+                                            "new-message",
+                                            serde_json::json!({
+                                                "from_id": message.from_id,
+                                                "from_name": message.from_name,
+                                                "content": message.content,
+                                                "timestamp": message.timestamp,
+                                                "msg_type": message.msg_type,
+                                                "stream_id": sid,
+                                                "is_streaming": true,
+                                            }),
+                                        );
+                                    }
+                                } else {
+                                    // 流式最后一块：存 DB 并推前端
+                                    match save_message_to_db(&state.pool, &message).await {
+                                        Ok(msg_id) => {
+                                            println!("[WebSocket] 流式完成: {} (id={})", message.content.chars().take(40).collect::<String>(), msg_id);
+                                            #[cfg(feature = "desktop")]
+                                            if let Some(ref app) = state.app_handle {
+                                                use tauri::Emitter;
+                                                let _ = app.emit(
+                                                    "new-message",
+                                                    serde_json::json!({
+                                                        "id": msg_id,
+                                                        "from_id": message.from_id,
+                                                        "from_name": message.from_name,
+                                                        "content": message.content,
+                                                        "timestamp": message.timestamp,
+                                                        "msg_type": message.msg_type,
+                                                        "stream_id": sid,
+                                                        "is_streaming": false,
+                                                    }),
+                                                );
+                                            }
+                                        }
+                                        Err(e) => eprintln!("[WebSocket] 保存流式最终消息失败: {}", e)
+                                    }
+                                }
+                            } else {
+                                // 非流式消息
+                                match save_message_to_db(&state.pool, &message).await {
+                                    Ok(msg_id) => {
+                                        println!("[WebSocket] 消息已保存: {} 说: {} (id={})", message.from_name, message.content, msg_id);
+                                        #[cfg(feature = "desktop")]
+                                        if let Some(ref app) = state.app_handle {
+                                            use tauri::Emitter;
+                                            let _ = app.emit(
+                                                "new-message",
+                                                serde_json::json!({
+                                                    "id": msg_id,
+                                                    "from_id": message.from_id,
+                                                    "from_name": message.from_name,
+                                                    "content": message.content,
+                                                    "timestamp": message.timestamp,
+                                                    "msg_type": message.msg_type,
+                                                }),
+                                            );
+                                            println!("[WebSocket] 已发送 Tauri 事件: new-message");
+                                        }
+                                    }
+                                    Err(e) => eprintln!("[WebSocket] 保存消息失败: {}", e)
+                                }
                             }
+                        } else {
+                            eprintln!("[WebSocket] 无法解析消息: {}", &text[..text.len().min(100)]);
                         }
-                        Err(e) => eprintln!("[WebSocket] 保存消息失败: {}", e)
                     }
-                } else {
-                    eprintln!("[WebSocket] 无法解析消息");
+                    Err(e) => eprintln!("[WebSocket] JSON 解析失败: {}", e)
                 }
             }
             Ok(Message::Close(_)) => {

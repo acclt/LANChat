@@ -515,6 +515,24 @@ function addMessageToChat(message, isSent) {
   }
 }
 
+// 更新流式消息气泡内容
+function updateStreamMessage(message) {
+  if (!message.stream_id) return;
+  const chatMessages = document.getElementById("chat-messages");
+  const existing = chatMessages.querySelector(`[data-stream-id="${message.stream_id}"]`);
+
+  if (existing) {
+    const textSpan = existing.querySelector(".message-text");
+    if (textSpan) {
+      textSpan.textContent = message.content;
+    }
+  } else {
+    const messageDiv = createMessageElement(message, false);
+    messageDiv.dataset.streamId = message.stream_id;
+    chatMessages.appendChild(messageDiv);
+  }
+}
+
 // 创建文件图标元素
 function createFileIcon(message) {
   const fileInfo = document.createElement("div");
@@ -1057,6 +1075,37 @@ function onReceiveMessage(message) {
   console.log("[UI] 当前聊天对象:", window.currentChatPeer);
   // 仅在当前聊天窗口时处理
   if (window.currentChatPeer && window.currentChatPeer.id === message.from_id) {
+    // 流式消息处理
+    if (message.is_streaming === true) {
+      updateStreamMessage(message);
+      const chatMessages = document.getElementById("chat-messages");
+      const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
+          chatMessages.clientHeight < 100;
+      if (wasAtBottom) {
+        setTimeout(async () => { await scrollToBottom(); }, 50);
+      }
+      return;
+    }
+    if (message.is_streaming === false) {
+      // 流式结束：用永久消息替换流式气泡（带 data-msg-id，轮询回来时幂等）
+      const chatMessages = document.getElementById("chat-messages");
+      const existing = chatMessages.querySelector(`[data-stream-id="${message.stream_id}"]`);
+      if (existing) {
+        existing.replaceWith(createMessageElement(message, false));
+      } else {
+        chatMessages.appendChild(createMessageElement(message, false));
+      }
+      if (message.timestamp > (window.lastMessageTimestamp || 0)) {
+        window.lastMessageTimestamp = message.timestamp;
+      }
+      const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
+          chatMessages.clientHeight < 100;
+      if (wasAtBottom) {
+        setTimeout(async () => { await scrollToBottom(); }, 50);
+      }
+      return;
+    }
+
     if (message.id === undefined || message.id === null) {
       console.log(
         "[UI] 收到一条暂时没有 ID 的实时通知,等待轮询系统自动同步...",
