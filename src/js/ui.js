@@ -515,6 +515,18 @@ function addMessageToChat(message, isSent) {
   }
 }
 
+// 在聊天顶部插入消息（带防重检查）
+function prependMessageToChat(message, isSent) {
+  if (!message.id || message.id === "null") return;
+  const chatMessages = document.getElementById("chat-messages");
+  const existing = chatMessages.querySelector(`[data-msg-id="${message.id}"]`);
+  if (existing) {
+    existing.replaceWith(createMessageElement(message, isSent));
+  } else {
+    chatMessages.insertBefore(createMessageElement(message, isSent), chatMessages.firstChild);
+  }
+}
+
 // 更新流式消息气泡内容
 function updateStreamMessage(message) {
   if (!message.stream_id) return;
@@ -691,8 +703,7 @@ async function loadChatHistory(peerId, preserveScroll = false) {
         // 在顶部插入消息
         for (let i = moreMessages.length - 1; i >= 0; i--) {
           const msg = moreMessages[i];
-          const messageDiv = createMessageElement(msg, msg.from_id === "me");
-          chatMessages.insertBefore(messageDiv, chatMessages.firstChild);
+          prependMessageToChat(msg, msg.from_id === "me");
         }
 
         window.currentChatMessages.loadedCount += moreMessages.length;
@@ -841,8 +852,7 @@ function initScrollListener() {
         // 在顶部插入消息(倒序插入)
         for (let i = moreMessages.length - 1; i >= 0; i--) {
           const msg = moreMessages[i];
-          const messageDiv = createMessageElement(msg, msg.from_id === "me");
-          chatMessages.insertBefore(messageDiv, chatMessages.firstChild);
+          prependMessageToChat(msg, msg.from_id === "me");
         }
 
         // 更新已加载数量
