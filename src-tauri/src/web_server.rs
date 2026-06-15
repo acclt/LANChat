@@ -7,13 +7,14 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::fs;
+use tokio::sync::broadcast;
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::peers::PeerManager;
@@ -58,6 +59,7 @@ pub struct AppState {
     pub pool: Pool<Sqlite>,
     pub peer_manager: Arc<PeerManager>,
     pub media_token: String,
+    pub ws_broadcast: broadcast::Sender<String>,
     #[cfg(feature = "desktop")]
     pub app_handle: Option<tauri::AppHandle>,
 }
@@ -79,10 +81,13 @@ pub async fn start_server(
         *guard = media_token.clone();
     }
 
+    let (ws_broadcast, _) = broadcast::channel::<String>(128);
+
     let state = Arc::new(AppState {
         pool,
         peer_manager,
         media_token,
+        ws_broadcast,
         #[cfg(feature = "desktop")]
         app_handle,
     });
@@ -411,9 +416,27 @@ async fn websocket_handler(
 
 // 处理 WebSocket 连接
 async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
-    let (_sender, mut receiver) = socket.split();
+    let (mut sender, mut receiver) = socket.split();
 
     println!("[WebSocket] 新的 WebSocket 连接");
+
+    // 订阅广播频道并转发给此 WebSocket 客户端
+    let mut broadcast_rx: broadcast::Receiver<String> = state.ws_broadcast.subscribe();
+    let forward_handle = tokio::spawn(async move {
+        loop {
+            match broadcast_rx.recv().await {
+                Ok(msg) => {
+                    if sender.send(Message::Text(msg.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    // Lagged（滞后）或 Closed（不会发生）：继续接收
+                    continue;
+                }
+            }
+        }
+    });
 
     // 接收消息
     while let Some(msg) = receiver.next().await {
@@ -429,8 +452,18 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                         if let Ok(message) = serde_json::from_value::<crate::network::messaging::TextMessage>(val) {
                             if let Some(ref sid) = stream_id {
                                 if !stream_final {
-                                    // 流式中间块：不存 DB，直接推前端
+                                    // 流式中间块：不存 DB，广播到所有 WebSocket 客户端
                                     println!("[WebSocket] 流式块: {} (stream={})", message.content.chars().take(40).collect::<String>(), sid);
+                                    let broadcast_msg = serde_json::json!({
+                                        "from_id": message.from_id,
+                                        "from_name": message.from_name,
+                                        "content": message.content,
+                                        "timestamp": message.timestamp,
+                                        "msg_type": message.msg_type,
+                                        "stream_id": sid,
+                                        "is_streaming": true,
+                                    }).to_string();
+                                    let _ = state.ws_broadcast.send(broadcast_msg);
                                     #[cfg(feature = "desktop")]
                                     if let Some(ref app) = state.app_handle {
                                         use tauri::Emitter;
@@ -448,10 +481,21 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                         );
                                     }
                                 } else {
-                                    // 流式最后一块：存 DB 并推前端
+                                    // 流式最后一块：存 DB 并广播到所有 WebSocket 客户端
                                     match save_message_to_db(&state.pool, &message).await {
                                         Ok(msg_id) => {
                                             println!("[WebSocket] 流式完成: {} (id={})", message.content.chars().take(40).collect::<String>(), msg_id);
+                                            let broadcast_msg = serde_json::json!({
+                                                "id": msg_id,
+                                                "from_id": message.from_id,
+                                                "from_name": message.from_name,
+                                                "content": message.content,
+                                                "timestamp": message.timestamp,
+                                                "msg_type": message.msg_type,
+                                                "stream_id": sid,
+                                                "is_streaming": false,
+                                            }).to_string();
+                                            let _ = state.ws_broadcast.send(broadcast_msg);
                                             #[cfg(feature = "desktop")]
                                             if let Some(ref app) = state.app_handle {
                                                 use tauri::Emitter;
@@ -474,10 +518,19 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                     }
                                 }
                             } else {
-                                // 非流式消息
+                                // 非流式消息：存 DB 并广播到所有 WebSocket 客户端
                                 match save_message_to_db(&state.pool, &message).await {
                                     Ok(msg_id) => {
                                         println!("[WebSocket] 消息已保存: {} 说: {} (id={})", message.from_name, message.content, msg_id);
+                                        let broadcast_msg = serde_json::json!({
+                                            "id": msg_id,
+                                            "from_id": message.from_id,
+                                            "from_name": message.from_name,
+                                            "content": message.content,
+                                            "timestamp": message.timestamp,
+                                            "msg_type": message.msg_type,
+                                        }).to_string();
+                                        let _ = state.ws_broadcast.send(broadcast_msg);
                                         #[cfg(feature = "desktop")]
                                         if let Some(ref app) = state.app_handle {
                                             use tauri::Emitter;
@@ -516,6 +569,8 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
             _ => {}
         }
     }
+
+    forward_handle.abort();
 }
 
 // 保存消息到数据库

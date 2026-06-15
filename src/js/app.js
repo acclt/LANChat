@@ -68,6 +68,8 @@ async function renderPage() {
   if (!tauri) {
     console.log("[JS-App] 启动未读消息检查（Web 端）");
     startUnreadMessageCheck();
+    // Web 端：连接 WebSocket 接收流式事件
+    startStreamingWebSocket();
   }
 
   // ==========================================
@@ -491,4 +493,44 @@ async function startUnreadMessageCheck() {
 
   // 然后开始轮询
   setInterval(checkUnreadMessages, pollInterval);
+}
+
+// Web 端：连接 WebSocket 接收流式事件
+function startStreamingWebSocket() {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${protocol}//${window.location.host}/ws`;
+  console.log("[JS-App] 连接流式 WebSocket:", wsUrl);
+
+  function connect() {
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      console.log("[JS-App] ✓ 流式 WebSocket 已连接");
+    };
+
+    ws.onmessage = (event) => {
+      console.log("[JS-App] WebSocket 收到消息:", event.data.substring(0, 80));
+      try {
+        const data = JSON.parse(event.data);
+        if (data.stream_id || data.from_id) {
+          console.log("[JS-App] 转发到 onReceiveMessage, is_streaming:", data.is_streaming);
+          onReceiveMessage(data);
+        }
+      } catch (e) {
+        console.error("[JS-App] WebSocket 消息解析失败:", e);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log("[JS-App] 流式 WebSocket 断开，3秒后重连");
+      setTimeout(connect, 3000);
+    };
+
+    ws.onerror = (err) => {
+      console.error("[JS-App] 流式 WebSocket 错误:", err);
+      ws.close();
+    };
+  }
+
+  connect();
 }
