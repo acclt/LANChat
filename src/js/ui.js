@@ -17,11 +17,11 @@ function initNameEditor() {
   // 点击编辑按钮 - 切换显示/隐藏
   editBtn.addEventListener("click", () => {
     if (editPanel.style.display === "block") {
-      // 当前是显示状态，点击后隐藏
+      // 当前是显示状态,点击后隐藏
       editPanel.style.display = "none";
       errorMsg.textContent = "";
     } else {
-      // 当前是隐藏状态，点击后显示
+      // 当前是隐藏状态,点击后显示
       editPanel.style.display = "block";
       nameInput.value = "";
       nameInput.focus();
@@ -45,7 +45,7 @@ function initNameEditor() {
     }
 
     if (newName.length > 50) {
-      errorMsg.textContent = "用户名过长（最多50个字符）";
+      errorMsg.textContent = "用户名过长(最多50个字符)";
       return;
     }
 
@@ -115,7 +115,7 @@ async function addUserToList(id, name, addr, isOffline = false) {
     li.classList.add("offline");
   }
 
-  // 添加点击事件，从 dataset 动态读取最新数据，而不是使用闭包里的旧变量
+  // 添加点击事件,从 dataset 动态读取最新数据,而不是使用闭包里的旧变量
   li.addEventListener("click", function (e) {
     const targetLi = e.currentTarget;
     openChat({
@@ -146,7 +146,7 @@ async function addUserToList(id, name, addr, isOffline = false) {
   list.appendChild(li);
   sortUserList();
 
-  // 初始化新用户的时间戳，避免误报未读消息
+  // 初始化新用户的时间戳,避免误报未读消息
   if (!window.userLastMessageTimestamps) {
     window.userLastMessageTimestamps = {};
   }
@@ -163,13 +163,13 @@ async function addUserToList(id, name, addr, isOffline = false) {
           messages[0].timestamp,
         );
       } else {
-        // 没有历史消息，设置为当前时间
+        // 没有历史消息,设置为当前时间
         window.userLastMessageTimestamps[id] = Date.now() / 1000;
-        console.log("[UI] 新用户", name, "没有历史消息，设置时间戳为当前时间");
+        console.log("[UI] 新用户", name, "没有历史消息,设置时间戳为当前时间");
       }
     } catch (e) {
       console.warn("[UI] 初始化用户时间戳失败:", e);
-      // 失败时也设置为当前时间，避免误报
+      // 失败时也设置为当前时间,避免误报
       window.userLastMessageTimestamps[id] = Date.now() / 1000;
     }
   }
@@ -204,14 +204,14 @@ function updateUserStatus(item, name, addr, isOffline) {
     item.classList.remove("offline");
   }
 
-  // 只要状态发生了变化（上线或下线），就重排一次列表
+  // 只要状态发生了变化(上线或下线),就重排一次列表
   if (wasOffline !== isOffline) {
     console.log(`[UI] 用户 ${name} 状态变更为: ${isOffline ? "离线" : "在线"}`);
     sortUserList();
   }
 }
 
-// 通用排序函数：未读 > 在线 > 字母顺序
+// 通用排序函数:未读 > 在线 > 字母顺序
 function sortUserList() {
   const list = document.getElementById("user-list");
   if (!list) return;
@@ -253,7 +253,7 @@ function initChat() {
 
   // 关闭聊天窗口
   closeChatBtn.addEventListener("click", () => {
-    // 如果在多选模式，先退出
+    // 如果在多选模式,先退出
     if (window.selectMode && window.selectMode.active) {
       exitSelectMode();
     }
@@ -279,7 +279,7 @@ function initChat() {
   // 输入时调整高度
   chatInput.addEventListener("input", adjustTextareaHeight);
 
-  // 回车发送（Shift+Enter 换行）
+  // 回车发送(Shift+Enter 换行)
   chatInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -291,7 +291,7 @@ function initChat() {
   attachFileBtn.addEventListener("click", () => {
     const tauri = window.__TAURI__;
     if (tauri) {
-      // 桌面端 - 直接调用 sendFile，它会弹出对话框
+      // 桌面端 - 直接调用 sendFile,它会弹出对话框
       sendFile(null);
     } else {
       // Web 端 - 触发文件选择
@@ -299,7 +299,7 @@ function initChat() {
     }
   });
 
-  // 文件选择后发送（仅 Web 端）
+  // 文件选择后发送(仅 Web 端)
   fileInput.addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -343,7 +343,7 @@ function openChat(peer) {
 
   window.currentChatPeer = peer;
 
-  // 3. 立即显示界面（提升响应感）
+  // 3. 立即显示界面(提升响应感)
   chatContainer.style.display = "flex";
 
   const chatWithName = document.getElementById("chat-with-name");
@@ -368,9 +368,9 @@ function openChat(peer) {
   console.log("[UI] 成功进入聊天:", peer.name);
 }
 
-// 2. 关闭聊天（由 X 按钮或物理返回键调用）
+// 2. 关闭聊天(由 X 按钮或物理返回键调用)
 function closeChat() {
-  // 如果是手机端且有 #chat，点击 X 按钮时触发 back() 即可，剩下的交给 popstate
+  // 如果是手机端且有 #chat,点击 X 按钮时触发 back() 即可,剩下的交给 popstate
   if (window.innerWidth <= 768 && window.location.hash === "#chat") {
     window.history.back();
     return;
@@ -378,9 +378,9 @@ function closeChat() {
   performCloseChatUI();
 }
 
-// 3. 真正的 UI 隐藏逻辑（只管藏，不管历史记录）
+// 3. 真正的 UI 隐藏逻辑(只管藏,不管历史记录)
 function performCloseChatUI() {
-  // 如果在多选模式，先退出
+  // 如果在多选模式,先退出
   if (window.selectMode && window.selectMode.active) {
     exitSelectMode();
   }
@@ -391,7 +391,7 @@ function performCloseChatUI() {
   updateListHighlight(null); // 清除高亮
 }
 
-// 4. 辅助函数：更新高亮
+// 4. 辅助函数:更新高亮
 function updateListHighlight(activeId) {
   const items = document.querySelectorAll("#user-list li");
   items.forEach((item) => {
@@ -403,13 +403,13 @@ function updateListHighlight(activeId) {
   });
 }
 
-// 5. 全局监听器：处理物理返回键和手动后退
+// 5. 全局监听器:处理物理返回键和手动后退
 window.addEventListener("popstate", function (event) {
   const chatContainer = document.getElementById("chat-container");
 
   // 【场景 A】如果当前处于多选模式
   if (window.selectMode && window.selectMode.active) {
-    console.log("[UI] 拦截返回键：退出多选模式");
+    console.log("[UI] 拦截返回键:退出多选模式");
 
     // 手动执行退出多选的 UI 恢复逻辑
     window.selectMode.active = false;
@@ -451,7 +451,7 @@ window.addEventListener("popstate", function (event) {
     );
 
     // 【核心修复 1】平板/手机 URL 状态修正
-    // 如果是手机端，且当前不是 #chat，补回 #chat 以保持聊天窗口打开
+    // 如果是手机端,且当前不是 #chat,补回 #chat 以保持聊天窗口打开
     if (window.innerWidth <= 768 && window.location.hash !== "#chat") {
       window.history.replaceState({ chatOpen: true }, "", "#chat");
     }
@@ -487,7 +487,7 @@ async function sendMessage() {
       content,
     );
 
-    // 2. 发送完后，纯粹地通过刷新历史记录让它显示出来
+    // 2. 发送完后,纯粹地通过刷新历史记录让它显示出来
     await loadChatHistory(window.currentChatPeer.id, true);
     await scrollToBottom();
   } catch (e) {
@@ -497,16 +497,16 @@ async function sendMessage() {
 }
 
 function addMessageToChat(message, isSent) {
-  // 如果 ID 依然是无效的，坚决不渲染到 DOM，防止产生无法选中的“僵尸”气泡
+  // 如果 ID 依然是无效的，坚决不渲染到 DOM，防止产生无法选中的"僵尸"气泡
   if (!message.id || message.id === "null") return;
   const chatMessages = document.getElementById("chat-messages");
   const existing = chatMessages.querySelector(`[data-msg-id="${message.id}"]`);
   if (existing) {
-    existing.remove();
+    // 替换而非先删后加，避免并发时多条路径同时检测不到已有元素
+    existing.replaceWith(createMessageElement(message, isSent));
+  } else {
+    chatMessages.appendChild(createMessageElement(message, isSent));
   }
-
-  const messageDiv = createMessageElement(message, isSent);
-  chatMessages.appendChild(messageDiv);
 
   if (message.timestamp && !String(message.id).startsWith("temp_")) {
     if (message.timestamp > (window.lastMessageTimestamp || 0)) {
@@ -598,14 +598,14 @@ function waitForImagesToLoad(container) {
       }
     });
 
-    // 设置超时，避免永久等待
+    // 设置超时,避免永久等待
     setTimeout(() => {
       resolve();
     }, 2000);
   });
 }
 
-// 滚动到聊天窗口底部（等待图片加载）
+// 滚动到聊天窗口底部(等待图片加载)
 async function scrollToBottom() {
   const chatMessages = document.getElementById("chat-messages");
   if (!chatMessages) return;
@@ -617,14 +617,14 @@ async function scrollToBottom() {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// 加载聊天历史（支持懒加载）
+// 加载聊天历史(支持懒加载)
 async function loadChatHistory(peerId, preserveScroll = false) {
   try {
-    // 禁用轮询，避免干扰加载过程
+    // 禁用轮询,避免干扰加载过程
     const wasPollingEnabled = window.messagePollingEnabled;
     window.messagePollingEnabled = false;
 
-    // 首次加载，获取最新的10条消息
+    // 首次加载,获取最新的10条消息
     const messages = await apiGetChatHistory(peerId, 10, 0);
 
     const chatMessages = document.getElementById("chat-messages");
@@ -643,7 +643,7 @@ async function loadChatHistory(peerId, preserveScroll = false) {
       loadedCount: messages.length,
       totalCount: messages.length,
       isLoading: false,
-      hasMore: true, // 默认假设有更多，尝试加载时才知道
+      hasMore: true, // 默认假设有更多,尝试加载时才知道
     };
 
     for (const msg of messages) {
@@ -657,7 +657,7 @@ async function loadChatHistory(peerId, preserveScroll = false) {
     // 等待图片加载完成
     await waitForImagesToLoad(chatMessages);
 
-    // 首次加载时，如果没有滚动条，继续加载更多消息直到出现滚动条或没有更多消息
+    // 首次加载时,如果没有滚动条,继续加载更多消息直到出现滚动条或没有更多消息
     if (!preserveScroll) {
       let hasScrollbar = chatMessages.scrollHeight > chatMessages.clientHeight;
 
@@ -691,17 +691,17 @@ async function loadChatHistory(peerId, preserveScroll = false) {
         hasScrollbar = chatMessages.scrollHeight > chatMessages.clientHeight;
       }
 
-      // 自动加载完成后，滚动到底部
+      // 自动加载完成后,滚动到底部
       await scrollToBottom();
     } else {
       // 恢复滚动位置
       if (!wasAtBottom) {
-        // 如果用户不在底部，尝试保持相对位置
+        // 如果用户不在底部,尝试保持相对位置
         const newScrollHeight = chatMessages.scrollHeight;
         const scrollDiff = newScrollHeight - oldScrollHeight;
         chatMessages.scrollTop = oldScrollTop + scrollDiff;
       } else {
-        // 用户在底部时，滚动到底部
+        // 用户在底部时,滚动到底部
         await scrollToBottom();
       }
     }
@@ -720,11 +720,11 @@ async function loadChatHistory(peerId, preserveScroll = false) {
   }
 }
 
-// 初始化滚动监听器（懒加载）
+// 初始化滚动监听器(懒加载)
 function initScrollListener() {
   const chatMessages = document.getElementById("chat-messages");
 
-  // 移除旧的监听器（如果存在）
+  // 移除旧的监听器(如果存在)
   if (window.scrollListenerAttached) {
     chatMessages.removeEventListener("scroll", window.handleChatScroll);
   }
@@ -743,15 +743,15 @@ function initScrollListener() {
     const scrollHeight = chatMessages.scrollHeight;
     const clientHeight = chatMessages.clientHeight;
 
-    // 检查是否滚动到底部（距离底部小于100px）
+    // 检查是否滚动到底部(距离底部小于100px)
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
 
-    // 如果滚动到底部，触发一次刷新（检查新消息）
+    // 如果滚动到底部,触发一次刷新(检查新消息)
     if (isAtBottom && window.lastScrollWasNotAtBottom) {
-      console.log("[UI] 滚动到底部，检查新消息");
+      console.log("[UI] 滚动到底部,检查新消息");
       window.currentChatMessages.isLoading = true;
       try {
-        // 同样只取最新的小批量，靠时间戳过滤
+        // 同样只取最新的小批量,靠时间戳过滤
         const latestMessages = await apiGetChatHistory(
           window.currentChatMessages.peerId,
           20,
@@ -786,15 +786,15 @@ function initScrollListener() {
       return;
     }
 
-    // 检查是否滚动到顶部（距离顶部小于100px）
-    // 同时确保不是刚加载完（scrollHeight > clientHeight 说明有滚动条）
+    // 检查是否滚动到顶部(距离顶部小于100px)
+    // 同时确保不是刚加载完(scrollHeight > clientHeight 说明有滚动条)
     const hasScrollbar = scrollHeight > clientHeight;
     if (hasScrollbar && scrollTop < 100) {
-      console.log("[UI] 触发懒加载，加载更多历史消息");
+      console.log("[UI] 触发懒加载,加载更多历史消息");
 
       window.currentChatMessages.isLoading = true;
 
-      // 暂时禁用消息轮询，防止干扰
+      // 暂时禁用消息轮询,防止干扰
       const wasPollingEnabled = window.messagePollingEnabled;
       window.messagePollingEnabled = false;
 
@@ -820,7 +820,7 @@ function initScrollListener() {
         const oldScrollTop = chatMessages.scrollTop;
         const oldScrollHeight = chatMessages.scrollHeight;
 
-        // 在顶部插入消息（倒序插入）
+        // 在顶部插入消息(倒序插入)
         for (let i = moreMessages.length - 1; i >= 0; i--) {
           const msg = moreMessages[i];
           const messageDiv = createMessageElement(msg, msg.from_id === "me");
@@ -830,12 +830,12 @@ function initScrollListener() {
         // 更新已加载数量
         window.currentChatMessages.loadedCount += moreMessages.length;
 
-        // 如果返回的消息少于10条，说明没有更多了
+        // 如果返回的消息少于10条,说明没有更多了
         if (moreMessages.length < 10) {
           window.currentChatMessages.hasMore = false;
         }
 
-        // 恢复滚动位置（保持在原来的消息位置）
+        // 恢复滚动位置(保持在原来的消息位置)
         // 使用 requestAnimationFrame 确保 DOM 更新完成后再设置滚动位置
         requestAnimationFrame(() => {
           const newScrollHeight = chatMessages.scrollHeight;
@@ -867,12 +867,12 @@ function initScrollListener() {
 function createMessageElement(message, isSent) {
   const messageDiv = document.createElement("div");
   messageDiv.className = `message ${isSent ? "sent" : "received"}`;
-  // 严谨地检查 ID 是否存在，防止绑定 "undefined"
+  // 严谨地检查 ID 是否存在,防止绑定 "undefined"
   if (message.id !== undefined && message.id !== null) {
     messageDiv.dataset.msgId = message.id;
   }
 
-  // 把当前状态存入数据集，方便轮询检测
+  // 把当前状态存入数据集,方便轮询检测
   messageDiv.dataset.status = message.status || "sent";
 
   const contentDiv = document.createElement("div");
@@ -998,11 +998,11 @@ function createMessageElement(message, isSent) {
   // ---- 统一处理纯净版的状态展示 ----
   const statusDiv = document.createElement("div");
 
-  // 优先级 1: 只要数据库中 status 是 pending，一律展示“待上线”
+  // 优先级 1: 只要数据库中 status 是 pending,一律展示"待上线"
   if (message.status === "pending") {
     statusDiv.className = "file-pending";
     statusDiv.textContent = "待上线";
-  } // 优先级 2: 如果不是 pending 且是文件，展示上传/下载进度
+  } // 优先级 2: 如果不是 pending 且是文件,展示上传/下载进度
   else if (message.msg_type === "file") {
     if (message.file_status === "downloading") {
       statusDiv.className = "file-downloading";
@@ -1015,7 +1015,7 @@ function createMessageElement(message, isSent) {
         ? Math.round(message.transfer_speed) + " MB/s"
         : "上传中...";
     }
-    // 成功状态（sent/accepted）不再塞入任何多余的文本，保持极简
+    // 成功状态(sent/accepted)不再塞入任何多余的文本,保持极简
   }
 
   if (statusDiv.className) {
@@ -1059,23 +1059,23 @@ function onReceiveMessage(message) {
   if (window.currentChatPeer && window.currentChatPeer.id === message.from_id) {
     if (message.id === undefined || message.id === null) {
       console.log(
-        "[UI] 收到一条暂时没有 ID 的实时通知，等待轮询系统自动同步...",
+        "[UI] 收到一条暂时没有 ID 的实时通知,等待轮询系统自动同步...",
       );
       return;
     }
 
-    if (message.msg_type === "file" && message.file_status !== "downloading") {
-      const existing = document.querySelector(`[data-msg-id="${message.id}"]`);
-      if (existing) existing.remove();
-      loadChatHistory(window.currentChatPeer.id, true);
-    } else {
-      const chatMessages = document.getElementById("chat-messages");
-      const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
-          chatMessages.clientHeight < 100;
+    if (message.msg_type === "file" && message.file_status === "downloading") {
+      // 下载中的文件不渲染（等轮询更新状态时再处理）
+      return;
+    }
 
-      addMessageToChat(message, false);
+    const chatMessages = document.getElementById("chat-messages");
+    const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
+        chatMessages.clientHeight < 100;
 
-      if (wasAtBottom) {
+    addMessageToChat(message, false);
+
+    if (wasAtBottom) {
         setTimeout(async () => {
           await scrollToBottom();
         }, 50);
@@ -1085,7 +1085,6 @@ function onReceiveMessage(message) {
         if (scrollBtn) scrollBtn.classList.add("show");
         if (unreadDot) unreadDot.classList.add("show");
       }
-    }
   } else {
     console.log("[UI] ✗ 不匹配当前聊天对象");
     // 处理未读红点和排序
@@ -1105,7 +1104,7 @@ function onReceiveMessage(message) {
   console.log("[UI] ==========================================");
 }
 
-// 通过文件路径发送文件（桌面端零拷贝，直接从硬盘读取）
+// 通过文件路径发送文件(桌面端零拷贝,直接从硬盘读取)
 async function sendFileByPath(filePath) {
   if (!window.currentChatPeer) return;
   const tauri = window.__TAURI__;
@@ -1310,7 +1309,7 @@ async function downloadFile(fileId, fileName) {
       fileName,
       "耗时:",
       totalTime.toFixed(2),
-      "秒，平均速度:",
+      "秒,平均速度:",
       avgSpeed.toFixed(2),
       "MB/s",
     );
@@ -1320,7 +1319,7 @@ async function downloadFile(fileId, fileName) {
   }
 }
 
-// 打开文件所在位置（仅桌面端）
+// 打开文件所在位置(仅桌面端)
 async function openFileLocation(filePath) {
   const tauri = window.__TAURI__;
 
@@ -1352,13 +1351,13 @@ function initSettings() {
   // 打开/关闭设置面板 - 切换显示/隐藏
   settingsBtn.addEventListener("click", async () => {
     if (settingsPanel.style.display === "block") {
-      // 当前是显示状态，点击后隐藏
+      // 当前是显示状态,点击后隐藏
       settingsPanel.style.display = "none";
       settingsErrorMsg.textContent = "";
       settingsSuccessMsg.textContent = "";
       settingsSuccessMsg.classList.remove("show");
     } else {
-      // 当前是隐藏状态，点击后显示
+      // 当前是隐藏状态,点击后显示
       try {
         const settings = await apiGetSettings();
         downloadPathInput.value = settings.download_path;
@@ -1607,7 +1606,7 @@ async function loadThemeList() {
     themeList.appendChild(themeItem);
   }
 
-  console.log("[UI] 加载了", themes.length, "个主题，当前主题:", currentTheme);
+  console.log("[UI] 加载了", themes.length, "个主题,当前主题:", currentTheme);
 }
 
 // 应用主题
@@ -1624,7 +1623,7 @@ async function applyTheme(themeName) {
   );
 
   if (themeName === "default") {
-    // 恢复默认主题：启用默认CSS
+    // 恢复默认主题:启用默认CSS
     if (defaultStylesheet) {
       defaultStylesheet.disabled = false;
     }
@@ -1671,7 +1670,7 @@ function initDragAndDrop(chatContainer) {
   const tauri = window.__TAURI__;
 
   if (tauri) {
-    // 桌面端：使用 Tauri 的原生拖拽事件（可以获取文件路径）
+    // 桌面端:使用 Tauri 的原生拖拽事件(可以获取文件路径)
     console.log("[UI] 使用 Tauri 原生拖拽事件");
 
     // 监听 Tauri 的文件拖放事件
@@ -1679,7 +1678,7 @@ function initDragAndDrop(chatContainer) {
       console.log("[UI] Tauri 拖放事件:", event);
 
       if (!window.currentChatPeer) {
-        console.log("[UI] 没有打开聊天窗口，忽略拖放");
+        console.log("[UI] 没有打开聊天窗口,忽略拖放");
         return;
       }
 
@@ -1687,7 +1686,7 @@ function initDragAndDrop(chatContainer) {
       if (paths && paths.length > 0) {
         console.log("[UI] 拖放的文件路径:", paths);
 
-        // 依次发送所有文件（使用文件路径，零拷贝）
+        // 依次发送所有文件(使用文件路径,零拷贝)
         for (const filePath of paths) {
           console.log("[UI] 发送文件:", filePath);
           await sendFileByPath(filePath);
@@ -1695,7 +1694,7 @@ function initDragAndDrop(chatContainer) {
       }
     });
 
-    // 监听拖拽悬停事件（显示视觉反馈）
+    // 监听拖拽悬停事件(显示视觉反馈)
     tauri.event.listen("tauri://drag-enter", () => {
       if (window.currentChatPeer) {
         chatContainer.classList.add("drag-over");
@@ -1710,10 +1709,10 @@ function initDragAndDrop(chatContainer) {
       chatContainer.classList.remove("drag-over");
     });
   } else {
-    // Web 端：使用传统的 HTML5 拖拽 API（需要读取文件内容）
+    // Web 端:使用传统的 HTML5 拖拽 API(需要读取文件内容)
     console.log("[UI] 使用 HTML5 拖拽 API");
 
-    // 防止默认的拖拽行为（打开文件）
+    // 防止默认的拖拽行为(打开文件)
     ["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
       chatContainer.addEventListener(eventName, preventDefaults, false);
       document.body.addEventListener(eventName, preventDefaults, false);
@@ -1743,7 +1742,7 @@ function initDragAndDrop(chatContainer) {
     // 处理文件拖放
     chatContainer.addEventListener("drop", async (e) => {
       if (!window.currentChatPeer) {
-        console.log("[UI] 没有打开聊天窗口，忽略拖放");
+        console.log("[UI] 没有打开聊天窗口,忽略拖放");
         return;
       }
 
@@ -1775,11 +1774,11 @@ function initPasteFile() {
   document.addEventListener("paste", async (e) => {
     // 只在聊天窗口打开时处理
     if (!window.currentChatPeer) {
-      console.log("[UI] 没有打开聊天窗口，忽略粘贴");
+      console.log("[UI] 没有打开聊天窗口,忽略粘贴");
       return;
     }
 
-    // 桌面端：优先尝试使用 clipboard-rs 读取文件路径（零拷贝）
+    // 桌面端:优先尝试使用 clipboard-rs 读取文件路径(零拷贝)
     if (tauri) {
       try {
         console.log("[UI] 尝试从剪贴板读取文件路径");
@@ -1798,12 +1797,12 @@ function initPasteFile() {
           console.log("[UI] 剪贴板中没有文件");
         }
       } catch (err) {
-        console.log("[UI] 读取剪贴板文件路径失败，尝试使用传统方式:", err);
+        console.log("[UI] 读取剪贴板文件路径失败,尝试使用传统方式:", err);
         // 继续使用传统方式处理
       }
     }
 
-    // 传统方式：从 ClipboardEvent 读取文件（需要读取内容）
+    // 传统方式:从 ClipboardEvent 读取文件(需要读取内容)
     const clipboardData = e.clipboardData || window.clipboardData;
     if (!clipboardData) {
       console.log("[UI] 无法访问剪贴板");
@@ -1841,7 +1840,7 @@ function initPasteFile() {
   });
 
   // 添加快捷键提示
-  console.log("[UI] Ctrl+V 粘贴文件功能已启用（支持零拷贝）");
+  console.log("[UI] Ctrl+V 粘贴文件功能已启用(支持零拷贝)");
 }
 
 // 初始化"回到底部"悬浮按钮
@@ -1850,14 +1849,14 @@ function initScrollToBottomBtn() {
   const inputContainer = document.querySelector(".chat-input-container");
 
   if (!chatMessages || !inputContainer) {
-    console.warn("[UI] 无法初始化回到底部按钮：找不到必要的元素");
+    console.warn("[UI] 无法初始化回到底部按钮:找不到必要的元素");
     return;
   }
 
-  // 检查是否已经创建过按钮，避免重复创建
+  // 检查是否已经创建过按钮,避免重复创建
   let btn = document.getElementById("scroll-to-bottom-btn");
   if (btn) {
-    console.log("[UI] 回到底部按钮已存在，跳过创建");
+    console.log("[UI] 回到底部按钮已存在,跳过创建");
     return;
   }
 
@@ -1874,11 +1873,11 @@ function initScrollToBottomBtn() {
         <div id="unread-dot" class="unread-dot"></div>
     `;
 
-  // 将按钮插入到 chat-messages 的平级，输入框的上方
+  // 将按钮插入到 chat-messages 的平级,输入框的上方
   inputContainer.appendChild(btn);
   console.log("[UI] 回到底部按钮已创建");
 
-  // 2. 绑定点击事件：平滑滚动到底部
+  // 2. 绑定点击事件:平滑滚动到底部
   btn.addEventListener("click", () => {
     chatMessages.scrollTo({
       top: chatMessages.scrollHeight,
@@ -1892,14 +1891,14 @@ function initScrollToBottomBtn() {
     }
   });
 
-  // 3. 监听滚动事件，控制显示/隐藏
+  // 3. 监听滚动事件,控制显示/隐藏
   chatMessages.addEventListener("scroll", () => {
     // 距离底部 150px 以内都认为是在底部
     const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
         chatMessages.clientHeight < 150;
 
     if (isAtBottom) {
-      // 滚到底部了，隐藏按钮
+      // 滚到底部了,隐藏按钮
       btn.classList.remove("show");
 
       // 滚到底部时必须清除红点状态
@@ -1908,7 +1907,7 @@ function initScrollToBottomBtn() {
         unreadDot.classList.remove("show");
       }
     } else {
-      // 不在底部，按钮应该显示（但不一定有红点，红点由新消息触发）
+      // 不在底部,按钮应该显示(但不一定有红点,红点由新消息触发)
       btn.classList.add("show");
     }
   });
@@ -1943,7 +1942,7 @@ function enterSelectMode(initialMessageId = null) {
   window.selectMode.active = true;
   window.selectMode.selectedMessages.clear();
 
-  // 只要是移动端（包括安卓平板）或者屏幕够小，都写入历史记录，防止物理返回键直接退出 App
+  // 只要是移动端(包括安卓平板)或者屏幕够小,都写入历史记录,防止物理返回键直接退出 App
   const isMobile = navigator.userAgent.includes("Android") ||
     window.innerWidth <= 768;
   if (isMobile) {
@@ -1956,11 +1955,11 @@ function enterSelectMode(initialMessageId = null) {
   const chatInput = document.getElementById("chat-input");
   const attachFileBtn = document.getElementById("attach-file-btn");
 
-  // 切换为取消图标，并添加激活样式
+  // 切换为取消图标,并添加激活样式
   selectModeBtn.innerHTML = ICON_CANCEL_X;
   selectModeBtn.classList.add("active");
 
-  // 发送按钮变为删除，改为红色警告色
+  // 发送按钮变为删除,改为红色警告色
   sendBtn.textContent = "删除";
   sendBtn.style.backgroundColor = "#ff5555"; // Dracula Red
   sendBtn.style.borderColor = "#ff5555";
@@ -1990,8 +1989,8 @@ function exitSelectMode() {
   window.selectMode.active = false;
   window.selectMode.selectedMessages.clear();
 
-  // 如果当前 URL 是 #chat-select，说明是移动端通过按钮退出的，需要后退一步恢复到 #chat
-  // 如果是按返回键触发的 popstate，URL 已经变了，就不需要 back()
+  // 如果当前 URL 是 #chat-select,说明是移动端通过按钮退出的,需要后退一步恢复到 #chat
+  // 如果是按返回键触发的 popstate,URL 已经变了,就不需要 back()
   if (window.location.hash === "#chat-select") {
     window.history.back();
   }
@@ -2056,7 +2055,7 @@ function removeSelectCheckbox(messageElement) {
 function handleMessageClick(e) {
   if (!window.selectMode.active) return;
 
-  // 如果点击的是复选框，不处理（复选框自己会处理）
+  // 如果点击的是复选框,不处理(复选框自己会处理)
   if (e.target.classList.contains("select-checkbox")) return;
 
   const messageElement = e.currentTarget;
@@ -2067,9 +2066,9 @@ function handleMessageClick(e) {
 function toggleMessageSelection(messageElement) {
   const msgId = parseInt(messageElement.dataset.msgId);
 
-  // 如果节点缺少合法 ID，直接刷新界面纠正数据，然后退出
+  // 如果节点缺少合法 ID,直接刷新界面纠正数据,然后退出
   if (!msgId || isNaN(msgId)) {
-    console.warn("[UI] 发现没有合法 ID 的幽灵消息，强制刷新界面...");
+    console.warn("[UI] 发现没有合法 ID 的幽灵消息,强制刷新界面...");
     if (window.currentChatPeer) {
       loadChatHistory(window.currentChatPeer.id, true);
     }
@@ -2121,7 +2120,7 @@ async function deleteSelectedMessages() {
       }
     });
 
-    // 手动派发 scroll 事件，强制更新“回到底部”按钮的状态
+    // 手动派发 scroll 事件,强制更新"回到底部"按钮的状态
     const chatMessages = document.getElementById("chat-messages");
     if (chatMessages) {
       chatMessages.dispatchEvent(new Event("scroll"));
@@ -2143,7 +2142,7 @@ async function deleteSelectedMessages() {
   }
 }
 
-// 长按进入多选模式（移动端）暂未使用
+// 长按进入多选模式(移动端)暂未使用
 function initLongPressSelectMode() {
   let longPressTimer = null;
   let longPressTarget = null;
@@ -2198,10 +2197,10 @@ function showConfirm(message, onOk) {
 
   document.body.appendChild(overlay);
 
-  // 取消：直接移除 DOM
+  // 取消:直接移除 DOM
   document.getElementById("confirm-cancel").onclick = () => overlay.remove();
 
-  // 确定：拦截处理状态，并执行传入的 onOk 回调
+  // 确定:拦截处理状态,并执行传入的 onOk 回调
   document.getElementById("confirm-ok").onclick = async () => {
     const btn = document.getElementById("confirm-ok");
     btn.disabled = true;
@@ -2212,7 +2211,7 @@ function showConfirm(message, onOk) {
       console.error("执行失败:", e);
       alert("操作失败: " + e.message);
     } finally {
-      overlay.remove(); // 无论成功失败，都关闭确认弹窗
+      overlay.remove(); // 无论成功失败,都关闭确认弹窗
     }
   };
 }
@@ -2221,7 +2220,7 @@ function showConfirm(message, onOk) {
 // 2. 完整的用户管理弹窗函数
 // ==========================================
 async function showUserActionDialog(peerId, userName) {
-  // 1. 判断是否离线（通过检查左侧列表中是否有 offline 灰显类名）
+  // 1. 判断是否离线(通过检查左侧列表中是否有 offline 灰显类名)
   const userLi = document.querySelector(`#user-list li[data-id="${peerId}"]`);
   const isOffline = userLi ? userLi.classList.contains("offline") : true;
 
@@ -2229,9 +2228,9 @@ async function showUserActionDialog(peerId, userName) {
   const history = await apiGetChatHistory(peerId, 1, 0);
   const hasHistory = history && history.length > 0;
 
-  // 如果是在线用户，且连聊天记录都没有，那完全没有任何可管理的操作，直接忽略长按/右键
+  // 如果是在线用户,且连聊天记录都没有,那完全没有任何可管理的操作,直接忽略长按/右键
   if (!isOffline && !hasHistory) {
-    console.log(`[UI] 在线用户 "${userName}" 无聊天记录，无需弹出管理菜单`);
+    console.log(`[UI] 在线用户 "${userName}" 无聊天记录,无需弹出管理菜单`);
     return;
   }
 
@@ -2247,13 +2246,13 @@ async function showUserActionDialog(peerId, userName) {
   // 动态生成按钮的 HTML
   let buttonsHtml = "";
 
-  // 只有“离线用户”才允许显示删除按钮
+  // 只有"离线用户"才允许显示删除按钮
   if (isOffline) {
     buttonsHtml +=
       `<button id="mgmt-del-btn" class="mgmt-action-btn btn-grad-danger">删除用户</button>`;
   }
 
-  // 只要有历史记录，就允许清空
+  // 只要有历史记录,就允许清空
   if (hasHistory) {
     buttonsHtml +=
       `<button id="mgmt-clear-btn" class="mgmt-action-btn btn-grad-warning">清空聊天记录</button>`;
@@ -2274,12 +2273,12 @@ async function showUserActionDialog(peerId, userName) {
   const closeMgmt = () => panel.remove();
   document.getElementById("mgmt-cancel-btn").onclick = closeMgmt;
 
-  // --- 绑定删除逻辑 (注意加判空，因为在线用户没有这个按钮) ---
+  // --- 绑定删除逻辑 (注意加判空,因为在线用户没有这个按钮) ---
   const delBtn = document.getElementById("mgmt-del-btn");
   if (delBtn) {
     delBtn.onclick = () => {
       showConfirm(
-        `确定要彻底删除离线用户 "${userName}" 吗？此操作不可恢复。`,
+        `确定要彻底删除离线用户 "${userName}" 吗?此操作不可恢复。`,
         async () => {
           if (window.currentChatPeer && window.currentChatPeer.id === peerId) {
             performCloseChatUI();
@@ -2304,7 +2303,7 @@ async function showUserActionDialog(peerId, userName) {
   const clearBtn = document.getElementById("mgmt-clear-btn");
   if (clearBtn) {
     clearBtn.onclick = () => {
-      showConfirm(`确定要清空与 "${userName}" 的所有聊天记录吗？`, async () => {
+      showConfirm(`确定要清空与 "${userName}" 的所有聊天记录吗?`, async () => {
         await apiClearChatHistory(peerId);
 
         if (window.currentChatPeer && window.currentChatPeer.id === peerId) {
