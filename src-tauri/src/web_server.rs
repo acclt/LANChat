@@ -768,6 +768,8 @@ async fn upload_file_http(
                                     "from_id": sender_id,
                                     "msg_type": "file",
                                     "file_status": "accepted",
+                                    "file_path": candidate.to_str().unwrap_or(""),
+                                    "file_size": file_size,
                                     "content": file_name,
                                     "timestamp": timestamp // 使用刚才定义的 timestamp
                                 }),
@@ -978,14 +980,19 @@ async fn upload_file_http(
                             .await;
                             #[cfg(feature = "desktop")]
                             use tauri::Emitter;
-                            let _ = app.emit("new-message", serde_json::json!({
-                            "id": msg_id,
-                            "from_id": sender_id,
-                            "msg_type": "file",
-                            "file_status": "accepted",
-                            "content": final_file_name,
-                            "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
-                        }));
+                            let _ = app.emit(
+                            "new-message",
+                            serde_json::json!({
+                                "id": msg_id,
+                                "from_id": sender_id,
+                                "msg_type": "file",
+                                "file_status": "accepted",
+                                "file_path": final_path.to_str().unwrap_or(""),
+                                "file_size": file_size,
+                                "content": final_file_name,
+                                "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+                            }),
+                        );
                         }
                     }
                     Err(e) => eprintln!("[Web Server] ✗ 更新文件状态失败: {}", e),
