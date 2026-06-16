@@ -1016,6 +1016,116 @@ function createMessageElement(message, isSent) {
         );
       }
     }
+  } else if (
+    message.msg_type === "text" &&
+    message.content &&
+    message.content.startsWith("[MODEL_LIST]")
+  ) {
+    console.log("[UI] ✓ 渲染模型选择按钮");
+    // ── 模型选择按钮 ──
+    const modelContainer = document.createElement("div");
+    modelContainer.className = "model-select-container";
+
+    // 内容格式: [MODEL_LIST]\n🟢 当前模型: ...\n[{"id":...}]
+    // 用换行分割，跳过 [MODEL_LIST] 行，提取当前模型行和 JSON
+    let currentModelLine = "";
+    let jsonStr = "";
+    const nlIdx = message.content.indexOf("\n");
+    const rest = nlIdx > 0 ? message.content.slice(nlIdx + 1) : "";
+    // rest 格式: "🟢 当前模型: ...\n[{"id":...}]"
+    // 找 rest 中第一个 "[" 出现的位置（即 JSON 数组起始）
+    const bracketIdx = rest.indexOf("\n[");
+    if (bracketIdx > 0) {
+      currentModelLine = rest.slice(0, bracketIdx).trim();
+      jsonStr = rest.slice(bracketIdx + 1).trim();
+    } else {
+      jsonStr = rest.trim();
+    }
+
+    if (currentModelLine) {
+      const currentEl = document.createElement("div");
+      currentEl.className = "model-select-current";
+      currentEl.textContent = currentModelLine;
+      modelContainer.appendChild(currentEl);
+    }
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "model-select-title";
+    titleEl.textContent = "📋 选择要切换的模型";
+    modelContainer.appendChild(titleEl);
+
+    // 解析 JSON
+    let models = [];
+    try {
+      models = JSON.parse(jsonStr);
+    } catch (e) {
+      console.warn("[UI] 解析模型列表失败:", e);
+    }
+
+    if (models.length === 0) {
+      const emptyEl = document.createElement("div");
+      emptyEl.className = "model-select-empty";
+      emptyEl.textContent = "⚠️ 没有可用模型";
+      modelContainer.appendChild(emptyEl);
+    } else {
+      models.forEach((model) => {
+        const btn = document.createElement("button");
+        btn.className = "model-select-btn";
+        btn.dataset.provider = model.provider || "";
+        btn.dataset.modelId = model.id || "";
+
+        // 显示名称
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "model-select-btn-name";
+        nameSpan.textContent = model.name || model.id || "Unknown";
+        btn.appendChild(nameSpan);
+
+        // 显示 provider
+        const provSpan = document.createElement("span");
+        provSpan.className = "model-select-btn-provider";
+        provSpan.textContent = model.provider || "";
+        btn.appendChild(provSpan);
+
+        btn.addEventListener("click", async () => {
+          if (window._switchingModel || btn.disabled) return;
+          window._switchingModel = true;
+
+          // 禁用所有模型按钮
+          document.querySelectorAll(".model-select-btn").forEach((b) => {
+            b.disabled = true;
+          });
+
+          const provider = btn.dataset.provider;
+          const modelId = btn.dataset.modelId;
+          const peerId = window.currentChatPeer ? window.currentChatPeer.id : "";
+          const peerAddr = window.currentChatPeer ? window.currentChatPeer.addr : "";
+
+          if (!peerId || !peerAddr) {
+            console.warn("[UI] 无法发送模型选择: 当前聊天对象为空");
+            window._switchingModel = false;
+            return;
+          }
+
+          try {
+            await apiSendMessage(
+              peerId,
+              peerAddr,
+              `/model select ${provider} ${modelId}`,
+            );
+          } catch (e) {
+            console.error("[UI] 发送模型选择失败:", e);
+            window._switchingModel = false;
+            document.querySelectorAll(".model-select-btn").forEach((b) => {
+              b.disabled = false;
+            });
+          }
+        });
+
+        modelContainer.appendChild(btn);
+      });
+    }
+
+    contentDiv.appendChild(modelContainer);
   } else {
     const textSpan = document.createElement("span");
     textSpan.className = "message-text";
@@ -1085,6 +1195,17 @@ function onReceiveMessage(message) {
   console.log("[UI] 当前聊天对象:", window.currentChatPeer);
   // 仅在当前聊天窗口时处理
   if (window.currentChatPeer && window.currentChatPeer.id === message.from_id) {
+    // —— 模型切换完成/失败时，重置按钮状态 ——
+    if (window._switchingModel) {
+      const text = message.content || "";
+      if (text.startsWith("✅") || text.startsWith("❌")) {
+        window._switchingModel = false;
+        document.querySelectorAll(".model-select-btn").forEach((b) => {
+          b.disabled = false;
+        });
+      }
+    }
+
     // 流式消息处理
     if (message.is_streaming === true) {
       updateStreamMessage(message);
