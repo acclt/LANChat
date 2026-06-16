@@ -2147,6 +2147,11 @@ function enterSelectMode(initialMessageId = null) {
 
   chatInput.disabled = true;
   attachFileBtn.disabled = true;
+
+  // 禁用模型选择按钮
+  document.querySelectorAll(".model-select-btn").forEach((b) => {
+    b.disabled = true;
+  });
   // 给所有消息添加复选框和点击事件
   const messages = document.querySelectorAll(".message");
   messages.forEach((msg) => {
@@ -2193,6 +2198,13 @@ function exitSelectMode() {
 
   chatInput.disabled = false;
   attachFileBtn.disabled = false;
+
+  // 恢复模型选择按钮（非切换中才启用）
+  if (!window._switchingModel) {
+    document.querySelectorAll(".model-select-btn").forEach((b) => {
+      b.disabled = false;
+    });
+  }
 
   // 移除复选框逻辑保持不变
   const messages = document.querySelectorAll(".message");

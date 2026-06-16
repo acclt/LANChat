@@ -1683,6 +1683,10 @@ h2::before {
 	pointer-events: none;
 }
 
+.message.selectable .model-select-btn {
+	pointer-events: none;
+}
+
 /* 2. 移除原先会导致挤压的 padding，仅赋予点击属性 */
 .message.selectable,
 .message.sent.selectable {
