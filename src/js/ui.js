@@ -1545,9 +1545,11 @@ function initSettings() {
         settingsErrorMsg.textContent = "";
         settingsSuccessMsg.textContent = "";
         settingsSuccessMsg.classList.remove("show");
+        renderCustomPeers();
       } catch (e) {
         settingsErrorMsg.textContent = "加载设置失败: " + e.message;
         settingsPanel.style.display = "block";
+        renderCustomPeers();
       }
     }
   });
@@ -1628,9 +1630,30 @@ function initSettings() {
       settingsSuccessMsg.textContent = "";
       settingsSuccessMsg.classList.remove("show");
 
+      // 先处理输入框里的自定义 IP
+      const pendingPeer = customPeerInput.value.trim();
+      if (pendingPeer) {
+        const validation = validateCustomPeer(pendingPeer);
+        if (validation.error) {
+          settingsErrorMsg.textContent = validation.error;
+          return; // 不保存，不关闭
+        }
+        let peerAddr = validation.address;
+        try {
+          await apiAddCustomPeer(peerAddr);
+          customPeerInput.value = "";
+        } catch (e) {
+          settingsErrorMsg.textContent = "自定义 IP 添加失败: " + e.message;
+          return;
+        }
+      }
+
       await apiUpdateSettings(
         downloadPathInput.value,
       );
+
+      // 刷新自定义 IP 列表
+      renderCustomPeers();
 
       // 显示成功消息
       settingsSuccessMsg.textContent = "✓ 设置保存成功";
@@ -1655,6 +1678,90 @@ function initSettings() {
     settingsSuccessMsg.textContent = "";
     settingsSuccessMsg.classList.remove("show");
   });
+
+  // ── 自定义 IP ──
+  const customPeerInput = document.getElementById("custom-peer-input");
+  const addCustomPeerBtn = document.getElementById("add-custom-peer-btn");
+  const customPeerList = document.getElementById("custom-peer-list");
+
+  // IP 校验：返回 { address, error }，address 含端口
+  function validateCustomPeer(val) {
+    const ipv4Seg = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+    const ipv4Pattern = new RegExp(`^${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}$`);
+    const ipv4PortPattern = new RegExp(`^${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}:(?:[1-9]\\d{0,3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5])$`);
+
+    if (val.includes(":")) {
+      if (!ipv4PortPattern.test(val)) {
+        return { error: "格式错误，正确示例: 192.168.1.100:8888" };
+      }
+      return { address: val };
+    } else {
+      if (!ipv4Pattern.test(val)) {
+        return { error: "IP 格式错误，正确示例: 192.168.1.100" };
+      }
+      // 自动补端口
+      const myPort = window.__TAURI__ ? "8888" : (window.location.port || "8888");
+      return { address: `${val}:${myPort}` };
+    }
+  }
+
+  // 渲染自定义 IP 列表
+  async function renderCustomPeers() {
+    const peers = await apiGetCustomPeers();
+    customPeerList.innerHTML = "";
+    if (peers.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "custom-peer-item";
+      empty.style.color = "var(--text-muted)";
+      empty.style.fontStyle = "italic";
+      empty.textContent = "暂无自定义 IP";
+      customPeerList.appendChild(empty);
+      return;
+    }
+    for (const peer of peers) {
+      const item = document.createElement("div");
+      item.className = "custom-peer-item";
+      item.innerHTML = `<span class="peer-addr">${peer}</span><button class="peer-remove-btn" data-peer="${peer}">✕</button>`;
+      item.querySelector(".peer-remove-btn").addEventListener("click", async (e) => {
+        const p = e.target.dataset.peer;
+        try {
+          await apiRemoveCustomPeer(p);
+          renderCustomPeers();
+          settingsErrorMsg.textContent = "";
+        } catch (err) {
+          settingsErrorMsg.textContent = "删除失败: " + err.message;
+        }
+      });
+      customPeerList.appendChild(item);
+    }
+  }
+
+  // 添加自定义 IP
+  addCustomPeerBtn.addEventListener("click", async () => {
+    const val = customPeerInput.value.trim();
+    if (!val) return;
+
+    const validation = validateCustomPeer(val);
+    if (validation.error) {
+      settingsErrorMsg.textContent = validation.error;
+      return;
+    }
+
+    try {
+      await apiAddCustomPeer(validation.address);
+      customPeerInput.value = "";
+      settingsErrorMsg.textContent = "";
+      renderCustomPeers();
+    } catch (err) {
+      settingsErrorMsg.textContent = "添加失败: " + err.message;
+    }
+  });
+
+  customPeerInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addCustomPeerBtn.click();
+  });
+
+  // 打开设置时加载自定义 IP（已整合到 settingsBtn 的 click handler 中）
 }
 
 // 初始化主题功能

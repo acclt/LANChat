@@ -840,3 +840,69 @@ async function apiDeleteUserComplete(peerId) {
     return await resp.json();
   }
 }
+
+async function apiGetCustomPeers() {
+  const tauri = getTauri();
+
+  if (tauri) {
+    try {
+      return await tauri.core.invoke("get_custom_peers");
+    } catch (e) {
+      console.error("[JS-API] 获取自定义 IP 失败:", e);
+      return [];
+    }
+  } else {
+    try {
+      const resp = await fetch("/api/get_custom_peers");
+      const data = await resp.json();
+      return data.peers || [];
+    } catch (e) {
+      console.error("[JS-API] 获取自定义 IP 失败:", e);
+      return [];
+    }
+  }
+}
+
+async function apiAddCustomPeer(peer) {
+  const tauri = getTauri();
+
+  if (tauri) {
+    try {
+      return await tauri.core.invoke("add_custom_peer", { peer });
+    } catch (e) {
+      console.error("[JS-API] 添加自定义 IP 失败:", e);
+      throw e;
+    }
+  } else {
+    const resp = await fetch("/api/add_custom_peer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ peer }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+}
+
+async function apiRemoveCustomPeer(peer) {
+  const tauri = getTauri();
+
+  if (tauri) {
+    try {
+      return await tauri.core.invoke("remove_custom_peer", { peer });
+    } catch (e) {
+      console.error("[JS-API] 删除自定义 IP 失败:", e);
+      throw e;
+    }
+  } else {
+    const resp = await fetch("/api/remove_custom_peer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ peer }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+}

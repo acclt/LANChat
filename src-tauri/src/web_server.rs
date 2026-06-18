@@ -107,6 +107,9 @@ pub async fn start_server(
         .route("/api/update_my_name", post(update_name_http))
         .route("/api/get_settings", get(get_settings_http))
         .route("/api/update_settings", post(update_settings_http))
+        .route("/api/get_custom_peers", get(get_custom_peers_http))
+        .route("/api/add_custom_peer", post(add_custom_peer_http))
+        .route("/api/remove_custom_peer", post(remove_custom_peer_http))
         .route("/api/get_peers", get(get_peers_http))
         .route("/api/send_message", post(send_message_http))
         .route("/api/chat_history/:peer_id", get(get_chat_history_http))
@@ -203,6 +206,38 @@ async fn update_settings_http(
         }
     }
 
+    Json(serde_json::json!({ "success": true })).into_response()
+}
+
+#[derive(Deserialize)]
+struct CustomPeerRequest {
+    peer: String,
+}
+
+async fn get_custom_peers_http(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let peers = crate::db::get_custom_peers(&state.pool).await;
+    Json(serde_json::json!({ "peers": peers })).into_response()
+}
+
+async fn add_custom_peer_http(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CustomPeerRequest>,
+) -> impl IntoResponse {
+    println!("[Web Server] 添加自定义 IP: {}", payload.peer);
+    if let Err(e) = crate::db::add_custom_peer(&state.pool, &payload.peer).await {
+        return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response();
+    }
+    Json(serde_json::json!({ "success": true })).into_response()
+}
+
+async fn remove_custom_peer_http(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CustomPeerRequest>,
+) -> impl IntoResponse {
+    println!("[Web Server] 删除自定义 IP: {}", payload.peer);
+    if let Err(e) = crate::db::remove_custom_peer(&state.pool, &payload.peer).await {
+        return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response();
+    }
     Json(serde_json::json!({ "success": true })).into_response()
 }
 

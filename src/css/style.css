@@ -859,8 +859,8 @@ h2::before {
 	/* 核心修复：防止在 Linux 下被挤压 */
 	flex-shrink: 0 !important;
 	/* 禁止缩小 */
-	min-width: fit-content !important;
-	/* 保证宽度能装下文字 */
+	width: 86px;
+	/* 固定宽度，与添加按钮一致 */
 	white-space: nowrap !important;
 	/* 禁止换行 */
 	display: flex;
@@ -871,6 +871,111 @@ h2::before {
 #choose-path-btn:hover {
 	background: var(--primary);
 	color: #fff;
+}
+
+/* ── 自定义 IP ── */
+.custom-peer-input-group {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 8px;
+}
+
+#custom-peer-input {
+	margin-bottom: 0;
+	flex: 1;
+	width: 100%;
+	background: rgba(0, 0, 0, 0.25);
+	border: 2px solid transparent;
+	color: #fff;
+	padding: 12px;
+	border-radius: 8px;
+	box-sizing: border-box;
+	transition: 0.3s;
+	font-size: 14px;
+}
+
+#custom-peer-input:focus {
+	background: rgba(0, 0, 0, 0.4);
+	border-color: var(--primary);
+	outline: none;
+}
+
+#add-custom-peer-btn {
+	height: 44px;
+	padding: 0 20px;
+	background: rgba(98, 114, 164, 0.2);
+	color: var(--primary) !important;
+	border: 1px solid rgba(189, 147, 249, 0.3);
+	border-radius: 8px;
+	cursor: pointer;
+	font-weight: 600;
+	transition: 0.3s;
+	width: 86px;
+	white-space: nowrap;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+#add-custom-peer-btn:hover {
+	background: var(--primary);
+	color: #fff;
+}
+
+.custom-peer-list {
+	max-height: 150px;
+	overflow-y: auto;
+	margin-bottom: 16px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 4px;
+}
+
+.custom-peer-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 6px 10px;
+	border-radius: 6px;
+	font-size: 14px;
+	color: var(--text-main);
+}
+
+.custom-peer-item:hover {
+	background: rgba(98, 114, 164, 0.1);
+}
+
+.custom-peer-item .peer-addr {
+	font-family: monospace;
+}
+
+.custom-peer-item .peer-remove-btn {
+	background: transparent;
+	border: 1px solid rgba(255, 85, 85, 0.15);
+	color: #ff5555;
+	cursor: pointer;
+	width: 22px;
+	height: 22px;
+	border-radius: 6px;
+	font-size: 16px;
+	line-height: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: 0.2s;
+}
+
+.custom-peer-item .peer-remove-btn:hover {
+	color: #fff;
+	background: rgba(255, 85, 85, 0.25);
+	border-color: rgba(255, 85, 85, 0.5);
+}
+
+.error-msg {
+	color: #ff5555;
+	font-size: 14px;
+	margin-top: 8px;
 }
 
 .button-group {

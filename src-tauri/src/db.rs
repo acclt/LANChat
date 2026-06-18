@@ -954,3 +954,50 @@ pub async fn delete_user_and_history(pool: &sqlx::Pool<sqlx::Sqlite>, my_id: &st
     println!("[DB] 用户 {} 及其记录已彻底删除", peer_id);
     Ok(())
 }
+
+// ── 自定义 IP ──
+
+const CUSTOM_PEER_KEY_PREFIX: &str = "custom_peer_";
+
+/// 获取所有自定义 IP
+pub async fn get_custom_peers(pool: &sqlx::Pool<sqlx::Sqlite>) -> Vec<String> {
+    let pattern = format!("{}%", CUSTOM_PEER_KEY_PREFIX);
+    match sqlx::query_as::<_, (String,)>(
+        "SELECT value FROM settings WHERE key LIKE ?",
+    )
+    .bind(&pattern)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(rows) => rows.into_iter().map(|r| r.0).collect(),
+        Err(e) => {
+            eprintln!("[DB] 读取自定义 IP 失败: {}", e);
+            vec![]
+        }
+    }
+}
+
+/// 添加自定义 IP
+pub async fn add_custom_peer(pool: &sqlx::Pool<sqlx::Sqlite>, peer: &str) -> Result<(), String> {
+    let key = format!("{}{}", CUSTOM_PEER_KEY_PREFIX, peer);
+    sqlx::query("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)")
+        .bind(&key)
+        .bind(peer)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("添加自定义 IP 失败: {}", e))?;
+    println!("[DB] 已添加自定义 IP: {}", peer);
+    Ok(())
+}
+
+/// 删除自定义 IP
+pub async fn remove_custom_peer(pool: &sqlx::Pool<sqlx::Sqlite>, peer: &str) -> Result<(), String> {
+    let key = format!("{}{}", CUSTOM_PEER_KEY_PREFIX, peer);
+    sqlx::query("DELETE FROM settings WHERE key = ?")
+        .bind(&key)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("删除自定义 IP 失败: {}", e))?;
+    println!("[DB] 已删除自定义 IP: {}", peer);
+    Ok(())
+}

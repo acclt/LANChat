@@ -101,8 +101,13 @@ pub async fn start_announcing(port: u16, user_id: String, pool: sqlx::Pool<sqlx:
             let _ = socket.send_to(msg.as_bytes(), addr);
         }
 
-        // 成功数量通常是 2~4 个（组播 + 全局 + 刚好撞中的你的 84 热点网段等）
-        // println!("[UDP] 心跳发送成功，激活了 {} 个真实路由网段", success_count);
+        // 发送单播到自定义 IP
+        let custom_peers = crate::db::get_custom_peers(&pool).await;
+        for peer in &custom_peers {
+            if let Ok(addr) = peer.parse::<std::net::SocketAddr>() {
+                let _ = socket.send_to(msg.as_bytes(), addr);
+            }
+        }
 
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
@@ -113,7 +118,7 @@ pub async fn start_announcing(port: u16, user_id: String, pool: sqlx::Pool<sqlx:
 pub async fn start_listening(
     port: u16,
     my_id: String,
-    _my_name: String,
+    my_name: String,
     app: Option<AppHandle>,
     peer_manager: Arc<PeerManager>,
     pool: sqlx::Pool<sqlx::Sqlite>,
@@ -197,6 +202,16 @@ pub async fn start_listening(
                         "id": peer_id, "name": name, "addr": peer_addr, "available_memory_mb": available_memory_mb
                     }));
                 }
+
+                // 回复心跳给对方（无 |1 标记则为原始心跳，需回复）
+                if parts.len() <= 6 {
+                    let reply = format!(
+                        "LANChat|ONLINE|{}|{}|{}|0|1",
+                        my_id, my_name, port
+                    );
+                    let target = format!("{}:{}", addr.ip(), peer_port);
+                    let _ = socket.send_to(reply.as_bytes(), &target);
+                }
             }
         }
     }
@@ -207,7 +222,7 @@ pub async fn start_listening(
 pub async fn start_listening(
     port: u16,
     my_id: String,
-    _my_name: String,
+    my_name: String,
     peer_manager: Arc<PeerManager>,
     pool: sqlx::Pool<sqlx::Sqlite>,
 ) {
@@ -275,6 +290,16 @@ pub async fn start_listening(
                             eprintln!("[UDP] 补发消息严重失败: {}", e);
                         }
                     });
+                }
+
+                // 回复心跳给对方（无 |1 标记则为原始心跳，需回复）
+                if parts.len() <= 6 {
+                    let reply = format!(
+                        "LANChat|ONLINE|{}|{}|{}|0|1",
+                        my_id, my_name, port
+                    );
+                    let target = format!("{}:{}", addr.ip(), peer_port);
+                    let _ = socket.send_to(reply.as_bytes(), &target);
                 }
             }
         }

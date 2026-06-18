@@ -114,3 +114,18 @@ commands.allow = ["clear_chat_history"]
 identifier = "allow-delete-user-complete"
 description = "Allows deleting a user and their full chat history"
 commands.allow = ["delete_user_complete"]
+
+[[permission]]
+identifier = "allow-get-custom-peers"
+description = "Allows reading custom peer IP addresses"
+commands.allow = ["get_custom_peers"]
+
+[[permission]]
+identifier = "allow-add-custom-peer"
+description = "Allows adding a custom peer IP address"
+commands.allow = ["add_custom_peer"]
+
+[[permission]]
+identifier = "allow-remove-custom-peer"
+description = "Allows removing a custom peer IP address"
+commands.allow = ["remove_custom_peer"]

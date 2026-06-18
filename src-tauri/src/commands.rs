@@ -1328,3 +1328,20 @@ pub async fn delete_user_complete(
 
     Ok(())
 }
+
+// ── 自定义 IP 命令 ──
+
+#[tauri::command]
+pub async fn get_custom_peers(state: tauri::State<'_, crate::db::DbState>) -> Result<Vec<String>, String> {
+    Ok(crate::db::get_custom_peers(&state.pool).await)
+}
+
+#[tauri::command]
+pub async fn add_custom_peer(state: tauri::State<'_, crate::db::DbState>, peer: String) -> Result<(), String> {
+    crate::db::add_custom_peer(&state.pool, &peer).await
+}
+
+#[tauri::command]
+pub async fn remove_custom_peer(state: tauri::State<'_, crate::db::DbState>, peer: String) -> Result<(), String> {
+    crate::db::remove_custom_peer(&state.pool, &peer).await
+}

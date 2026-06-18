@@ -40,6 +40,9 @@
     "allow-delete-messages",
 		"allow-clear-chat-history",
 		"allow-delete-user-complete",
+		"allow-get-custom-peers",
+		"allow-add-custom-peer",
+		"allow-remove-custom-peer",
     {
       "identifier": "opener:allow-reveal-item-in-dir",
       "allow": [

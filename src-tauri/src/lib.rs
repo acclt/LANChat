@@ -52,6 +52,9 @@ pub fn run() {
             commands::delete_messages,
             commands::clear_chat_history,
             commands::delete_user_complete,
+            commands::get_custom_peers,
+            commands::add_custom_peer,
+            commands::remove_custom_peer,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

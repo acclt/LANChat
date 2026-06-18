@@ -8,19 +8,24 @@
 
 - 🚀 **无需注册** - 自动生成随机用户名，可随时修改
 - 💻 **跨平台支持** - Linux 桌面端、Windows 桌面端、Android App、Web 端
-- 🔍 **自动发现** - 基于 UDP 广播的局域网设备自动发现
-- 💬 **实时聊天** - 支持文本消息和文件传输
-- 📁 **文件传输** - 支持大文件传输，可设置自动接收
+- 🔍 **自动发现** - 基于 UDP 广播/组播的局域网设备自动发现
+- 🔗 **手动发现** - 支持手动添加 IP 地址，跨 VLAN / WireGuard 也能互通
+- 🔄 **智能回复** - 收到心跳自动回复，只需一方手动添加即可双向发现
+- 💬 **实时聊天** - 支持文本消息、流式消息和文件传输
+- 📁 **文件传输** - 支持大文件分块传输，可设置自动接收
+- 📸 **图片预览** - 图片消息自动预览
 - 💾 **历史记录** - SQLite 数据库保存聊天记录
 - 🌐 **Web 端** - 可部署到无图形界面服务器
+- 🤖 **LANClaw 智能机器人** - 由 Pi 驱动的 AI 聊天机器人，支持自动回复、文件分析和定时任务
 
 ## 技术栈
 
 - **后端**: Rust + Tauri 2.0
 - **前端**: 原生 HTML + CSS + JavaScript
 - **数据库**: SQLite (sqlx)
-- **网络**: UDP 广播 + TCP 传输
+- **网络**: UDP 广播/组播 + TCP/WebSocket 传输 + HTTP 分块上传
 - **Web 服务器**: Axum
+- **AI 机器人**: LANClaw（独立进程，通过 Pi RPC 驱动）
 
 ## 快速开始
 
@@ -99,11 +104,11 @@ make help         # 查看帮助
 
 - [x] 自动生成随机用户名
 - [x] 用户改名功能（桌面端 + Web 端）
-- [x] 局域网设备发现（UDP 广播）
+- [x] 局域网设备发现（UDP 广播/组播）
 - [x] 实时显示在线用户
 - [x] Web 端独立部署
 - [x] 桌面端和 Web 端共享数据库
-- [x] 设置页面
+- [x] 设置页面（下载路径、手动发现 IP）
 - [x] 消息历史记录查询
 - [x] 主题切换功能
 - [x] Android 端适配
@@ -134,7 +139,11 @@ make help         # 查看帮助
 - [x] 删除离线用户
 - [x] 清空聊天记录
 - [x] Android 端适配状态栏/三大金刚键
-- [x] LANClaw的ai回复流式传输
+- [x] LANClaw 流式 AI 回复
+- [x] 模型切换命令（`/model`）
+- [x] 新建会话命令（`/new`）
+- [x] 手动发现 IP（跨 VLAN / WireGuard）
+- [x] UDP 心跳自动回复（跨端口/跨网段自动发现）
 
 ### 🚧 进行中
 
@@ -142,10 +151,7 @@ make help         # 查看帮助
 - [ ] 聊天室功能
 - [ ] 新消息系统通知（linux使用notify，windows使用powershell）
 - [ ] 更换默认图标
-
-### 📋 计划中
 - [ ] 手动接收文件
-- [ ] 文件重新下载
 
 ## 运行
 
@@ -156,9 +162,27 @@ lanchat-web --port 8888
 
 2. 配置防火墙示例:
 ```bash
+# TCP：Web 页面和 WebSocket 通信
 sudo ufw allow 8888/tcp
+# UDP：设备发现（广播/组播/心跳）
 sudo ufw allow 8888/udp
 ```
+
+> **注意**：如果使用非默认端口（如 `--port 9999`），需确保对应端口的 TCP 和 UDP 均已放行。
+
+## 跨 VLAN / WireGuard 场景
+
+当设备处于不同 VLAN 或通过 WireGuard 连接时，UDP 广播无法跨网段。两种解决方案：
+
+### 方案一：手动发现（推荐）
+
+在设置面板中填写对方的 IP 地址，系统会定期发送单播心跳完成发现。
+
+### 方案二：UDP 心跳自动回复
+
+只要一方手动添加了对方地址，收到心跳后会**自动回复**一条心跳，双方都能互相发现。无需两边都设置。
+
+> 心跳回复包含 `|1` 标记，不会产生无限循环。
 
 ## 项目结构
 
@@ -166,30 +190,47 @@ sudo ufw allow 8888/udp
 LANChat/
 ├── src/                      # 前端代码
 │   ├── css/
-│   │   └── style.css        # 样式文件
+│   │   ├── style.css        # 样式文件
+│   │   └── vscode.css       # VSCode 主题
 │   ├── js/
-│   │   ├── api.js           # API 封装
+│   │   ├── api.js           # API 封装（Tauri + HTTP 双端）
 │   │   ├── app.js           # 应用逻辑
 │   │   └── ui.js            # UI 交互
 │   └── index.html           # 主页面
-├── src-tauri/               # 后端代码
+├── src-tauri/               # 后端代码（桌面端 + Web 端）
 │   ├── src/
-│   │   ├── main.rs          # 桌面端入口
-│   │   ├── server_main.rs   # Web 端入口
-│   │   ├── lib.rs           # 库入口
-│   │   ├── commands.rs      # Tauri 命令
-│   │   ├── db.rs            # 数据库逻辑
+│   │   ├── main.rs          # 桌面端 Tauri 入口
+│   │   ├── server_main.rs   # Web 端独立入口
+│   │   ├── lib.rs           # 库入口（桌面端）
+│   │   ├── commands.rs      # Tauri 桌面命令
+│   │   ├── web_server.rs    # HTTP/WebSocket 服务器
+│   │   ├── db.rs            # SQLite 数据库逻辑
+│   │   ├── peers.rs         # 在线用户管理器
 │   │   ├── models.rs        # 数据模型
 │   │   ├── utils.rs         # 工具函数
-│   │   ├── web_server.rs    # Web 服务器
 │   │   └── network/         # 网络模块
-│   │       ├── discovery.rs # 设备发现
-│   │       ├── protocol.rs  # 协议定义
-│   │       └── transfer.rs  # 文件传输
+│   │       ├── discovery.rs # UDP 设备发现（广播/组播/单播回复）
+│   │       └── messaging.rs # WebSocket 消息收发
 │   ├── capabilities/        # Tauri 权限配置
-│   ├── permissions/         # 自定义权限
+│   ├── permissions/         # 自定义命令权限
 │   └── Cargo.toml
-├── AGENTS.md                # 开发计划和进度
+├── lanclaw/                 # LANClaw AI 机器人
+│   ├── src/
+│   │   ├── main.rs          # 入口
+│   │   ├── config.rs        # 配置管理
+│   │   ├── models.rs        # 数据模型
+│   │   ├── router.rs        # 消息路由（文本/文件/命令）
+│   │   ├── rpc_client.rs    # Pi RPC 客户端
+│   │   ├── pi_bridge.rs     # Pi 进程管理
+│   │   ├── scheduler.rs     # 定时任务引擎
+│   │   ├── skill_gen.rs     # Pi Skill 文件生成
+│   │   └── network/         # 网络模块
+│   │       ├── discovery.rs # UDP 发现
+│   │       ├── messaging.rs # WebSocket 消息
+│   │       ├── mod.rs       # HTTP 路由
+│   │       └── file.rs      # 文件上传/下载
+│   └── Cargo.toml
+├── Makefile                 # 一键构建脚本
 └── README.md                # 本文件
 ```
 
