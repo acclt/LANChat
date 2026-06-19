@@ -794,7 +794,9 @@ h2::before {
 
 /* 输入框通用样式 */
 #new-name-input,
-#download-path-input {
+#download-path-input,
+#port-input,
+#db-path-input {
 	width: 100%;
 	background: rgba(0, 0, 0, 0.25);
 	border: 2px solid transparent;
@@ -811,8 +813,21 @@ h2::before {
 	margin-bottom: 15px;
 }
 
+/* 隐藏 number 输入框的上下箭头 */
+.no-spinner::-webkit-inner-spin-button,
+.no-spinner::-webkit-outer-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+.no-spinner {
+	-moz-appearance: textfield;
+	appearance: textfield;
+}
+
 #new-name-input:focus,
-#download-path-input:focus {
+#download-path-input:focus,
+#port-input:focus,
+#db-path-input:focus {
 	background: rgba(0, 0, 0, 0.4);
 	border-color: var(--primary);
 	outline: none;
@@ -837,14 +852,17 @@ h2::before {
 }
 
 /* 在组内的输入框，去掉底部边距 */
-#download-path-input {
+#download-path-input,
+#port-input,
+#db-path-input {
 	margin-bottom: 0;
 	flex: 1;
 	/* 自动填满剩余空间 */
 }
 
 /* 选择按钮：固定高度，不被 Flex 拉伸 */
-#choose-path-btn {
+#choose-path-btn,
+#choose-db-path-btn {
 	height: 44px;
 	padding: 0 20px;
 	background: rgba(98, 114, 164, 0.2);
@@ -868,7 +886,8 @@ h2::before {
 	justify-content: center;
 }
 
-#choose-path-btn:hover {
+#choose-path-btn:hover,
+#choose-db-path-btn:hover {
 	background: var(--primary);
 	color: #fff;
 }

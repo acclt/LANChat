@@ -3,6 +3,7 @@
 pub mod commands;
 
 pub mod android_fd;
+pub mod config_file;
 pub mod db;
 pub mod models;
 pub mod network;

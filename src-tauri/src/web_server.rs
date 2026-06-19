@@ -183,8 +183,17 @@ async fn get_settings_http(State(state): State<Arc<AppState>>) -> impl IntoRespo
                 .to_string()
         });
 
+    let port = crate::db::get_port(&state.pool)
+        .await
+        .unwrap_or_else(|_| "8888".to_string());
+
+    let cfg = crate::config_file::read_config();
+    let db_path = cfg.db_path.unwrap_or_else(crate::config_file::get_default_db_path);
+
     Json(serde_json::json!({
         "download_path": download_path,
+        "port": port,
+        "db_path": db_path,
     }))
     .into_response()
 }
@@ -192,6 +201,8 @@ async fn get_settings_http(State(state): State<Arc<AppState>>) -> impl IntoRespo
 #[derive(Deserialize)]
 struct UpdateSettingsRequest {
     download_path: Option<String>,
+    port: Option<String>,
+    db_path: Option<String>,
 }
 
 async fn update_settings_http(
@@ -200,8 +211,24 @@ async fn update_settings_http(
 ) -> impl IntoResponse {
     println!("[Web Server] 收到更新设置请求");
 
-    if let Some(path) = payload.download_path {
-        if let Err(e) = crate::db::update_download_path(&state.pool, path).await {
+    if let Some(ref path) = payload.download_path {
+        if let Err(e) = crate::db::update_download_path(&state.pool, path.clone()).await {
+            return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response();
+        }
+    }
+    if let Some(ref p) = payload.port {
+        if let Err(e) = crate::db::update_port(&state.pool, p).await {
+            return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response();
+        }
+    }
+    if let Some(path) = payload.db_path {
+        let mut cfg = crate::config_file::read_config();
+        if path.is_empty() {
+            cfg.db_path = None;
+        } else {
+            cfg.db_path = Some(path);
+        }
+        if let Err(e) = crate::config_file::write_config(&cfg) {
             return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response();
         }
     }

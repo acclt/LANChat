@@ -336,9 +336,14 @@ pub async fn get_my_id(state: State<'_, DbState>) -> Result<String, String> {
 #[tauri::command]
 pub async fn get_settings(state: State<'_, DbState>) -> Result<serde_json::Value, String> {
     let download_path = crate::db::get_download_path(&state.pool).await?;
+    let port = crate::db::get_port(&state.pool).await?;
+    let cfg = crate::config_file::read_config();
+    let db_path = cfg.db_path.unwrap_or_else(crate::config_file::get_default_db_path);
 
     Ok(serde_json::json!({
         "download_path": download_path,
+        "port": port,
+        "db_path": db_path,
     }))
 }
 
@@ -346,9 +351,23 @@ pub async fn get_settings(state: State<'_, DbState>) -> Result<serde_json::Value
 pub async fn update_settings(
     state: State<'_, DbState>,
     download_path: Option<String>,
+    port: Option<String>,
+    db_path: Option<String>,
 ) -> Result<(), String> {
     if let Some(path) = download_path {
         crate::db::update_download_path(&state.pool, path).await?;
+    }
+    if let Some(ref p) = port {
+        crate::db::update_port(&state.pool, p).await?;
+    }
+    if let Some(path) = db_path {
+        let mut cfg = crate::config_file::read_config();
+        if path.is_empty() {
+            cfg.db_path = None;
+        } else {
+            cfg.db_path = Some(path);
+        }
+        crate::config_file::write_config(&cfg)?;
     }
 
     Ok(())

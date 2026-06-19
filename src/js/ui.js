@@ -1525,48 +1525,77 @@ function initSettings() {
   const cancelSettingsBtn = document.getElementById("cancel-settings-btn");
   const choosePathBtn = document.getElementById("choose-path-btn");
   const downloadPathInput = document.getElementById("download-path-input");
+  const portInput = document.getElementById("port-input");
+  const dbPathInput = document.getElementById("db-path-input");
+  const chooseDbPathBtn = document.getElementById("choose-db-path-btn");
+  const dbPathSetting = document.getElementById("db-path-setting");
   const settingsErrorMsg = document.getElementById("settings-error-msg");
   const settingsSuccessMsg = document.getElementById("settings-success-msg");
+  let initialPort = "8888";
+  let initialDbPath = "";
+
+  // Android 端隐藏数据库路径配置
+  const isAndroid = window.__TAURI__ && navigator.userAgent.includes("Android");
+  if (isAndroid && dbPathSetting) {
+    dbPathSetting.style.display = "none";
+  }
+
+  // 获取默认下载路径
+  async function getDefaultDownloadPath() {
+    const tauri = window.__TAURI__;
+    if (isAndroid) {
+      return "/storage/emulated/0/Download/LANChat";
+    }
+    if (tauri) {
+      try {
+        return await tauri.core.invoke("get_default_download_path");
+      } catch (_) {
+        // fall through
+      }
+    }
+    return "/tmp/lanchat";
+  }
 
   // 打开/关闭设置面板 - 切换显示/隐藏
   settingsBtn.addEventListener("click", async () => {
     if (settingsPanel.style.display === "block") {
-      // 当前是显示状态,点击后隐藏
       settingsPanel.style.display = "none";
       settingsErrorMsg.textContent = "";
       settingsSuccessMsg.textContent = "";
       settingsSuccessMsg.classList.remove("show");
     } else {
-      // 当前是隐藏状态,点击后显示
+      settingsPanel.style.display = "block";
+      settingsErrorMsg.textContent = "";
+      settingsSuccessMsg.textContent = "";
+      settingsSuccessMsg.classList.remove("show");
+
       try {
         const settings = await apiGetSettings();
-        downloadPathInput.value = settings.download_path;
-        settingsPanel.style.display = "block";
-        settingsErrorMsg.textContent = "";
-        settingsSuccessMsg.textContent = "";
-        settingsSuccessMsg.classList.remove("show");
-        renderCustomPeers();
+        const defaultDlPath = await getDefaultDownloadPath();
+
+        downloadPathInput.value = settings.download_path || defaultDlPath;
+        portInput.value = settings.port || "8888";
+        initialPort = portInput.value;
+        dbPathInput.value = settings.db_path || "";
+        initialDbPath = dbPathInput.value;
       } catch (e) {
         settingsErrorMsg.textContent = "加载设置失败: " + e.message;
-        settingsPanel.style.display = "block";
-        renderCustomPeers();
       }
+
+      renderCustomPeers();
     }
   });
 
-  // 选择路径
+  // 选择下载路径
   choosePathBtn.addEventListener("click", async () => {
     const tauri = window.__TAURI__;
-    const isAndroid = tauri && navigator.userAgent.includes("Android");
 
     if (isAndroid) {
-      // Android - 显示路径选择面板
       const androidPathPanel = document.getElementById("android-path-panel");
       androidPathPanel.style.display = "block";
     } else if (tauri) {
-      // 桌面端 - 使用 Tauri 对话框
       try {
-        const defaultPath = await apiGetDefaultDownloadPath();
+        const defaultPath = await getDefaultDownloadPath();
         const selected = await tauri.dialog.open({
           directory: true,
           multiple: false,
@@ -1584,10 +1613,39 @@ function initSettings() {
         settingsErrorMsg.textContent = "选择路径失败: " + e.message;
       }
     } else {
-      // Web 端 - 只能手动输入
       const newPath = prompt("请输入下载路径:", downloadPathInput.value);
       if (newPath) {
         downloadPathInput.value = newPath;
+      }
+    }
+  });
+
+  // 选择数据库路径
+  chooseDbPathBtn.addEventListener("click", async () => {
+    const tauri = window.__TAURI__;
+
+    if (tauri && !isAndroid) {
+      try {
+        const selected = await tauri.dialog.open({
+          directory: true,
+          multiple: false,
+          title: "选择数据库文件夹",
+          defaultPath: dbPathInput.value || undefined,
+        });
+
+        if (selected) {
+          const path = Array.isArray(selected) ? selected[0] : selected;
+          dbPathInput.value = path + "/lanchat.db";
+          settingsErrorMsg.textContent = "";
+        }
+      } catch (e) {
+        console.error("[UI] 数据库路径选择器错误:", e);
+        settingsErrorMsg.textContent = "选择路径失败: " + e.message;
+      }
+    } else {
+      const newPath = prompt("请输入数据库路径（目录）:", dbPathInput.value);
+      if (newPath) {
+        dbPathInput.value = newPath;
       }
     }
   });
@@ -1630,13 +1688,27 @@ function initSettings() {
       settingsSuccessMsg.textContent = "";
       settingsSuccessMsg.classList.remove("show");
 
+      // 校验端口
+      const portVal = portInput.value.trim();
+      if (!portVal) {
+        // 空值恢复默认
+        portInput.value = "8888";
+      } else {
+        const portNum = parseInt(portVal, 10);
+        if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+          settingsErrorMsg.textContent = "端口格式无效（1-65535）";
+          return;
+        }
+        portInput.value = String(portNum);
+      }
+
       // 先处理输入框里的自定义 IP
       const pendingPeer = customPeerInput.value.trim();
       if (pendingPeer) {
         const validation = validateCustomPeer(pendingPeer);
         if (validation.error) {
           settingsErrorMsg.textContent = validation.error;
-          return; // 不保存，不关闭
+          return;
         }
         let peerAddr = validation.address;
         try {
@@ -1648,22 +1720,35 @@ function initSettings() {
         }
       }
 
-      await apiUpdateSettings(
-        downloadPathInput.value,
-      );
+      // 空值恢复默认
+      const dlPath = downloadPathInput.value.trim() || (await getDefaultDownloadPath());
+      const myPort = portInput.value || "8888";
+      const myDbPath = dbPathInput.value.trim() || "";
+
+      await apiUpdateSettings(dlPath, myPort, myDbPath);
 
       // 刷新自定义 IP 列表
       renderCustomPeers();
 
-      // 显示成功消息
-      settingsSuccessMsg.textContent = "✓ 设置保存成功";
-      settingsSuccessMsg.classList.add("show");
+      // 检测是否需要重启
+      const portChanged = myPort !== initialPort;
+      const dbPathChanged = myDbPath !== initialDbPath;
 
-      // 1.5秒后自动关闭设置面板
-      setTimeout(() => {
-        settingsPanel.style.display = "none";
-        settingsSuccessMsg.classList.remove("show");
-      }, 1500);
+      if (portChanged || dbPathChanged) {
+        settingsSuccessMsg.textContent = "✓ 设置保存成功，需重启生效";
+        settingsSuccessMsg.classList.add("show");
+        setTimeout(() => {
+          settingsPanel.style.display = "none";
+          settingsSuccessMsg.classList.remove("show");
+        }, 1500);
+      } else {
+        settingsSuccessMsg.textContent = "✓ 设置保存成功";
+        settingsSuccessMsg.classList.add("show");
+        setTimeout(() => {
+          settingsPanel.style.display = "none";
+          settingsSuccessMsg.classList.remove("show");
+        }, 1500);
+      }
 
       console.log("[UI] 设置保存成功");
     } catch (e) {

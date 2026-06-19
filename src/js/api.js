@@ -81,7 +81,7 @@ async function apiGetSettings() {
 }
 
 // 更新设置
-async function apiUpdateSettings(downloadPath) {
+async function apiUpdateSettings(downloadPath, port, dbPath) {
   const tauri = getTauri();
 
   if (tauri) {
@@ -90,6 +90,8 @@ async function apiUpdateSettings(downloadPath) {
       console.log("[JS-API] 通过 Tauri 更新设置");
       return await tauri.core.invoke("update_settings", {
         downloadPath,
+        port,
+        dbPath,
       });
     } catch (e) {
       console.error("[JS-API] 更新设置失败:", e);
@@ -104,6 +106,8 @@ async function apiUpdateSettings(downloadPath) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           download_path: downloadPath,
+          port: port,
+          db_path: dbPath,
         }),
       });
       const data = await resp.json();

@@ -64,7 +64,6 @@ fn main() {
         // --------------------------
         .setup(|app| {
             let handle = app.handle().clone();
-            let port = 8888;
 
             // 获取主窗口并设置关闭事件处理
             if let Some(window) = app.get_webview_window("main") {
@@ -122,13 +121,31 @@ fn main() {
                 .build(app)?;
 
             tauri::async_runtime::block_on(async move {
+                // Step 6: 读 config.json 取 db_path
+                let cfg = lanchat::config_file::read_config();
+                let db_dir = cfg.db_path
+                    .as_ref()
+                    .map(|p| lanchat::config_file::resolve_db_dir(p));
+
+                // 打开数据库（如果有自定义路径则用，否则用 Tauri 默认路径）
                 println!("[Main] 正在初始化数据库...");
-                let pool = db::init_db(&handle).await.expect("DB error");
+                let pool = if let Some(dir) = db_dir {
+                    lanchat::db::init_db_standalone(Some(dir)).await.expect("DB error")
+                } else {
+                    db::init_db(&handle).await.expect("DB error")
+                };
                 let my_name = db::get_username(&pool)
                     .await
                     .unwrap_or_else(|_| "Unknown".into());
 
                 let my_id = db::get_user_id(&pool).await.expect("无法获取或生成用户 ID");
+
+                // Step 8: 读 DB 取 port（桌面端没有 CLI 参数，完全依赖 DB 配置）
+                let port: u16 = {
+                    let port_str = db::get_port(&pool).await.unwrap_or_else(|_| "8888".to_string());
+                    port_str.parse().unwrap_or(8888)
+                };
+                println!("[Main] 服务端口: {}", port);
 
                 handle.manage(db::DbState { pool: pool.clone() });
                 println!("[Main] 我的用户名: {}", my_name);

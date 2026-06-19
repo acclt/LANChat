@@ -7,8 +7,8 @@ use lanchat::peers::PeerManager;
 
 #[derive(Parser, Debug)]
 struct Args {
-    #[arg(short, long, default_value_t = 8888)]
-    port: u16, // 这个端口同时用于 HTTP(TCP) 和 广播(UDP)
+    #[arg(short, long)]
+    port: Option<u16>, // 改为 Option，优先用 DB 中的值
 
     #[arg(long)]
     db_path: Option<String>, // 可选的数据库路径
@@ -17,12 +17,20 @@ struct Args {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let port = args.port;
 
-    // 初始化数据库
+    // Step 2: 若 --db-path 没传，读 config.json
+    let db_dir = if let Some(ref p) = args.db_path {
+        // CLI 参数优先级最高
+        Some(std::path::PathBuf::from(p))
+    } else {
+        // 读配置文件的 db_path
+        let cfg = lanchat::config_file::read_config();
+        cfg.db_path.map(|p| lanchat::config_file::resolve_db_dir(&p))
+    };
+
+    // Step 3: 打开数据库
     println!("[Server Main] 正在初始化数据库...");
-    let db_path = args.db_path.map(|p| std::path::PathBuf::from(p));
-    let pool = lanchat::db::init_db_standalone(db_path)
+    let pool = lanchat::db::init_db_standalone(db_dir)
         .await
         .expect("数据库初始化失败");
 
@@ -38,6 +46,14 @@ async fn main() {
     println!("[Server Main] 我的用户名: {}", my_name);
     println!("[Server Main] 我的 ID: {}", my_id);
 
+    // Step 4: 若 --port 没传，读 DB 取 port
+    let port: u16 = if let Some(p) = args.port {
+        p
+    } else {
+        let port_str = lanchat::db::get_port(&pool).await.unwrap_or_else(|_| "8888".to_string());
+        port_str.parse().unwrap_or(8888)
+    };
+
     // 创建全局用户管理器
     let peer_manager = Arc::new(PeerManager::new());
 
@@ -46,6 +62,7 @@ async fn main() {
         eprintln!("[Server Main] 加载历史用户失败: {}", e);
     }
 
+    // Step 5: 以 port 启动服务
     // 1. 启动 Web 服务 (TCP)
     let pool_clone = pool.clone();
     let peer_manager_clone = peer_manager.clone();
