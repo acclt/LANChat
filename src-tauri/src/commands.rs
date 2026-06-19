@@ -361,13 +361,15 @@ pub async fn update_settings(
         crate::db::update_port(&state.pool, p).await?;
     }
     if let Some(path) = db_path {
-        let mut cfg = crate::config_file::read_config();
-        if path.is_empty() {
-            cfg.db_path = None;
-        } else {
-            cfg.db_path = Some(path);
+        if !cfg!(target_os = "android") {
+            let mut cfg = crate::config_file::read_config();
+            if path.is_empty() {
+                cfg.db_path = None;
+            } else {
+                cfg.db_path = Some(path);
+            }
+            crate::config_file::write_config(&cfg)?;
         }
-        crate::config_file::write_config(&cfg)?;
     }
 
     Ok(())

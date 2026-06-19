@@ -59,7 +59,6 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            let port = 8888;
 
             tauri::async_runtime::block_on(async move {
                 println!("[Lib] 正在初始化数据库...");
@@ -69,6 +68,13 @@ pub fn run() {
                     .unwrap_or_else(|_| "Unknown".into());
 
                 let my_id = db::get_user_id(&pool).await.expect("无法获取或生成用户 ID");
+
+                // 读 DB 取 port
+                let port: u16 = {
+                    let port_str = db::get_port(&pool).await.unwrap_or_else(|_| "8888".to_string());
+                    port_str.parse().unwrap_or(8888)
+                };
+                println!("[Lib] 服务端口: {}", port);
 
                 handle.manage(db::DbState { pool: pool.clone() });
                 println!("[Lib] 我的用户名: {}", my_name);

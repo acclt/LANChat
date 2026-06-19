@@ -222,14 +222,16 @@ async fn update_settings_http(
         }
     }
     if let Some(path) = payload.db_path {
-        let mut cfg = crate::config_file::read_config();
-        if path.is_empty() {
-            cfg.db_path = None;
-        } else {
-            cfg.db_path = Some(path);
-        }
-        if let Err(e) = crate::config_file::write_config(&cfg) {
-            return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response();
+        if !cfg!(target_os = "android") {
+            let mut cfg = crate::config_file::read_config();
+            if path.is_empty() {
+                cfg.db_path = None;
+            } else {
+                cfg.db_path = Some(path);
+            }
+            if let Err(e) = crate::config_file::write_config(&cfg) {
+                return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response();
+            }
         }
     }
 
