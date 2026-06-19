@@ -512,77 +512,57 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                     Ok(val) => {
                         let stream_id = val.get("stream_id").and_then(|v| v.as_str()).map(|s| s.to_string());
                         let stream_final = val.get("stream_final").and_then(|v| v.as_bool()).unwrap_or(true);
+                        let msg_type = val.get("msg_type").and_then(|v| v.as_str()).unwrap_or("text").to_string();
 
-                        if let Ok(message) = serde_json::from_value::<crate::network::messaging::TextMessage>(val) {
-                            if let Some(ref sid) = stream_id {
-                                if !stream_final {
-                                    // 流式中间块：不存 DB，广播到所有 WebSocket 客户端
-                                    println!("[WebSocket] 流式块: {} (stream={})", message.content.chars().take(40).collect::<String>(), sid);
-                                    let broadcast_msg = serde_json::json!({
-                                        "from_id": message.from_id,
-                                        "from_name": message.from_name,
-                                        "content": message.content,
-                                        "timestamp": message.timestamp,
-                                        "msg_type": message.msg_type,
-                                        "stream_id": sid,
-                                        "is_streaming": true,
-                                    }).to_string();
-                                    let _ = state.ws_broadcast.send(broadcast_msg);
-                                    #[cfg(feature = "desktop")]
-                                    if let Some(ref app) = state.app_handle {
-                                        use tauri::Emitter;
-                                        let _ = app.emit(
-                                            "new-message",
-                                            serde_json::json!({
-                                                "from_id": message.from_id,
-                                                "from_name": message.from_name,
-                                                "content": message.content,
-                                                "timestamp": message.timestamp,
-                                                "msg_type": message.msg_type,
-                                                "stream_id": sid,
-                                                "is_streaming": true,
-                                            }),
-                                        );
-                                    }
-                                } else {
-                                    // 流式最后一块：存 DB 并广播到所有 WebSocket 客户端
+                        if let Some(ref sid) = stream_id {
+                            // ── 流式消息 ──
+                            // 构建广播消息（保留原字段，统一注入 is_streaming）
+                            let mut broadcast_val = val.clone();
+                            if let Some(obj) = broadcast_val.as_object_mut() {
+                                obj.insert("is_streaming".to_string(), serde_json::json!(!stream_final));
+                                obj.remove("stream_final");
+                            }
+                            let broadcast_msg = broadcast_val.to_string();
+
+                            // 流式消息不存 DB（除了 text 类型的 stream_final）
+                            if stream_final && msg_type == "text" {
+                                if let Ok(message) = serde_json::from_value::<crate::network::messaging::TextMessage>(val.clone()) {
                                     match save_message_to_db(&state.pool, &message).await {
                                         Ok(msg_id) => {
                                             println!("[WebSocket] 流式完成: {} (id={})", message.content.chars().take(40).collect::<String>(), msg_id);
-                                            let broadcast_msg = serde_json::json!({
-                                                "id": msg_id,
-                                                "from_id": message.from_id,
-                                                "from_name": message.from_name,
-                                                "content": message.content,
-                                                "timestamp": message.timestamp,
-                                                "msg_type": message.msg_type,
-                                                "stream_id": sid,
-                                                "is_streaming": false,
-                                            }).to_string();
-                                            let _ = state.ws_broadcast.send(broadcast_msg);
+                                            // 重新广播（带 id）
+                                            let mut final_val = val.clone();
+                                            if let Some(obj) = final_val.as_object_mut() {
+                                                obj.insert("id".to_string(), serde_json::json!(msg_id));
+                                                obj.insert("is_streaming".to_string(), serde_json::json!(false));
+                                                obj.remove("stream_final");
+                                            }
+                                            let final_msg = final_val.to_string();
+                                            let _ = state.ws_broadcast.send(final_msg);
                                             #[cfg(feature = "desktop")]
                                             if let Some(ref app) = state.app_handle {
                                                 use tauri::Emitter;
-                                                let _ = app.emit(
-                                                    "new-message",
-                                                    serde_json::json!({
-                                                        "id": msg_id,
-                                                        "from_id": message.from_id,
-                                                        "from_name": message.from_name,
-                                                        "content": message.content,
-                                                        "timestamp": message.timestamp,
-                                                        "msg_type": message.msg_type,
-                                                        "stream_id": sid,
-                                                        "is_streaming": false,
-                                                    }),
-                                                );
+                                                let _ = app.emit("new-message", final_val);
                                             }
                                         }
                                         Err(e) => eprintln!("[WebSocket] 保存流式最终消息失败: {}", e)
                                     }
                                 }
                             } else {
-                                // 非流式消息：存 DB 并广播到所有 WebSocket 客户端
+                                // 非 final 或非 text 类型：直接广播
+                                println!("[WebSocket] 流式块 ({}, stream={})", msg_type, sid);
+                                let _ = state.ws_broadcast.send(broadcast_msg.clone());
+                                #[cfg(feature = "desktop")]
+                                if let Some(ref app) = state.app_handle {
+                                    use tauri::Emitter;
+                                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&broadcast_msg) {
+                                        let _ = app.emit("new-message", v);
+                                    }
+                                }
+                            }
+                        } else {
+                            // ── 非流式消息：尝试作为 TextMessage 存 DB ──
+                            if let Ok(message) = serde_json::from_value::<crate::network::messaging::TextMessage>(val.clone()) {
                                 match save_message_to_db(&state.pool, &message).await {
                                     Ok(msg_id) => {
                                         println!("[WebSocket] 消息已保存: {} 说: {} (id={})", message.from_name, message.content, msg_id);
@@ -609,14 +589,13 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                     "msg_type": message.msg_type,
                                                 }),
                                             );
-                                            println!("[WebSocket] 已发送 Tauri 事件: new-message");
                                         }
                                     }
                                     Err(e) => eprintln!("[WebSocket] 保存消息失败: {}", e)
                                 }
+                            } else {
+                                eprintln!("[WebSocket] 无法解析消息: {}", &text[..text.len().min(100)]);
                             }
-                        } else {
-                            eprintln!("[WebSocket] 无法解析消息: {}", &text[..text.len().min(100)]);
                         }
                     }
                     Err(e) => eprintln!("[WebSocket] JSON 解析失败: {}", e)

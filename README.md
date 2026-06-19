@@ -15,6 +15,8 @@
 - 📁 **文件传输** - 支持大文件分块传输，可设置自动接收
 - 📸 **图片预览** - 图片消息自动预览
 - 💾 **历史记录** - SQLite 数据库保存聊天记录
+- 🔧 **端口配置** - 可在设置中自定义服务端口，支持 CLI 参数覆盖
+- 📂 **数据库路径** - 支持自定义数据库存储位置，配置文件持久化
 - 🌐 **Web 端** - 可部署到无图形界面服务器
 - 🤖 **LANClaw 智能机器人** - 由 Pi 驱动的 AI 聊天机器人，支持自动回复、文件分析和定时任务
 
@@ -93,6 +95,8 @@ make help         # 查看帮助
 - **Linux**: `~/.local/share/com.lanchat.app/lanchat.db`
 - **Windows**: `%APPDATA%\com.lanchat.app\lanchat.db`
 
+可在设置面板中修改数据库路径，修改后需重启生效。路径存储在 `~/.config/lanchat/config.json`。
+
 ### 数据表
 - `settings` - 用户配置（用户名、自动接收、保存路径等）
 - `messages` - 聊天记录
@@ -108,7 +112,7 @@ make help         # 查看帮助
 - [x] 实时显示在线用户
 - [x] Web 端独立部署
 - [x] 桌面端和 Web 端共享数据库
-- [x] 设置页面（下载路径、手动发现 IP）
+- [x] 设置页面（端口、数据库路径、下载路径、手动发现 IP）
 - [x] 消息历史记录查询
 - [x] 主题切换功能
 - [x] Android 端适配
@@ -155,10 +159,12 @@ make help         # 查看帮助
 
 ## 运行
 
-1. 在服务器上运行(不指定参数将默认使用`8888`端口):
+1. 启动服务（默认 `8888` 端口，可在设置中修改）：
 ```bash
 lanchat-web --port 8888
 ```
+
+CLI 参数 `--port` 和 `--db-path` 会覆盖设置中的配置，优先级最高。
 
 2. 配置防火墙示例:
 ```bash
@@ -201,10 +207,11 @@ LANChat/
 │   ├── src/
 │   │   ├── main.rs          # 桌面端 Tauri 入口
 │   │   ├── server_main.rs   # Web 端独立入口
-│   │   ├── lib.rs           # 库入口（桌面端）
+│   │   ├── lib.rs           # Android 入口
 │   │   ├── commands.rs      # Tauri 桌面命令
 │   │   ├── web_server.rs    # HTTP/WebSocket 服务器
 │   │   ├── db.rs            # SQLite 数据库逻辑
+│   │   ├── config_file.rs   # 配置文件读写（config.json）
 │   │   ├── peers.rs         # 在线用户管理器
 │   │   ├── models.rs        # 数据模型
 │   │   ├── utils.rs         # 工具函数
@@ -213,22 +220,6 @@ LANChat/
 │   │       └── messaging.rs # WebSocket 消息收发
 │   ├── capabilities/        # Tauri 权限配置
 │   ├── permissions/         # 自定义命令权限
-│   └── Cargo.toml
-├── lanclaw/                 # LANClaw AI 机器人
-│   ├── src/
-│   │   ├── main.rs          # 入口
-│   │   ├── config.rs        # 配置管理
-│   │   ├── models.rs        # 数据模型
-│   │   ├── router.rs        # 消息路由（文本/文件/命令）
-│   │   ├── rpc_client.rs    # Pi RPC 客户端
-│   │   ├── pi_bridge.rs     # Pi 进程管理
-│   │   ├── scheduler.rs     # 定时任务引擎
-│   │   ├── skill_gen.rs     # Pi Skill 文件生成
-│   │   └── network/         # 网络模块
-│   │       ├── discovery.rs # UDP 发现
-│   │       ├── messaging.rs # WebSocket 消息
-│   │       ├── mod.rs       # HTTP 路由
-│   │       └── file.rs      # 文件上传/下载
 │   └── Cargo.toml
 ├── Makefile                 # 一键构建脚本
 └── README.md                # 本文件

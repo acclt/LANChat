@@ -32,15 +32,7 @@ async function renderPage() {
 
   // 监听新消息事件(桌面端)
   await apiListen("new-message", (event) => {
-    console.log("[JS-App] ========== 收到 new-message 事件 ==========");
-    console.log("[JS-App] 事件类型:", typeof event);
-    console.log("[JS-App] 事件对象:", event);
-    console.log("[JS-App] payload 类型:", typeof event.payload);
-    console.log(
-      "[JS-App] payload 内容:",
-      JSON.stringify(event.payload, null, 2),
-    );
-    console.log("[JS-App] ==========================================");
+    console.debug("[JS-App] 收到 new-message 事件");
     onReceiveMessage(event.payload);
   });
 
@@ -509,11 +501,11 @@ function startStreamingWebSocket() {
     };
 
     ws.onmessage = (event) => {
-      console.log("[JS-App] WebSocket 收到消息:", event.data.substring(0, 80));
+      console.debug("[JS-App] WebSocket 收到消息:", event.data.substring(0, 80));
       try {
         const data = JSON.parse(event.data);
         if (data.stream_id || data.from_id) {
-          console.log("[JS-App] 转发到 onReceiveMessage, is_streaming:", data.is_streaming);
+          console.debug("[JS-App] 转发到 onReceiveMessage, is_streaming:", data.is_streaming);
           onReceiveMessage(data);
         }
       } catch (e) {

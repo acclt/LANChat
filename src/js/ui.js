@@ -531,17 +531,63 @@ function prependMessageToChat(message, isSent) {
 function updateStreamMessage(message) {
   if (!message.stream_id) return;
   const chatMessages = document.getElementById("chat-messages");
-  const existing = chatMessages.querySelector(`[data-stream-id="${message.stream_id}"]`);
+  let container = chatMessages.querySelector(`[data-stream-id="${message.stream_id}"]`);
 
-  if (existing) {
-    const textSpan = existing.querySelector(".message-text");
-    if (textSpan) {
-      textSpan.textContent = message.content;
-    }
-  } else {
-    const messageDiv = createMessageElement(message, false);
-    messageDiv.dataset.streamId = message.stream_id;
-    chatMessages.appendChild(messageDiv);
+  // 创建流式容器（首次）
+  if (!container) {
+    container = document.createElement("div");
+    container.className = "message received";
+    container.dataset.streamId = message.stream_id;
+    const contentDiv = document.createElement("div");
+    contentDiv.className = "message-content stream-content";
+    container.appendChild(contentDiv);
+    chatMessages.appendChild(container);
+  }
+
+  const contentDiv = container.querySelector(".message-content");
+
+  switch (message.msg_type) {
+    case "text":
+      if (message.is_thinking) {
+        // thinking 块：如果最后一个子元素也是 thinking，更新之；否则追加新的
+        let block = contentDiv.querySelector(":scope > .thinking-block:last-of-type");
+        if (block && block === contentDiv.lastElementChild) {
+          block.textContent = message.content;
+        } else {
+          block = document.createElement("div");
+          block.className = "thinking-block";
+          block.textContent = message.content;
+          contentDiv.appendChild(block);
+        }
+      } else {
+        // text 块：如果最后一个子元素也是 .message-text，更新之；否则追加新的
+        let block = contentDiv.querySelector(":scope > .message-text:last-of-type");
+        if (block && block === contentDiv.lastElementChild) {
+          block.textContent = message.content;
+        } else {
+          block = document.createElement("div");
+          block.className = "message-text";
+          block.textContent = message.content;
+          contentDiv.appendChild(block);
+        }
+      }
+      break;
+
+    case "tool_call":
+      // 工具调用：一次性追加
+      const name = message.tool_name || "";
+      const args = message.tool_args || "";
+      const tBlock = document.createElement("div");
+      tBlock.className = "toolcall-block";
+      tBlock.textContent = formatToolCall(name, args);
+      contentDiv.appendChild(tBlock);
+      break;
+
+    case "tool_result":
+      // 工具结果：一次性追加，默认折叠
+      const rBlock = createToolResultBlock(message.tool_output || "", message.is_error);
+      contentDiv.appendChild(rBlock);
+      break;
   }
 }
 
@@ -1126,6 +1172,56 @@ function createMessageElement(message, isSent) {
     }
 
     contentDiv.appendChild(modelContainer);
+  } else if (message.msg_type === "text" && typeof message.content === "string") {
+    // 尝试解析为多段落 JSON
+    let segments = null;
+    try {
+      const parsed = JSON.parse(message.content);
+      if (parsed && parsed.segments && Array.isArray(parsed.segments)) {
+        segments = parsed.segments;
+      }
+    } catch (_) {}
+    if (segments) {
+      console.log("[UI] 多段落消息, 段落数:", segments.length);
+      // 多段落消息：渲染各段落
+      for (const seg of segments) {
+        switch (seg.type) {
+          case "thinking": {
+            const block = document.createElement("div");
+            block.className = "thinking-block";
+            block.textContent = seg.content || "";
+            contentDiv.appendChild(block);
+            break;
+          }
+          case "text": {
+            const block = document.createElement("div");
+            block.className = "message-text";
+            block.textContent = seg.content || "";
+            contentDiv.appendChild(block);
+            break;
+          }
+          case "tool_call": {
+            const block = document.createElement("div");
+            block.className = "toolcall-block";
+            block.textContent = formatToolCall(seg.name || "", seg.args || "");
+            contentDiv.appendChild(block);
+            break;
+          }
+          case "tool_result": {
+            const block = createToolResultBlock(seg.output || "", seg.is_error);
+            contentDiv.appendChild(block);
+            break;
+          }
+        }
+      }
+    } else {
+      console.log("[UI] 普通文本消息:", message.content.substring(0, 80), "...");
+      // 普通文本
+      const textSpan = document.createElement("span");
+      textSpan.className = "message-text";
+      textSpan.textContent = message.content;
+      contentDiv.appendChild(textSpan);
+    }
   } else {
     const textSpan = document.createElement("span");
     textSpan.className = "message-text";
@@ -1190,9 +1286,9 @@ function createMessageElement(message, isSent) {
 
 // 接收到新消息
 function onReceiveMessage(message) {
-  console.log("[UI] ========== onReceiveMessage 被调用 ==========");
-  console.log("[UI] 消息内容:", JSON.stringify(message, null, 2));
-  console.log("[UI] 当前聊天对象:", window.currentChatPeer);
+  console.debug("[UI] ========== onReceiveMessage 被调用 ==========");
+  console.debug("[UI] 消息内容:", JSON.stringify(message, null, 2));
+  console.debug("[UI] 当前聊天对象:", window.currentChatPeer);
   // 仅在当前聊天窗口时处理
   if (window.currentChatPeer && window.currentChatPeer.id === message.from_id) {
     // —— 模型切换完成/失败时，重置按钮状态 ——
@@ -1218,13 +1314,15 @@ function onReceiveMessage(message) {
       return;
     }
     if (message.is_streaming === false) {
-      // 流式结束：用永久消息替换流式气泡（带 data-msg-id，轮询回来时幂等）
+      // 流式结束：给容器标记完成，不替换（容器已有所有段落块）
       const chatMessages = document.getElementById("chat-messages");
-      const existing = chatMessages.querySelector(`[data-stream-id="${message.stream_id}"]`);
-      if (existing) {
-        existing.replaceWith(createMessageElement(message, false));
-      } else {
-        chatMessages.appendChild(createMessageElement(message, false));
+      const container = chatMessages.querySelector(`[data-stream-id="${message.stream_id}"]`);
+      if (container) {
+        if (message.id) {
+          container.dataset.msgId = message.id;
+        }
+        container.dataset.status = "sent";
+        delete container.dataset.streamId;
       }
       if (message.timestamp > (window.lastMessageTimestamp || 0)) {
         window.lastMessageTimestamp = message.timestamp;
@@ -1413,7 +1511,75 @@ async function sendFile(file) {
 function formatFileSize(bytes) {
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  if (bytes < 1024 * 1024 * 1024)
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+}
+
+// ── 工具结果折叠块 ─────────────────────────────────────────────
+// 预览最多 3 行且不超过 200 字符
+function createToolResultBlock(output, isError) {
+  const block = document.createElement("div");
+  block.className = "toolresult-block" + (isError ? " toolresult-error" : "");
+  const preview = document.createElement("div");
+  preview.className = "toolresult-preview";
+  const lines = output.split("\n");
+  let previewText = "";
+  let lineCount = 0;
+  for (const line of lines) {
+    if (lineCount >= 3) break;
+    const wouldBe = previewText ? previewText + "\n" + line : line;
+    if (wouldBe.length > 200) {
+      previewText = (previewText ? previewText + "\n" : "") + line.substring(0, 200 - previewText.length - (previewText ? 1 : 0));
+      lineCount++;
+      break;
+    }
+    previewText = wouldBe;
+    lineCount++;
+  }
+  const hasMore = lines.length > lineCount || output.length > 200;
+  if (hasMore) previewText += "\n...";
+  preview.textContent = previewText;
+  block.appendChild(preview);
+  const full = document.createElement("div");
+  full.className = "toolresult-full";
+  full.textContent = output;
+  block.appendChild(full);
+  if (hasMore) {
+    const toggle = document.createElement("span");
+    toggle.className = "toolresult-toggle";
+    toggle.textContent = "展开 ▼";
+    toggle.addEventListener("click", () => {
+      const expanded = block.classList.toggle("expanded");
+      toggle.textContent = expanded ? "收起 ▲" : "展开 ▼";
+    });
+    block.appendChild(toggle);
+  }
+  return block;
+}
+
+// ── 工具调用格式化 ─────────────────────────────────────────────
+// 类似 Pi TUI：web_search "B站 bilibili..."
+function formatToolCall(name, args) {
+  let text = `🔧 ${name}`;
+  if (!args) return text;
+  try {
+    const parsed = JSON.parse(args);
+    const entries = Object.entries(parsed);
+    if (entries.length === 1) {
+      const [k, v] = entries[0];
+      text += `\n(${typeof v === "string" ? '"' + v + '"' : JSON.stringify(v)})`;
+    } else if (entries.length > 1) {
+      const parts = entries.map(([k, v]) => {
+        const val = typeof v === "string" ? '"' + v + '"' : JSON.stringify(v);
+        return `${k}: ${val}`;
+      });
+      text += `\n(${parts.join(", ")})`;
+    }
+  } catch {
+    text += `\n${args}`;
+  }
+  return text;
 }
 
 // 下载文件

@@ -429,6 +429,88 @@ h2::before {
 	/* 继承输入框的字体，确保缩进视觉一致 */
 }
 
+/* 思考过程：浅色斜体 */
+.thinking-block {
+	color: var(--text-muted);
+	font-style: italic;
+	opacity: 0.7;
+	white-space: pre-wrap;
+	word-break: break-word;
+	padding: 4px 0;
+	border-left: 2px solid var(--text-muted);
+	padding-left: 8px;
+	margin-bottom: 6px;
+}
+
+/* 工具调用：带左边框的 monospace 块 */
+.toolcall-block {
+	background: rgba(0, 0, 0, 0.2);
+	border-left: 3px solid var(--primary);
+	padding: 6px 10px;
+	margin: 4px 0 6px 0;
+	font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
+	font-size: 0.85em;
+	white-space: pre-wrap;
+	word-break: break-word;
+	border-radius: 4px;
+}
+
+/* 工具结果：浅绿底、可折叠 */
+.toolresult-block {
+	background: rgba(0, 200, 100, 0.08);
+	border: 1px solid rgba(0, 200, 100, 0.2);
+	border-radius: 6px;
+	padding: 6px 10px;
+	margin: 4px 0 6px 0;
+	font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
+	font-size: 0.85em;
+	white-space: pre-wrap;
+	word-break: break-word;
+	position: relative;
+}
+
+.toolresult-block.toolresult-error {
+	background: rgba(255, 80, 80, 0.08);
+	border-color: rgba(255, 80, 80, 0.25);
+}
+
+.toolresult-preview {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.toolresult-full {
+	display: none;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.toolresult-block.expanded .toolresult-preview {
+	display: none;
+}
+
+.toolresult-block.expanded .toolresult-full {
+	display: block;
+}
+
+.toolresult-toggle {
+	cursor: pointer;
+	color: var(--primary);
+	font-size: 0.85em;
+	display: inline-block;
+	margin-top: 4px;
+	user-select: none;
+}
+
+.toolresult-toggle:hover {
+	text-decoration: underline;
+}
+
+/* 流式消息容器 */
+.stream-content > .message-text {
+	margin-top: 2px;
+}
+
 /* 2. 接收的消息 (左侧) - 实心深灰 */
 .message.received .message-content {
 	background: #44475a;
