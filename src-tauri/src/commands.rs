@@ -840,17 +840,22 @@ pub async fn save_file_message(
 }
 #[cfg(feature = "desktop")]
 #[tauri::command]
+#[cfg_attr(target_os = "android", allow(unused_variables))]
 pub async fn open_file_location(app: tauri::AppHandle, file_path: String) -> Result<(), String> {
-    use tauri_plugin_opener::OpenerExt;
+    #[cfg(not(target_os = "android"))]
+    {
+        use tauri_plugin_opener::OpenerExt;
 
-    println!("[Command] 打开文件位置: {}", file_path);
+        println!("[Command] 打开文件位置: {}", file_path);
 
-    // 使用 opener 插件打开文件所在目录
-    app.opener()
-        .reveal_item_in_dir(&file_path)
-        .map_err(|e| format!("打开文件位置失败: {}", e))?;
+        app.opener()
+            .reveal_item_in_dir(&file_path)
+            .map_err(|e| format!("打开文件位置失败: {}", e))?;
 
-    println!("[Command] ✓ 文件位置已打开");
+        println!("[Command] ✓ 文件位置已打开");
+    }
+
+    // Android 不支持"在文件管理器中显示位置"
     Ok(())
 }
 
@@ -1365,4 +1370,61 @@ pub async fn add_custom_peer(state: tauri::State<'_, crate::db::DbState>, peer: 
 #[tauri::command]
 pub async fn remove_custom_peer(state: tauri::State<'_, crate::db::DbState>, peer: String) -> Result<(), String> {
     crate::db::remove_custom_peer(&state.pool, &peer).await
+}
+
+#[tauri::command]
+pub async fn get_notifications_enabled(state: tauri::State<'_, crate::db::DbState>) -> Result<bool, String> {
+    Ok(crate::db::get_notifications_enabled(&state.pool).await)
+}
+
+#[tauri::command]
+pub async fn set_notifications_enabled(state: tauri::State<'_, crate::db::DbState>, enabled: bool) -> Result<(), String> {
+    crate::db::set_notifications_enabled(&state.pool, enabled).await
+}
+
+#[tauri::command]
+pub fn show_notification(_app: tauri::AppHandle, title: String, body: String) {
+    #[cfg(windows)]
+    {
+        // Windows 使用 PowerShell（不依赖 Start Menu 注册）
+        let safe_title = title.replace('\'', "''");
+        let safe_body = body.replace('\'', "''");
+        let script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; \
+             $n = New-Object System.Windows.Forms.NotifyIcon; \
+             $n.Icon = [System.Drawing.SystemIcons]::Information; \
+             $n.Visible = $true; \
+             $n.ShowBalloonTip(5000, '{safe_title}', '{safe_body}', [System.Windows.Forms.ToolTipIcon]::None)"
+        );
+        let _ = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &script,
+            ])
+            .spawn();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux 用 notify-send
+        let _ = std::process::Command::new("notify-send")
+            .arg(&title)
+            .arg(&body)
+            .spawn();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    {
+        // macOS / Android 通过 notification plugin
+        use tauri_plugin_notification::NotificationExt;
+        let app = _app;
+        let _ = app.notification()
+            .builder()
+            .title(&title)
+            .body(&body)
+            .show();
+    }
 }

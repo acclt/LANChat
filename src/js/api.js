@@ -910,3 +910,45 @@ async function apiRemoveCustomPeer(peer) {
     return data;
   }
 }
+/** 请求通知权限（按需调用，不在初始化时触发以避免 WebKit 警告） */
+async function requestNotificationPermission() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "default") {
+    await Notification.requestPermission().catch(() => {});
+  }
+}
+
+/** 显示桌面通知。Tauri 端调平台命令，Web 端用 Web Notification API */
+async function showNotification(title, body, extra = {}) {
+  // 存储 from_id 到 localStorage，供 Android 通知点击导航
+  if (extra.from_id) {
+    try { localStorage.setItem("pendingNotificationFromId", extra.from_id); } catch (_) {}
+  }
+  if (window.__TAURI__) {
+    // Tauri 端：先检查通知开关（用缓存避免每次都调 invoke）
+    if (window._notificationsEnabled === undefined) {
+      try {
+        window._notificationsEnabled = await window.__TAURI__.core.invoke("get_notifications_enabled");
+      } catch (_) { window._notificationsEnabled = true; }
+    }
+    if (!window._notificationsEnabled) return;
+    // 通过 Rust 命令（Windows→PowerShell, Linux→notify-send, macOS/Android→plugin）
+    try {
+      await window.__TAURI__.core.invoke("show_notification", { title, body });
+    } catch (e) {
+      console.error("[JS-API] 通知命令失败:", e);
+    }
+  } else if ("Notification" in window) {
+    // Web 端：按需请求权限，仅在已授权时发送
+    if (Notification.permission === "default") {
+      try { await Notification.requestPermission(); } catch (_) {}
+    }
+    if (Notification.permission === "granted") {
+      try {
+        new Notification(title, { body });
+      } catch (e) {
+        console.error("[JS-API] 通知发送失败:", e);
+      }
+    }
+  }
+}

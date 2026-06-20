@@ -356,6 +356,7 @@ function openChat(peer) {
   const userLi = document.querySelector(`#user-list li[data-id="${peer.id}"]`);
   if (userLi) {
     userLi.classList.remove("has-unread");
+    updateTrayFlash();
   }
   updateListHighlight(peer.id);
 
@@ -364,6 +365,12 @@ function openChat(peer) {
   loadChatHistory(peer.id).catch((e) => {
     console.error("[UI] 加载历史失败:", e);
   });
+
+  // 6. 切换到新聊天时隐藏回到底部按钮和红点
+  const scrollBtn = document.getElementById("scroll-to-bottom-btn");
+  if (scrollBtn) scrollBtn.classList.remove("show");
+  const unreadDot = document.getElementById("unread-dot");
+  if (unreadDot) unreadDot.classList.remove("show");
 
   console.log("[UI] 成功进入聊天:", peer.name);
 }
@@ -679,6 +686,34 @@ function waitForImagesToLoad(container) {
       resolve();
     }, 2000);
   });
+}
+
+// 更新托盘闪烁状态（桌面端：有未读红点时闪烁）
+function updateTrayFlash() {
+  if (!window.__TAURI__) {
+    console.log("[UI] updateTrayFlash: 非 Tauri 环境");
+    return;
+  }
+  const hasUnreadUser = document.querySelector("#user-list li.has-unread") !== null;
+  const hasUnreadScroll = document.querySelector("#unread-dot.show") !== null;
+  const hasUnread = hasUnreadUser || hasUnreadScroll;
+  const tauri = window.__TAURI__;
+  if (!tauri?.core?.invoke) {
+    console.log("[UI] updateTrayFlash: invoke 不可用");
+    return;
+  }
+  console.log("[UI] updateTrayFlash: hasUnread =", hasUnread);
+  if (hasUnread) {
+    tauri.core.invoke("start_tray_flash").then(
+      () => console.log("[UI] updateTrayFlash: 开始闪烁"),
+      (e) => console.error("[UI] updateTrayFlash: start_tray_flash 失败", e),
+    );
+  } else {
+    tauri.core.invoke("stop_tray_flash").then(
+      () => console.log("[UI] updateTrayFlash: 停止闪烁"),
+      (e) => console.error("[UI] updateTrayFlash: stop_tray_flash 失败", e),
+    );
+  }
 }
 
 // 滚动到聊天窗口底部(等待图片加载)
@@ -1361,7 +1396,23 @@ function onReceiveMessage(message) {
         const scrollBtn = document.getElementById("scroll-to-bottom-btn");
         const unreadDot = document.getElementById("unread-dot");
         if (scrollBtn) scrollBtn.classList.add("show");
-        if (unreadDot) unreadDot.classList.add("show");
+        if (unreadDot) {
+          unreadDot.classList.add("show");
+          updateTrayFlash();
+        }
+        // 当前聊天但不在底部，也触发通知
+        if (message.from_id && message.from_id !== window.myId && message.is_streaming !== false) {
+          const fromName = message.from_name || "未知用户";
+          let body = message.content || "";
+          if (message.msg_type === "file") {
+            body = `[文件] ${message.file_name || "未知文件"}`;
+          } else if (message.msg_type === "image") {
+            body = "[图片]";
+          } else if (body.length > 100) {
+            body = body.substring(0, 100) + "...";
+          }
+          showNotification(fromName, body, { from_id: message.from_id });
+        }
       }
   } else {
     console.log("[UI] ✗ 不匹配当前聊天对象");
@@ -1372,6 +1423,21 @@ function onReceiveMessage(message) {
     if (userLi) {
       userLi.classList.add("has-unread");
       sortUserList();
+      updateTrayFlash();
+    }
+    // 触发桌面通知（非自己的消息且非流式中间帧）
+    if (message.from_id && message.from_id !== window.myId && message.is_streaming !== false) {
+      const fromName = message.from_name || "未知用户";
+      let body = message.content || "";
+      // 流式最终帧、文件消息等特殊处理
+      if (message.msg_type === "file") {
+        body = `[文件] ${message.file_name || "未知文件"}`;
+      } else if (message.msg_type === "image") {
+        body = "[图片]";
+      } else if (body.length > 100) {
+        body = body.substring(0, 100) + "...";
+      }
+      showNotification(fromName, body, { from_id: message.from_id });
     }
     console.log("[UI]   - message.from_id:", message.from_id);
     console.log(

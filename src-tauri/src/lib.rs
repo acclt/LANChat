@@ -18,11 +18,16 @@ pub fn run() {
     use std::sync::Arc;
     use tauri::Manager;
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_sql::Builder::default().build());
+
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    let builder = builder.plugin(tauri_plugin_notification::init());
+
+    builder
         .invoke_handler(tauri::generate_handler![
             commands::close_android_fd,
             commands::get_my_name,
@@ -56,6 +61,9 @@ pub fn run() {
             commands::get_custom_peers,
             commands::add_custom_peer,
             commands::remove_custom_peer,
+            commands::show_notification,
+            commands::get_notifications_enabled,
+            commands::set_notifications_enabled,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

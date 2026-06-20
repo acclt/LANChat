@@ -51,6 +51,62 @@ async function renderPage() {
   console.log("[JS-App] 启动用户列表轮询");
   startPeerPolling();
 
+  // 请求通知权限不再在初始化时调用（WebKit 在非用户手势下调用会抛警告），
+  // 改由 showNotification 按需请求
+
+  // 监听通知点击事件（Tauri 端：点击通知跳转到对应聊天）
+  if (window.__TAURI__) {
+    apiListen("actionPerformed", async (event) => {
+      const notification = event?.payload?.notification;
+      if (!notification) return;
+      const from_id = notification.extra?.from_id;
+      if (!from_id) return;
+      const userLi = document.querySelector(`#user-list li[data-id="${from_id}"]`);
+      if (userLi) {
+        userLi.click();
+      }
+    });
+  }
+
+  // Android 通知点击（通过 MainActivity 直接注入）
+  window.addEventListener("notification-tapped", (e) => {
+    const from_id = e.detail?.fromId;
+    if (!from_id) return;
+    const userLi = document.querySelector(`#user-list li[data-id="${from_id}"]`);
+    if (userLi) userLi.click();
+  });
+
+  // 托盘「显示窗口」时打开最新未读聊天
+  if (window.__TAURI__) {
+    apiListen("open-latest-unread", () => {
+      // 消费一次性的 pendingNotificationFromId（由最近一条通知设置）
+      const pendingFromId = (() => {
+        try {
+          const id = localStorage.getItem("pendingNotificationFromId");
+          localStorage.removeItem("pendingNotificationFromId");
+          return id;
+        } catch (_) { return null; }
+      })();
+
+      // 优先跳转到 pendingFromId 对应的用户
+      if (pendingFromId) {
+        const userLi = document.querySelector(`#user-list li[data-id="${pendingFromId}"]`);
+        if (userLi) { userLi.click(); return; }
+      }
+
+      // 没有 pending 时，跳转到列表里第一个有未读的用户
+      const firstUnread = document.querySelector("#user-list li.has-unread");
+      if (firstUnread) firstUnread.click();
+    });
+  }
+
+  // 监听托盘菜单的通知开关变更（刷新 JS 缓存）
+  if (window.__TAURI__) {
+    apiListen("notifications-changed", (event) => {
+      window._notificationsEnabled = event.payload;
+    });
+  }
+
   // 启动消息轮询（桌面端和 Web 端都需要，用于检测状态变化）
   const tauri = window.__TAURI__;
   console.log("[JS-App] 启动消息轮询");
@@ -470,11 +526,14 @@ async function startUnreadMessageCheck() {
             console.log("[JS-App] 检测到用户", userId, "有新消息，显示红点");
             userItem.classList.add("has-unread");
             sortUserList();
+            updateTrayFlash();
             // 更新时间戳
             window.userLastMessageTimestamps[userId] = latestMsg.timestamp;
           }
         }
       }
+      // 全部检查后同步托盘闪烁（可能已有红点或被其他标签页消除）
+      updateTrayFlash?.();
     } catch (e) {
       console.error("[JS-App] 检查未读消息失败:", e);
     }

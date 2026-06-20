@@ -28,20 +28,16 @@ web = ["sysinfo"]
 tauri-build = { version = "2.0", features = [], optional = true }
 
 [dependencies]
-# 核心 - 仅桌面端需要
-tauri = { version = "2.0", features = ["protocol-asset", "tray-icon"], optional = true }
-tauri-plugin-shell = { version = "2.0", optional = true }
+# 核心 - 所有 Tauri 平台都需要的基础功能
+tauri = { version = "2.0", features = ["protocol-asset"], optional = true }
 tauri-plugin-fs = { version = "2.0", optional = true }
 tauri-plugin-dialog = { version = "2.0", optional = true }
 tauri-plugin-sql = { version = "2.0", features = ["sqlite"], optional = true }
 tauri-plugin-log = { version = "2.0", optional = true }
-tauri-plugin-single-instance = { version = "2.0", optional = true }
-tauri-plugin-opener = { version = "2.0", optional = true }
+tauri-plugin-shell = { version = "2.0", optional = true }
 log = "0.4"
-
 # 数据库 - 两端都需要
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros"] }
-
 # Web 服务器 - 两端都需要
 axum = { version = "0.7", features = ["ws", "multipart"] }
 tower-http = { version = "0.5", features = ["fs", "cors"] }
@@ -49,37 +45,47 @@ tokio-tungstenite = "0.24"
 futures-util = "0.3"
 clap = { version = "4.4", features = ["derive"] }
 rust-embed = "8.0"
-
 # 工具 - 两端都需要
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "time", "sync", "macros", "fs", "io-util"] }
 tokio-util = { version = "0.7", features = ["io"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-chrono = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1.0", features = ["v4"] }
 rand = "0.8"
 mime_guess = "2.0.5"
 socket2 = { version = "0.5", features = ["all"] }
 directories = "5.0"
 dirs = "5.0"
-reqwest = { version = "0.12", features = ["multipart", "json"] }
 urlencoding = "2.1"
 sysinfo = { version = "0.30", optional = true }
 
-# 剪贴板 - 仅非 Android 的桌面端
+# ━━━ 平台特定依赖（以下均为 [target.'cfg()'.dependencies] ━━━
+
+# 桌面端独占的 tauri 功能（托盘、图标解码、单实例、打开文件）
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri = { version = "2.0", features = ["tray-icon", "image-png"], optional = true }
+tauri-plugin-single-instance = { version = "2.0", optional = true }
+tauri-plugin-opener = { version = "2.0", optional = true }
+
+# 非 Android 平台：使用 native-tls 和剪贴板
 [target.'cfg(not(target_os = "android"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["multipart", "json", "native-tls"] }
 clipboard-rs = { version = "0.3.3", optional = true }
 
-# Wayland 剪贴板 - 仅 Linux
+# Android 平台：使用 rustls-tls（避免 vendored OpenSSL 交叉编译问题）
+[target.'cfg(target_os = "android")'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["multipart", "json", "rustls-tls"] }
+jni = "0.21"
+ndk-context = "0.1"
+
+# Wayland 剪贴板 - 仅 Linux 桌面端
 [target.'cfg(target_os = "linux")'.dependencies]
 wl-clipboard-rs = { version = "0.9", optional = true }
 
-# Android平台需要vendored OpenSSL
-[target.'cfg(target_os = "android")'.dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
-openssl-sys = { version = "0.9", features = ["vendored"] }
-jni = "0.21"
-ndk-context = "0.1"
+# macOS 和 Android 需要通知插件
+[target.'cfg(any(target_os = "macos", target_os = "android"))'.dependencies]
+tauri-plugin-notification = "2.0"
 
 
 
@@ -87,6 +93,6 @@ ndk-context = "0.1"
 [profile.release]
 strip = true          # 移除调试符号
 opt-level = "z"       # 优化体积
-lto = true            # 链接时优化
+lto = true            # 链接时优化（thin LTO 更有利于体积）
 codegen-units = 1     # 更好的优化
 panic = "abort"       # 减小体积

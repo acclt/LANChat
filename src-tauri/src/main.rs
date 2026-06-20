@@ -3,15 +3,89 @@
 
 use lanchat::db;
 use lanchat::peers::PeerManager;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
-    Manager,
+    AppHandle, Emitter, Manager,
 };
 
+// 托盘闪烁状态
+pub struct TrayFlashState {
+    is_flashing: Arc<AtomicBool>,
+}
+
+impl Default for TrayFlashState {
+    fn default() -> Self {
+        Self {
+            is_flashing: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+const ICON_EMPTY: &[u8] = include_bytes!("../icons/icon_empty.png");
+
+// 读取正常图标字节（与 bundle.icon 第一项一致）
+const ICON_NORMAL: &[u8] = include_bytes!("../icons/32x32.png");
+
+#[tauri::command]
+fn start_tray_flash(app: AppHandle, state: tauri::State<'_, TrayFlashState>) {
+    println!("[TrayFlash] start_tray_flash 被调用");
+    if state.is_flashing.load(Ordering::Relaxed) {
+        println!("[TrayFlash] 已在闪烁中，跳过");
+        return;
+    }
+    state.is_flashing.store(true, Ordering::Relaxed);
+    println!("[TrayFlash] 开始闪烁");
+
+    let flashing = state.is_flashing.clone();
+    let app = app.clone();
+
+    std::thread::spawn(move || {
+        let normal_img = match Image::from_bytes(ICON_NORMAL) {
+            Ok(img) => img,
+            Err(e) => {
+                eprintln!("[TrayFlash] 无法加载正常图标: {}", e);
+                return;
+            }
+        };
+        let empty_img = match Image::from_bytes(ICON_EMPTY) {
+            Ok(img) => img,
+            Err(e) => {
+                eprintln!("[TrayFlash] 无法加载空白图标: {}", e);
+                return;
+            }
+        };
+
+        let mut toggle = false;
+        while flashing.load(Ordering::Relaxed) {
+            if let Some(tray) = app.tray_by_id("main") {
+                let icon = if toggle { &normal_img } else { &empty_img };
+                let _ = tray.set_icon(Some(icon.clone()));
+            } else {
+                eprintln!("[TrayFlash] 找不到托盘 'main'");
+            }
+            toggle = !toggle;
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        // 停止闪烁，恢复为正常图标
+        println!("[TrayFlash] 停止闪烁，恢复图标");
+        if let Some(tray) = app.tray_by_id("main") {
+            let _ = tray.set_icon(Some(normal_img));
+        }
+    });
+}
+
+#[tauri::command]
+fn stop_tray_flash(state: tauri::State<'_, TrayFlashState>) {
+    println!("[TrayFlash] stop_tray_flash 被调用");
+    state.is_flashing.store(false, Ordering::Relaxed);
+}
+
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 当尝试启动第二个实例时，显示已存在的窗口
             if let Some(window) = app.get_webview_window("main") {
@@ -24,7 +98,12 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    let builder = builder.plugin(tauri_plugin_notification::init());
+
+    builder
         // --- 重点：添加下面这段代码 ---
         .invoke_handler(tauri::generate_handler![
             lanchat::commands::close_android_fd,
@@ -60,6 +139,11 @@ fn main() {
             lanchat::commands::get_custom_peers,
             lanchat::commands::add_custom_peer,
             lanchat::commands::remove_custom_peer,
+            lanchat::commands::show_notification,
+            lanchat::commands::get_notifications_enabled,
+            lanchat::commands::set_notifications_enabled,
+            start_tray_flash,
+            stop_tray_flash,
         ])
         // --------------------------
         .setup(|app| {
@@ -78,13 +162,56 @@ fn main() {
                 });
             }
 
-            // 创建托盘菜单
+            // 先初始化 DB，再创建托盘（托盘菜单需要读 DB）
+            let pool = tauri::async_runtime::block_on(async {
+                // Step 6: 读 config.json 取 db_path
+                let cfg = lanchat::config_file::read_config();
+                let db_dir = cfg.db_path
+                    .as_ref()
+                    .map(|p| lanchat::config_file::resolve_db_dir(p));
+
+                if let Some(dir) = db_dir {
+                    lanchat::db::init_db_standalone(Some(dir)).await.expect("DB error")
+                } else {
+                    db::init_db(&handle).await.expect("DB error")
+                }
+            });
+
+            let my_name = tauri::async_runtime::block_on(async {
+                db::get_username(&pool).await.unwrap_or_else(|_| "Unknown".into())
+            });
+
+            let my_id = tauri::async_runtime::block_on(async {
+                db::get_user_id(&pool).await.expect("无法获取或生成用户 ID")
+            });
+
+            let port: u16 = tauri::async_runtime::block_on(async {
+                let port_str = db::get_port(&pool).await.unwrap_or_else(|_| "8888".to_string());
+                port_str.parse().unwrap_or(8888)
+            });
+
+            let notif_enabled = tauri::async_runtime::block_on(async {
+                lanchat::db::get_notifications_enabled(&pool).await
+            });
+
+            handle.manage(db::DbState { pool: pool.clone() });
+            handle.manage(TrayFlashState::default());
+            println!("[Main] 我的用户名: {}", my_name);
+            println!("[Main] 我的 ID: {}", my_id);
+            println!("[Main] 服务端口: {}", port);
+
+            // 创建托盘菜单（现在 DB 已就绪）
             let show_item = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
+            let toggle_notif = tauri::menu::CheckMenuItem::with_id(
+                app, "toggle_notif", "开启通知", true, notif_enabled, None::<&str>,
+            )?;
+            let toggle_notif_clone = toggle_notif.clone();
+            let notif_enabled_atomic = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(notif_enabled));
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &toggle_notif, &quit_item])?;
 
             // 创建托盘图标
-            let _tray = TrayIconBuilder::new()
+            let _tray = TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("LANChat")
@@ -93,6 +220,25 @@ fn main() {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                        }
+                        let _ = app.emit("open-latest-unread", ());
+                    }
+                    "toggle_notif" => {
+                        let current = notif_enabled_atomic.load(std::sync::atomic::Ordering::Relaxed);
+                        let new_state = !current;
+                        notif_enabled_atomic.store(new_state, std::sync::atomic::Ordering::Relaxed);
+                        let _ = toggle_notif_clone.set_checked(new_state);
+                        // 持久化到 DB
+                        let pool = {
+                            let state = app.state::<lanchat::db::DbState>();
+                            state.pool.clone()
+                        };
+                        tauri::async_runtime::block_on(async {
+                            let _ = lanchat::db::set_notifications_enabled(&pool, new_state).await;
+                        });
+                        // 通知 JS 刷新缓存
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.emit("notifications-changed", new_state);
                         }
                     }
                     "quit" => {
@@ -115,58 +261,27 @@ fn main() {
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
+                            let _ = app.emit("open-latest-unread", ());
                         }
                     }
                 })
                 .build(app)?;
 
-            tauri::async_runtime::block_on(async move {
-                // Step 6: 读 config.json 取 db_path
-                let cfg = lanchat::config_file::read_config();
-                let db_dir = cfg.db_path
-                    .as_ref()
-                    .map(|p| lanchat::config_file::resolve_db_dir(p));
-
-                // 打开数据库（如果有自定义路径则用，否则用 Tauri 默认路径）
-                println!("[Main] 正在初始化数据库...");
-                let pool = if let Some(dir) = db_dir {
-                    lanchat::db::init_db_standalone(Some(dir)).await.expect("DB error")
-                } else {
-                    db::init_db(&handle).await.expect("DB error")
-                };
-                let my_name = db::get_username(&pool)
-                    .await
-                    .unwrap_or_else(|_| "Unknown".into());
-
-                let my_id = db::get_user_id(&pool).await.expect("无法获取或生成用户 ID");
-
-                // Step 8: 读 DB 取 port（桌面端没有 CLI 参数，完全依赖 DB 配置）
-                let port: u16 = {
-                    let port_str = db::get_port(&pool).await.unwrap_or_else(|_| "8888".to_string());
-                    port_str.parse().unwrap_or(8888)
-                };
-                println!("[Main] 服务端口: {}", port);
-
-                handle.manage(db::DbState { pool: pool.clone() });
-                println!("[Main] 我的用户名: {}", my_name);
-                println!("[Main] 我的 ID: {}", my_id);
-
-                // 创建全局用户管理器
-                let peer_manager = Arc::new(PeerManager::new());
-
-                // 从数据库加载历史用户
+                        // 创建 PeerManager 并启动服务（DB 已就绪，无需再次 block_on）
+            let peer_manager = Arc::new(PeerManager::new());
+            let _ = tauri::async_runtime::block_on(async {
                 if let Err(e) = peer_manager.load_from_db(&pool).await {
                     eprintln!("[Main] 加载历史用户失败: {}", e);
                 }
+                Ok::<(), ()>(())
+            });
+            handle.manage(lanchat::commands::PeerState {
+                manager: peer_manager.clone(),
+            });
+            handle.manage(lanchat::commands::AndroidShareState::new());
 
-                // 将 PeerManager 注册到 Tauri 状态管理
-                handle.manage(lanchat::commands::PeerState {
-                    manager: peer_manager.clone(),
-                });
-
-                // 注册 Android 分享状态
-                handle.manage(lanchat::commands::AndroidShareState::new());
-
+            // 在 Tokio runtime 上下文中启动后台线程
+            tauri::async_runtime::block_on(async {
                 let h1 = handle.clone();
                 let id1 = my_id.clone();
                 let name1 = my_name.clone();
@@ -175,12 +290,7 @@ fn main() {
                 tokio::spawn(async move {
                     println!("[Main] 开启监听线程...");
                     lanchat::network::discovery::start_listening(
-                        port,
-                        id1,
-                        name1,
-                        Some(h1),
-                        peer_manager_clone,
-                        pool_for_discovery,
+                        port, id1, name1, Some(h1), peer_manager_clone, pool_for_discovery,
                     )
                     .await;
                 });
@@ -192,22 +302,18 @@ fn main() {
                     lanchat::network::discovery::start_announcing(port, id2, pool2).await;
                 });
 
-                // 桌面端也启动 HTTP 服务器（用于接收文件和 WebSocket 消息）
                 let pool_clone = pool.clone();
                 let peer_manager_clone = peer_manager.clone();
                 let handle_clone = handle.clone();
                 tokio::spawn(async move {
                     println!("[Main] 启动 HTTP 服务器在端口 {}...", port);
                     lanchat::web_server::start_server(
-                        port,
-                        port,
-                        pool_clone,
-                        peer_manager_clone,
-                        Some(handle_clone),
+                        port, port, pool_clone, peer_manager_clone, Some(handle_clone),
                     )
                     .await;
                 });
             });
+
             Ok(())
         })
         .run(tauri::generate_context!())

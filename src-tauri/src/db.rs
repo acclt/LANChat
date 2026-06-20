@@ -1035,3 +1035,34 @@ pub async fn remove_custom_peer(pool: &sqlx::Pool<sqlx::Sqlite>, peer: &str) -> 
     println!("[DB] 已删除自定义 IP: {}", peer);
     Ok(())
 }
+
+// ── 通知开关 ──────────────────────────────────────────────
+
+/// 获取通知开关状态（默认开启）
+pub async fn get_notifications_enabled(pool: &sqlx::Pool<sqlx::Sqlite>) -> bool {
+    let res = sqlx::query_as::<_, (String,)>(
+        "SELECT value FROM settings WHERE key = 'notifications_enabled'",
+    )
+    .fetch_one(pool)
+    .await;
+
+    match res {
+        Ok((val,)) => val == "true",
+        Err(_) => true, // 默认开启
+    }
+}
+
+/// 设置通知开关状态
+pub async fn set_notifications_enabled(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    enabled: bool,
+) -> Result<(), String> {
+    let val = if enabled { "true" } else { "false" };
+    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('notifications_enabled', ?)")
+        .bind(val)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("保存通知设置失败: {}", e))?;
+    println!("[DB] 通知状态已设置为: {}", val);
+    Ok(())
+}

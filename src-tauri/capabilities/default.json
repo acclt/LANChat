@@ -17,6 +17,11 @@
     "sql:default",
     "log:default",
     "shell:default",
+    "allow-show-notification",
+    "allow-get-notifications-enabled",
+    "allow-set-notifications-enabled",
+    "allow-start-tray-flash",
+    "allow-stop-tray-flash",
     "allow-get-my-name",
     "allow-get-my-id",
     "allow-update-my-name",
@@ -43,13 +48,6 @@
 		"allow-get-custom-peers",
 		"allow-add-custom-peer",
 		"allow-remove-custom-peer",
-    {
-      "identifier": "opener:allow-reveal-item-in-dir",
-      "allow": [
-        { "path": "[a-zA-Z]:**" },
-        { "path": "/**" }
-      ]
-    },
     {
       "identifier": "fs:scope",
       "allow": [

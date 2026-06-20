@@ -16,10 +16,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
+// 通知 Intent 的 Key 常量（来自 tauri-plugin-notification）
+private const val NOTIFICATION_INTENT_KEY = "NotificationId"
+private const val NOTIFICATION_OBJ_INTENT_KEY = "LocalNotficationObject"
+private const val ACTION_INTENT_KEY = "NotificationUserAction"
+
 class MainActivity : TauriActivity() {
     private var pendingSharedFiles: List<SharedFileInfo>? = null
     private var webView: WebView? = null
     private var shareReceiver: BroadcastReceiver? = null
+    private var lastNotificationFromId: String? = null
 
     data class SharedFileInfo(
         val uri: Uri,
@@ -37,6 +43,21 @@ class MainActivity : TauriActivity() {
         
         // 注册广播接收器
         registerShareReceiver()
+        
+        // 检测冷启动是否来自通知点击
+        checkNotificationLaunch(intent)
+    }
+
+    private fun checkNotificationLaunch(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.getStringExtra(ACTION_INTENT_KEY)
+        if (action == "tap") {
+            println("[MainActivity] 冷启动来自通知点击")
+            // 延迟等 WebView 就绪后再通知 JS
+            window.decorView.postDelayed({
+                notifyNotificationClicked()
+            }, 1000)
+        }
     }
 
     private fun registerShareReceiver() {
@@ -156,6 +177,14 @@ class MainActivity : TauriActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        
+        // 检测通知点击：NotificationUserAction == "tap" 表示通知被点击
+        val action = intent.getStringExtra(ACTION_INTENT_KEY)
+        if (action == "tap") {
+            println("[MainActivity] 通知被点击")
+            // 通知 JS 从 localStorage 读取 from_id 并导航
+            notifyNotificationClicked()
+        }
     }
     
     override fun onResume() {
@@ -165,6 +194,20 @@ class MainActivity : TauriActivity() {
     }
     
 
+    private fun notifyNotificationClicked() {
+        // 通知前端从 localStorage 读取 pendingFromId 并导航
+        notifyWebViewWithRetry(0, """
+            (function() {
+                console.log('[MainActivity] 通知被点击，尝试导航');
+                var fromId = localStorage.getItem('pendingNotificationFromId');
+                if (fromId) {
+                    localStorage.removeItem('pendingNotificationFromId');
+                    window.dispatchEvent(new CustomEvent('notification-tapped', {detail: {fromId: fromId}}));
+                }
+            })();
+        """.trimIndent())
+    }
+    
     private fun notifyWebView() {
         println("[MainActivity] 准备通知 WebView")
         
@@ -172,7 +215,12 @@ class MainActivity : TauriActivity() {
         notifyWebViewWithRetry(0)
     }
     
-    private fun notifyWebViewWithRetry(attempt: Int) {
+    private fun notifyWebViewWithRetry(attempt: Int, jsCode: String = """
+        (function() {
+            console.log('[MainActivity] 触发 android-share-received 事件');
+            window.dispatchEvent(new CustomEvent('android-share-received'));
+        })();
+    """.trimIndent()) {
         val maxAttempts = 10
         val delayMs = 500L
         
@@ -191,13 +239,7 @@ class MainActivity : TauriActivity() {
                 println("[MainActivity] WebView 已就绪（尝试 ${attempt + 1}），发送事件")
                 runOnUiThread {
                     try {
-                        webView?.evaluateJavascript(
-                            """
-                            (function() {
-                                console.log('[MainActivity] 触发 android-share-received 事件');
-                                window.dispatchEvent(new CustomEvent('android-share-received'));
-                            })();
-                            """.trimIndent(),
+                        webView?.evaluateJavascript(jsCode,
                             { result ->
                                 println("[MainActivity] JavaScript 执行结果: $result")
                             }
@@ -209,7 +251,7 @@ class MainActivity : TauriActivity() {
                 }
             } else {
                 println("[MainActivity] WebView 未就绪（尝试 ${attempt + 1}），继续重试...")
-                notifyWebViewWithRetry(attempt + 1)
+                notifyWebViewWithRetry(attempt + 1, jsCode)
             }
         }, delayMs)
     }
