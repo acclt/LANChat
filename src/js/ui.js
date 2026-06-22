@@ -1350,10 +1350,8 @@ function onReceiveMessage(message) {
     // 流式消息处理
     if (message.is_streaming === true) {
       updateStreamMessage(message);
-      // 用户未主动上滚时，自动跟随底部
-      const scrollBtn = document.getElementById("scroll-to-bottom-btn");
-      const userScrolledUp = scrollBtn && scrollBtn.classList.contains("show");
-      if (!userScrolledUp) {
+      // 用户主动上滚时暂停自动跟随，回到底部后恢复
+      if (!window._userScrolledAway) {
         setTimeout(async () => { await scrollToBottom(); }, 10);
       }
       return;
@@ -1372,9 +1370,7 @@ function onReceiveMessage(message) {
       if (message.timestamp > (window.lastMessageTimestamp || 0)) {
         window.lastMessageTimestamp = message.timestamp;
       }
-      const scrollBtn = document.getElementById("scroll-to-bottom-btn");
-      const userScrolledUp = scrollBtn && scrollBtn.classList.contains("show");
-      if (!userScrolledUp) {
+      if (!window._userScrolledAway) {
         setTimeout(async () => { await scrollToBottom(); }, 10);
       }
       return;
@@ -2557,15 +2553,15 @@ function initScrollToBottomBtn() {
     }
   });
 
-  // 3. 监听滚动事件,控制显示/隐藏
+  // 3. 监听滚动事件,控制显示/隐藏 和 自动跟随状态
   chatMessages.addEventListener("scroll", () => {
-    // 距离底部 150px 以内都认为是在底部
     const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
-        chatMessages.clientHeight < 150;
+        chatMessages.clientHeight < 10;
 
     if (isAtBottom) {
       // 滚到底部了,隐藏按钮
       btn.classList.remove("show");
+      window._userScrolledAway = false;
 
       // 滚到底部时必须清除红点状态
       const unreadDot = document.getElementById("unread-dot");
@@ -2575,6 +2571,7 @@ function initScrollToBottomBtn() {
     } else {
       // 不在底部,按钮应该显示(但不一定有红点,红点由新消息触发)
       btn.classList.add("show");
+      window._userScrolledAway = true;
     }
   });
 }
