@@ -584,9 +584,7 @@ function updateStreamMessage(message) {
       // 工具调用：一次性追加
       const name = message.tool_name || "";
       const args = message.tool_args || "";
-      const tBlock = document.createElement("div");
-      tBlock.className = "toolcall-block";
-      tBlock.textContent = formatToolCall(name, args);
+      const tBlock = createToolCallBlock(name, args);
       contentDiv.appendChild(tBlock);
       break;
 
@@ -713,6 +711,20 @@ function updateTrayFlash() {
       () => console.log("[UI] updateTrayFlash: 停止闪烁"),
       (e) => console.error("[UI] updateTrayFlash: stop_tray_flash 失败", e),
     );
+  }
+}
+
+// 展开/收起后检查滚动按钮状态
+function checkScrollButton() {
+  const chatMessages = document.getElementById("chat-messages");
+  const btn = document.getElementById("scroll-to-bottom-btn");
+  if (!chatMessages || !btn) return;
+  const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
+      chatMessages.clientHeight < 150;
+  if (isAtBottom) {
+    btn.classList.remove("show");
+  } else {
+    btn.classList.add("show");
   }
 }
 
@@ -1236,9 +1248,7 @@ function createMessageElement(message, isSent) {
             break;
           }
           case "tool_call": {
-            const block = document.createElement("div");
-            block.className = "toolcall-block";
-            block.textContent = formatToolCall(seg.name || "", seg.args || "");
+            const block = createToolCallBlock(seg.name || "", seg.args || "");
             contentDiv.appendChild(block);
             break;
           }
@@ -1340,11 +1350,11 @@ function onReceiveMessage(message) {
     // 流式消息处理
     if (message.is_streaming === true) {
       updateStreamMessage(message);
-      const chatMessages = document.getElementById("chat-messages");
-      const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
-          chatMessages.clientHeight < 100;
-      if (wasAtBottom) {
-        setTimeout(async () => { await scrollToBottom(); }, 50);
+      // 用户未主动上滚时，自动跟随底部
+      const scrollBtn = document.getElementById("scroll-to-bottom-btn");
+      const userScrolledUp = scrollBtn && scrollBtn.classList.contains("show");
+      if (!userScrolledUp) {
+        setTimeout(async () => { await scrollToBottom(); }, 10);
       }
       return;
     }
@@ -1362,10 +1372,10 @@ function onReceiveMessage(message) {
       if (message.timestamp > (window.lastMessageTimestamp || 0)) {
         window.lastMessageTimestamp = message.timestamp;
       }
-      const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
-          chatMessages.clientHeight < 100;
-      if (wasAtBottom) {
-        setTimeout(async () => { await scrollToBottom(); }, 50);
+      const scrollBtn = document.getElementById("scroll-to-bottom-btn");
+      const userScrolledUp = scrollBtn && scrollBtn.classList.contains("show");
+      if (!userScrolledUp) {
+        setTimeout(async () => { await scrollToBottom(); }, 10);
       }
       return;
     }
@@ -1383,17 +1393,16 @@ function onReceiveMessage(message) {
     }
 
     const chatMessages = document.getElementById("chat-messages");
-    const wasAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop -
-        chatMessages.clientHeight < 100;
+    const scrollBtn = document.getElementById("scroll-to-bottom-btn");
+    const wasAtBottom = !scrollBtn || !scrollBtn.classList.contains("show");
 
     addMessageToChat(message, false);
 
     if (wasAtBottom) {
         setTimeout(async () => {
           await scrollToBottom();
-        }, 50);
+        }, 10);
       } else {
-        const scrollBtn = document.getElementById("scroll-to-bottom-btn");
         const unreadDot = document.getElementById("unread-dot");
         if (scrollBtn) scrollBtn.classList.add("show");
         if (unreadDot) {
@@ -1584,6 +1593,73 @@ function formatFileSize(bytes) {
 
 // ── 工具结果折叠块 ─────────────────────────────────────────────
 // 预览最多 3 行且不超过 200 字符
+function createToolCallBlock(name, args) {
+  const block = document.createElement("div");
+  block.className = "toolcall-block";
+
+  // 格式化参数文本
+  let formatted = `🔧 ${name}`;
+  if (args) {
+    try {
+      const parsed = JSON.parse(args);
+      const entries = Object.entries(parsed);
+      if (entries.length === 1) {
+        const [k, v] = entries[0];
+        formatted += `\n(${typeof v === "string" ? '"' + v + '"' : JSON.stringify(v)})`;
+      } else if (entries.length > 1) {
+        const parts = entries.map(([k, v]) => {
+          const val = typeof v === "string" ? '"' + v + '"' : JSON.stringify(v);
+          return `${k}: ${val}`;
+        });
+        formatted += `\n(${parts.join(", ")})`;
+      }
+    } catch {
+      formatted += `\n${args}`;
+    }
+  }
+
+  // 预览行（取前 3 行 / 200 字符）
+  const preview = document.createElement("div");
+  preview.className = "toolcall-preview";
+  const lines = formatted.split("\n");
+  let previewText = "";
+  let lineCount = 0;
+  for (const line of lines) {
+    if (lineCount >= 3) break;
+    const wouldBe = previewText ? previewText + "\n" + line : line;
+    if (wouldBe.length > 200) {
+      previewText = (previewText ? previewText + "\n" : "") + line.substring(0, 200 - previewText.length - (previewText ? 1 : 0));
+      lineCount++;
+      break;
+    }
+    previewText = wouldBe;
+    lineCount++;
+  }
+  const hasMore = lines.length > lineCount || formatted.length > 200;
+  if (hasMore) previewText += "\n...";
+  preview.textContent = previewText;
+  block.appendChild(preview);
+
+  // 完整内容（默认隐藏）
+  const full = document.createElement("div");
+  full.className = "toolcall-full";
+  full.textContent = formatted;
+  block.appendChild(full);
+
+  if (hasMore) {
+    const toggle = document.createElement("span");
+    toggle.className = "toolcall-toggle";
+    toggle.textContent = "展开 ▼";
+    toggle.addEventListener("click", () => {
+      const expanded = block.classList.toggle("expanded");
+      toggle.textContent = expanded ? "收起 ▲" : "展开 ▼";
+      checkScrollButton();
+    });
+    block.appendChild(toggle);
+  }
+  return block;
+}
+
 function createToolResultBlock(output, isError) {
   const block = document.createElement("div");
   block.className = "toolresult-block" + (isError ? " toolresult-error" : "");
@@ -1618,35 +1694,14 @@ function createToolResultBlock(output, isError) {
     toggle.addEventListener("click", () => {
       const expanded = block.classList.toggle("expanded");
       toggle.textContent = expanded ? "收起 ▲" : "展开 ▼";
+      checkScrollButton();
     });
     block.appendChild(toggle);
   }
   return block;
 }
 
-// ── 工具调用格式化 ─────────────────────────────────────────────
-// 类似 Pi TUI：web_search "B站 bilibili..."
-function formatToolCall(name, args) {
-  let text = `🔧 ${name}`;
-  if (!args) return text;
-  try {
-    const parsed = JSON.parse(args);
-    const entries = Object.entries(parsed);
-    if (entries.length === 1) {
-      const [k, v] = entries[0];
-      text += `\n(${typeof v === "string" ? '"' + v + '"' : JSON.stringify(v)})`;
-    } else if (entries.length > 1) {
-      const parts = entries.map(([k, v]) => {
-        const val = typeof v === "string" ? '"' + v + '"' : JSON.stringify(v);
-        return `${k}: ${val}`;
-      });
-      text += `\n(${parts.join(", ")})`;
-    }
-  } catch {
-    text += `\n${args}`;
-  }
-  return text;
-}
+// ── 工具调用块创建（可折叠） ─────────────────────────────────────
 
 // 下载文件
 async function downloadFile(fileId, fileName) {
@@ -2491,7 +2546,14 @@ function initScrollToBottomBtn() {
     const unreadDot = document.getElementById("unread-dot");
     if (unreadDot) {
       unreadDot.classList.remove("show");
-      console.log("[UI] 已隐藏未读红点");
+    }
+    // 清除当前聊天的未读状态
+    if (window.currentChatPeer) {
+      const userLi = document.querySelector(`#user-list li[data-id="${window.currentChatPeer.id}"]`);
+      if (userLi) {
+        userLi.classList.remove("has-unread");
+        updateTrayFlash();
+      }
     }
   });
 
@@ -2926,6 +2988,9 @@ async function showUserActionDialog(peerId, userName) {
           const box = document.getElementById("chat-messages");
           if (box) box.innerHTML = "";
           window.lastMessageTimestamp = 0;
+          // 清空后隐藏滚动按钮
+          const btn = document.getElementById("scroll-to-bottom-btn");
+          if (btn) btn.classList.remove("show");
         }
         closeMgmt();
       });

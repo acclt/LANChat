@@ -455,6 +455,38 @@ h2::before {
 	border-radius: 4px;
 }
 
+.toolcall-preview {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.toolcall-full {
+	display: none;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.toolcall-block.expanded .toolcall-preview {
+	display: none;
+}
+
+.toolcall-block.expanded .toolcall-full {
+	display: block;
+}
+
+.toolcall-toggle {
+	cursor: pointer;
+	color: var(--primary);
+	font-size: 0.85em;
+	display: inline-block;
+	margin-top: 4px;
+	user-select: none;
+}
+
+.toolcall-toggle:hover {
+	text-decoration: underline;
+}
+
 /* 工具结果：浅绿底、可折叠 */
 .toolresult-block {
 	background: rgba(0, 200, 100, 0.08);
