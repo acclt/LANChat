@@ -2568,6 +2568,8 @@ function initScrollToBottomBtn() {
       if (unreadDot) {
         unreadDot.classList.remove("show");
       }
+      // 同步托盘闪烁状态（手动滚动到底部也应停止闪烁）
+      updateTrayFlash();
     } else {
       // 不在底部,按钮应该显示(但不一定有红点,红点由新消息触发)
       btn.classList.add("show");
