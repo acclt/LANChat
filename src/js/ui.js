@@ -1372,6 +1372,29 @@ function onReceiveMessage(message) {
       }
       if (!window._userScrolledAway) {
         setTimeout(async () => { await scrollToBottom(); }, 10);
+      } else {
+        // 用户不在底部时，显示红点并触发通知
+        const scrollBtn = document.getElementById("scroll-to-bottom-btn");
+        const unreadDot = document.getElementById("unread-dot");
+        if (scrollBtn) scrollBtn.classList.add("show");
+        if (unreadDot) {
+          unreadDot.classList.add("show");
+          updateTrayFlash();
+        }
+        // 触发桌面通知（流式结束帧触发一次）
+        if (message.from_id && message.from_id !== window.myId) {
+          const fromName = message.from_name || "未知用户";
+          let body = message.content || "";
+          try {
+            const parsed = JSON.parse(body);
+            if (parsed?.segments) {
+              const texts = parsed.segments.filter(s => s.type === "text").map(s => s.content).join(" ");
+              body = texts || "[流式回复完成]";
+            }
+          } catch (_) {}
+          if (body.length > 100) body = body.substring(0, 100) + "...";
+          showNotification(fromName, body, { from_id: message.from_id });
+        }
       }
       return;
     }
@@ -1430,18 +1453,25 @@ function onReceiveMessage(message) {
       sortUserList();
       updateTrayFlash();
     }
-    // 触发桌面通知（非自己的消息且非流式中间帧）
-    if (message.from_id && message.from_id !== window.myId && message.is_streaming !== false) {
+    // 触发桌面通知（非流式消息或流结束帧才通知，中间块不通知）
+    if (message.from_id && message.from_id !== window.myId && !message.is_streaming) {
       const fromName = message.from_name || "未知用户";
       let body = message.content || "";
-      // 流式最终帧、文件消息等特殊处理
-      if (message.msg_type === "file") {
+      // 流式最终帧的 content 是 segments JSON，从中提取文本
+      if (message.is_streaming === false) {
+        try {
+          const parsed = JSON.parse(body);
+          if (parsed?.segments) {
+            const texts = parsed.segments.filter(s => s.type === "text").map(s => s.content).join(" ");
+            body = texts || "[流式回复完成]";
+          }
+        } catch (_) {}
+      } else if (message.msg_type === "file") {
         body = `[文件] ${message.file_name || "未知文件"}`;
       } else if (message.msg_type === "image") {
         body = "[图片]";
-      } else if (body.length > 100) {
-        body = body.substring(0, 100) + "...";
       }
+      if (body.length > 100) body = body.substring(0, 100) + "...";
       showNotification(fromName, body, { from_id: message.from_id });
     }
     console.log("[UI]   - message.from_id:", message.from_id);
