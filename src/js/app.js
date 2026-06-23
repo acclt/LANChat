@@ -14,6 +14,9 @@ async function renderPage() {
   // 初始化设置功能
   initSettings();
 
+  // 初始化手动添加设备功能
+  initAddPeer();
+
   // 初始化主题功能
   initTheme();
 

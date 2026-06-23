@@ -128,6 +128,7 @@ h2::before {
 	align-items: center;
 	gap: 6px;
 	height: 100%;
+	cursor: pointer;
 }
 
 /* 右侧按钮组 */
@@ -1111,6 +1112,17 @@ h2::before {
 	margin-top: 8px;
 }
 
+.success-msg {
+	color: #fff;
+	font-size: 14px;
+	margin-top: 8px;
+	display: none;
+}
+
+.success-msg.show {
+	display: block;
+}
+
 .button-group {
 	display: flex;
 	gap: 12px;
@@ -1118,6 +1130,7 @@ h2::before {
 
 #save-name-btn,
 #save-settings-btn,
+#save-peer-btn,
 #apply-theme-btn {
 	flex: 1;
 	background: var(--primary-gradient) !important;
@@ -1139,6 +1152,7 @@ h2::before {
 
 #cancel-name-btn,
 #cancel-settings-btn,
+#cancel-peer-btn,
 #cancel-theme-btn {
 	flex: 1;
 	background: rgba(255, 255, 255, 0.05) !important;
@@ -1160,6 +1174,7 @@ h2::before {
 
 #cancel-name-btn:hover,
 #cancel-settings-btn:hover,
+#cancel-peer-btn:hover,
 #cancel-theme-btn:hover {
 	background: rgba(255, 255, 255, 0.05);
 	color: #fff;

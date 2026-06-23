@@ -4,24 +4,21 @@ const ICON_SELECT_LIST =
 const ICON_CANCEL_X =
   `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
 
-// 初始化改名功能
+// 初始化改名功能（点击用户名直接改名）
 function initNameEditor() {
-  const editBtn = document.getElementById("edit-name-btn");
+  const nameDisplay = document.getElementById("my-name");
   const editPanel = document.getElementById("edit-name-panel");
   const nameInput = document.getElementById("new-name-input");
   const saveBtn = document.getElementById("save-name-btn");
   const cancelBtn = document.getElementById("cancel-name-btn");
   const errorMsg = document.getElementById("error-msg");
-  const nameDisplay = document.getElementById("my-name");
 
-  // 点击编辑按钮 - 切换显示/隐藏
-  editBtn.addEventListener("click", () => {
+  // 点击用户名切换改名面板
+  nameDisplay.addEventListener("click", () => {
     if (editPanel.style.display === "block") {
-      // 当前是显示状态,点击后隐藏
       editPanel.style.display = "none";
       errorMsg.textContent = "";
     } else {
-      // 当前是隐藏状态,点击后显示
       editPanel.style.display = "block";
       nameInput.value = "";
       nameInput.focus();
@@ -1846,6 +1843,7 @@ function initSettings() {
   const settingsSuccessMsg = document.getElementById("settings-success-msg");
   let initialPort = "8888";
   let initialDbPath = "";
+  let initialDlPath = "";
 
   // Android 端隐藏数据库路径配置
   const isAndroid = window.__TAURI__ && navigator.userAgent.includes("Android");
@@ -1891,11 +1889,11 @@ function initSettings() {
         initialPort = portInput.value;
         dbPathInput.value = settings.db_path || "";
         initialDbPath = dbPathInput.value;
+        initialDlPath = downloadPathInput.value;
       } catch (e) {
         settingsErrorMsg.textContent = "加载设置失败: " + e.message;
       }
 
-      renderCustomPeers();
     }
   });
 
@@ -2015,24 +2013,6 @@ function initSettings() {
         portInput.value = String(portNum);
       }
 
-      // 先处理输入框里的自定义 IP
-      const pendingPeer = customPeerInput.value.trim();
-      if (pendingPeer) {
-        const validation = validateCustomPeer(pendingPeer);
-        if (validation.error) {
-          settingsErrorMsg.textContent = validation.error;
-          return;
-        }
-        let peerAddr = validation.address;
-        try {
-          await apiAddCustomPeer(peerAddr);
-          customPeerInput.value = "";
-        } catch (e) {
-          settingsErrorMsg.textContent = "自定义 IP 添加失败: " + e.message;
-          return;
-        }
-      }
-
       // 空值恢复默认
       const dlPath = downloadPathInput.value.trim() || (await getDefaultDownloadPath());
       const myPort = portInput.value || "8888";
@@ -2040,28 +2020,27 @@ function initSettings() {
 
       await apiUpdateSettings(dlPath, myPort, myDbPath);
 
-      // 刷新自定义 IP 列表
-      renderCustomPeers();
-
-      // 检测是否需要重启
+      // 检测是否有实际改动
       const portChanged = myPort !== initialPort;
       const dbPathChanged = myDbPath !== initialDbPath;
+      const dlPathChanged = dlPath !== initialDlPath;
+
+      if (!portChanged && !dbPathChanged && !dlPathChanged) {
+        // 没有任何改动，直接关闭
+        settingsPanel.style.display = "none";
+        return;
+      }
 
       if (portChanged || dbPathChanged) {
         settingsSuccessMsg.textContent = "✓ 设置保存成功，需重启生效";
-        settingsSuccessMsg.classList.add("show");
-        setTimeout(() => {
-          settingsPanel.style.display = "none";
-          settingsSuccessMsg.classList.remove("show");
-        }, 1500);
       } else {
         settingsSuccessMsg.textContent = "✓ 设置保存成功";
-        settingsSuccessMsg.classList.add("show");
-        setTimeout(() => {
-          settingsPanel.style.display = "none";
-          settingsSuccessMsg.classList.remove("show");
-        }, 1500);
       }
+      settingsSuccessMsg.classList.add("show");
+      setTimeout(() => {
+        settingsPanel.style.display = "none";
+        settingsSuccessMsg.classList.remove("show");
+      }, 1500);
 
       console.log("[UI] 设置保存成功");
     } catch (e) {
@@ -2076,34 +2055,93 @@ function initSettings() {
     settingsSuccessMsg.textContent = "";
     settingsSuccessMsg.classList.remove("show");
   });
+}
 
-  // ── 自定义 IP ──
+// 初始化手动添加设备功能
+function initAddPeer() {
+  const addBtn = document.getElementById("add-peer-btn");
+  const addPanel = document.getElementById("add-peer-panel");
+  const saveBtn = document.getElementById("save-peer-btn");
+  const cancelBtn = document.getElementById("cancel-peer-btn");
+  const errorMsg = document.getElementById("peer-error-msg");
+  const successMsg = document.getElementById("peer-success-msg");
   const customPeerInput = document.getElementById("custom-peer-input");
   const addCustomPeerBtn = document.getElementById("add-custom-peer-btn");
   const customPeerList = document.getElementById("custom-peer-list");
 
-  // IP 校验：返回 { address, error }，address 含端口
+  // 打开/关闭面板
+  addBtn.addEventListener("click", () => {
+    if (addPanel.style.display === "block") {
+      addPanel.style.display = "none";
+      errorMsg.textContent = "";
+    } else {
+      addPanel.style.display = "block";
+      errorMsg.textContent = "";
+      renderCustomPeers();
+    }
+  });
+
+  // 保存按钮：有内容时先添加并显示提示，1.5s 后关闭；无内容直接关闭
+  saveBtn.addEventListener("click", async () => {
+    const val = customPeerInput.value.trim();
+    if (val) {
+      const validation = validateCustomPeer(val);
+      if (!validation.error) {
+        try {
+          await apiAddCustomPeer(validation.address);
+          customPeerInput.value = "";
+          renderCustomPeers();
+          successMsg.textContent = isIp(val) ? "✓ 已添加 IP" : "✓ 已添加域名";
+          successMsg.classList.add("show");
+        } catch (_) {}
+      }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    addPanel.style.display = "none";
+    errorMsg.textContent = "";
+    successMsg.classList.remove("show");
+    successMsg.textContent = "";
+  });
+
+  // 取消按钮
+  cancelBtn.addEventListener("click", () => {
+    addPanel.style.display = "none";
+    errorMsg.textContent = "";
+  });
+
+  // 设备地址校验：返回 { address, error }，address 含端口
   function validateCustomPeer(val) {
     const ipv4Seg = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
     const ipv4Pattern = new RegExp(`^${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}$`);
     const ipv4PortPattern = new RegExp(`^${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}:(?:[1-9]\\d{0,3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5])$`);
 
+    const hostnamePart = "[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?";
+    const hostnamePattern = new RegExp(`^${hostnamePart}(\\.${hostnamePart})*$`);
+    const portPattern = "(?:[1-9]\\d{0,3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5])";
+    const hostnamePortPattern = new RegExp(`^${hostnamePart}(\\.${hostnamePart})*:${portPattern}$`);
+
     if (val.includes(":")) {
-      if (!ipv4PortPattern.test(val)) {
-        return { error: "格式错误，正确示例: 192.168.1.100:8888" };
+      if (ipv4PortPattern.test(val)) {
+        return { address: val };
       }
-      return { address: val };
+      if (hostnamePortPattern.test(val)) {
+        return { address: val };
+      }
+      return { error: "格式错误，支持 IP (192.168.1.100:8888) 或 域名 (myhost.local:8888)" };
     } else {
-      if (!ipv4Pattern.test(val)) {
-        return { error: "IP 格式错误，正确示例: 192.168.1.100" };
+      if (ipv4Pattern.test(val)) {
+        const myPort = window.__TAURI__ ? "8888" : (window.location.port || "8888");
+        return { address: `${val}:${myPort}` };
       }
-      // 自动补端口
-      const myPort = window.__TAURI__ ? "8888" : (window.location.port || "8888");
-      return { address: `${val}:${myPort}` };
+      if (hostnamePattern.test(val)) {
+        const myPort = window.__TAURI__ ? "8888" : (window.location.port || "8888");
+        return { address: `${val}:${myPort}` };
+      }
+      return { error: "格式错误，支持 IP (192.168.1.100) 或 域名 (myhost.local)" };
     }
   }
 
-  // 渲染自定义 IP 列表
+  // 渲染自定义设备列表
   async function renderCustomPeers() {
     const peers = await apiGetCustomPeers();
     customPeerList.innerHTML = "";
@@ -2112,7 +2150,7 @@ function initSettings() {
       empty.className = "custom-peer-item";
       empty.style.color = "var(--text-muted)";
       empty.style.fontStyle = "italic";
-      empty.textContent = "暂无自定义 IP";
+      empty.textContent = "暂无自定义设备";
       customPeerList.appendChild(empty);
       return;
     }
@@ -2125,41 +2163,54 @@ function initSettings() {
         try {
           await apiRemoveCustomPeer(p);
           renderCustomPeers();
-          settingsErrorMsg.textContent = "";
+          errorMsg.textContent = "";
         } catch (err) {
-          settingsErrorMsg.textContent = "删除失败: " + err.message;
+          errorMsg.textContent = "删除失败: " + err.message;
         }
       });
       customPeerList.appendChild(item);
     }
   }
 
-  // 添加自定义 IP
+  // 判断是否为 IP 地址（含端口）
+  function isIp(val) {
+    const ipv4Seg = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+    const ip = new RegExp(`^${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}$`);
+    const ipPort = new RegExp(`^${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}\\.${ipv4Seg}:\\d+$`);
+    return ip.test(val) || ipPort.test(val);
+  }
+
+  // 添加自定义设备
   addCustomPeerBtn.addEventListener("click", async () => {
     const val = customPeerInput.value.trim();
     if (!val) return;
 
     const validation = validateCustomPeer(val);
     if (validation.error) {
-      settingsErrorMsg.textContent = validation.error;
+      errorMsg.textContent = validation.error;
       return;
     }
 
     try {
       await apiAddCustomPeer(validation.address);
       customPeerInput.value = "";
-      settingsErrorMsg.textContent = "";
+      errorMsg.textContent = "";
       renderCustomPeers();
+      // 显示添加成功提示
+      successMsg.textContent = isIp(val) ? "✓ 已添加 IP" : "✓ 已添加域名";
+      successMsg.classList.add("show");
+      setTimeout(() => {
+        successMsg.classList.remove("show");
+        successMsg.textContent = "";
+      }, 2000);
     } catch (err) {
-      settingsErrorMsg.textContent = "添加失败: " + err.message;
+      errorMsg.textContent = "添加失败: " + err.message;
     }
   });
 
   customPeerInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") addCustomPeerBtn.click();
   });
-
-  // 打开设置时加载自定义 IP（已整合到 settingsBtn 的 click handler 中）
 }
 
 // 初始化主题功能

@@ -38,20 +38,31 @@
                         <button id="choose-path-btn">选择</button>
                     </div>
                 </div>
-                <div class="setting-item">
-                    <label for="custom-peer-input">手动发现:</label>
-                    <div class="custom-peer-input-group">
-                        <input type="text" id="custom-peer-input" placeholder="例: 192.168.1.100 或 10.0.0.5:8888">
-                        <button id="add-custom-peer-btn">添加</button>
-                    </div>
-                    <div id="custom-peer-list" class="custom-peer-list"></div>
-                </div>
                 <div class="button-group">
                     <button id="save-settings-btn">保存</button>
                     <button id="cancel-settings-btn">取消</button>
                 </div>
                 <div id="settings-success-msg" class="success-msg"></div>
                 <div id="settings-error-msg" class="error-msg"></div>
+            </div>
+        </div>
+        <div id="add-peer-panel" class="settings-panel" style="display: none;">
+            <h2>手动添加设备</h2>
+            <div class="settings-content">
+                <div class="setting-item">
+                    <label for="custom-peer-input">IP / 域名:端口</label>
+                    <div class="custom-peer-input-group">
+                        <input type="text" id="custom-peer-input" placeholder="例: 192.168.1.100 或 myhost.local:8888">
+                        <button id="add-custom-peer-btn">添加</button>
+                    </div>
+                    <div id="custom-peer-list" class="custom-peer-list"></div>
+                </div>
+                <div class="button-group">
+                    <button id="save-peer-btn">保存</button>
+                    <button id="cancel-peer-btn">取消</button>
+                </div>
+                <div id="peer-success-msg" class="success-msg"></div>
+                <div id="peer-error-msg" class="error-msg"></div>
             </div>
         </div>
         <div id="theme-panel" class="theme-panel" style="display: none;">
@@ -143,7 +154,7 @@
             <div class="header">
                 <h1 id="my-name">正在加载...</h1>
                 <div class="header-buttons">
-                    <button id="edit-name-btn">改名</button>
+                    <button id="add-peer-btn">添加</button>
                     <button id="settings-btn">设置</button>
                     <button id="theme-btn">主题</button>
                 </div>

@@ -79,8 +79,14 @@ pub async fn start_announcing(port: u16, user_id: String, pool: sqlx::Pool<sqlx:
     println!("[UDP] 开始通过智能路由遍历发送心跳...");
 
     use sysinfo::System;
+    use std::collections::HashMap;
+    use std::time::Instant;
     let mut sys = System::new();
     let target_addrs = get_smart_broadcast_addresses(port);
+
+    // DNS 缓存：hostname → (解析结果, 过期时间)，TTL 60 秒
+    let mut dns_cache: HashMap<String, (Vec<std::net::SocketAddr>, Instant)> = HashMap::new();
+    const DNS_TTL: Duration = Duration::from_secs(60);
 
     loop {
         let username = match crate::db::get_username(&pool).await {
@@ -101,11 +107,55 @@ pub async fn start_announcing(port: u16, user_id: String, pool: sqlx::Pool<sqlx:
             let _ = socket.send_to(msg.as_bytes(), addr);
         }
 
-        // 发送单播到自定义 IP
+        // 发送单播到自定义设备（支持 IP 和 域名/主机名）
         let custom_peers = crate::db::get_custom_peers(&pool).await;
+        let now = Instant::now();
         for peer in &custom_peers {
             if let Ok(addr) = peer.parse::<std::net::SocketAddr>() {
+                // 快速路径：纯 IP:port
                 let _ = socket.send_to(msg.as_bytes(), addr);
+            } else {
+                // DNS 路径：域名/主机名
+                let with_port = if peer.contains(':') {
+                    peer.clone()
+                } else {
+                    format!("{}:{}", peer, port)
+                };
+
+                // 查缓存
+                let addrs = if let Some((cached, expiry)) = dns_cache.get(&with_port) {
+                    if *expiry > now {
+                        Some(cached.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let addrs = match addrs {
+                    Some(a) => a,
+                    None => {
+                        // DNS 解析
+                        match tokio::net::lookup_host(&with_port).await {
+                            Ok(resolved) => {
+                                let list: Vec<_> = resolved.collect();
+                                if !list.is_empty() {
+                                    dns_cache.insert(with_port.clone(), (list.clone(), now + DNS_TTL));
+                                }
+                                list
+                            }
+                            Err(e) => {
+                                eprintln!("[UDP] DNS 解析失败 ({}): {}", peer, e);
+                                Vec::new()
+                            }
+                        }
+                    }
+                };
+
+                for addr in &addrs {
+                    let _ = socket.send_to(msg.as_bytes(), addr);
+                }
             }
         }
 
