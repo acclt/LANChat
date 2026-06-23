@@ -195,7 +195,6 @@ pub async fn start_listening(
                 let name = parts[3].to_string();
                 let peer_port = parts[4];
                 let available_memory_mb: u64 = parts[5].parse().unwrap_or(0);
-
                 if peer_id == my_id {
                     continue;
                 }
@@ -255,9 +254,14 @@ pub async fn start_listening(
 
                 // 回复心跳给对方（无 |1 标记则为原始心跳，需回复）
                 if parts.len() <= 6 {
+                    // 从数据库读取最新用户名（用户改名后动态生效）
+                    let reply_name = match crate::db::get_username(&pool).await {
+                        Ok(name) => name,
+                        Err(_) => my_name.clone(),
+                    };
                     let reply = format!(
                         "LANChat|ONLINE|{}|{}|{}|0|1",
-                        my_id, my_name, port
+                        my_id, reply_name, port
                     );
                     let target = format!("{}:{}", addr.ip(), peer_port);
                     let _ = socket.send_to(reply.as_bytes(), &target);
@@ -296,7 +300,6 @@ pub async fn start_listening(
                 let name = parts[3].to_string();
                 let peer_port = parts[4];
                 let available_memory_mb: u64 = parts[5].parse().unwrap_or(0);
-
                 if peer_id == my_id {
                     continue;
                 }
@@ -344,9 +347,14 @@ pub async fn start_listening(
 
                 // 回复心跳给对方（无 |1 标记则为原始心跳，需回复）
                 if parts.len() <= 6 {
+                    // 从数据库读取最新用户名（用户改名后动态生效）
+                    let reply_name = match crate::db::get_username(&pool).await {
+                        Ok(name) => name,
+                        Err(_) => my_name.clone(),
+                    };
                     let reply = format!(
                         "LANChat|ONLINE|{}|{}|{}|0|1",
-                        my_id, my_name, port
+                        my_id, reply_name, port
                     );
                     let target = format!("{}:{}", addr.ip(), peer_port);
                     let _ = socket.send_to(reply.as_bytes(), &target);
