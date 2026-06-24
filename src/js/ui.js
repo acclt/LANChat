@@ -1396,15 +1396,19 @@ function onReceiveMessage(message) {
       const chatMessages = document.getElementById("chat-messages");
       const msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${senderMsgId}"]`);
       if (msgEl) {
+        const statusDiv = msgEl.querySelector(".file-pending, .file-downloading");
         if (newStatus === "invalid") {
-          const statusDiv = msgEl.querySelector(".file-pending");
           if (statusDiv) statusDiv.textContent = "已失效";
         } else if (newStatus === "sent") {
           // 发送完成 → 清空状态文字
-          const statusDiv = msgEl.querySelector(".file-pending");
           if (statusDiv) {
             statusDiv.className = "";
             statusDiv.textContent = "";
+          }
+        } else if (newStatus === "downloading") {
+          if (statusDiv) {
+            statusDiv.className = "file-downloading";
+            statusDiv.textContent = "0 MB/s";
           }
         }
       }
@@ -1525,10 +1529,7 @@ function onReceiveMessage(message) {
       return;
     }
 
-    if (message.msg_type === "file" && message.file_status === "downloading") {
-      // 下载中的文件不渲染（等轮询更新状态时再处理）
-      return;
-    }
+
 
     const chatMessages = document.getElementById("chat-messages");
     const scrollBtn = document.getElementById("scroll-to-bottom-btn");
