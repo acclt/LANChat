@@ -1068,7 +1068,7 @@ function createMessageElement(message, isSent) {
           console.error("[UI] 无法请求文件: 缺少 sender_msg_id");
           return;
         }
-        // 立即切换为下载中状态，速度会在第一块数据到达时更新
+        // 立即切换为下载中状态，记录开始时间用于速度计算
         const statusEl = fileContainer.closest(".message-file")?.nextSibling;
         if (statusEl) {
           statusEl.className = "file-downloading";
@@ -1076,17 +1076,25 @@ function createMessageElement(message, isSent) {
         }
         console.log("[手动下载] 请求文件: msg_id=", senderMsgId, "from=", fromId, "addr=", senderAddr);
         try {
-          const resp = await fetch("/api/request_file", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sender_addr: senderAddr,
-              sender_msg_id: senderMsgId,
-            }),
-          });
-          if (!resp.ok) {
-            const data = await resp.json().catch(() => ({}));
-            console.error("[UI] 请求文件失败:", data.error || resp.status);
+          const tauri = window.__TAURI__;
+          if (tauri) {
+            await tauri.core.invoke("request_file", {
+              senderAddr,
+              senderMsgId,
+            });
+          } else {
+            const resp = await fetch("/api/request_file", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sender_addr: senderAddr,
+                sender_msg_id: senderMsgId,
+              }),
+            });
+            if (!resp.ok) {
+              const data = await resp.json().catch(() => ({}));
+              console.error("[UI] 请求文件失败:", data.error || resp.status);
+            }
           }
         } catch (e) {
           console.error("[UI] 请求文件失败:", e.message);
@@ -1323,9 +1331,7 @@ function createMessageElement(message, isSent) {
   else if (message.msg_type === "file") {
     if (message.file_status === "downloading") {
       statusDiv.className = "file-downloading";
-      statusDiv.textContent = message.transfer_speed
-        ? Math.round(message.transfer_speed) + " MB/s"
-        : "下载中...";
+      statusDiv.textContent = "0 MB/s";
     } else if (message.file_status === "uploading") {
       statusDiv.className = "file-uploading";
       statusDiv.textContent = message.transfer_speed
@@ -1336,7 +1342,7 @@ function createMessageElement(message, isSent) {
       statusDiv.textContent = "未下载";
     } else if (message.file_status === "offering") {
       statusDiv.className = "file-pending";
-      statusDiv.textContent = "等待对方接收";
+      statusDiv.textContent = "上传中";
     } else if (message.file_status === "invalid") {
       statusDiv.className = "file-pending";
       statusDiv.textContent = "已失效";
@@ -1386,57 +1392,43 @@ function onReceiveMessage(message) {
   if (message.msg_type === "file_status_update") {
     const senderMsgId = message.sender_msg_id;
     const newStatus = message.file_status;
-    if (senderMsgId && newStatus === "invalid") {
+    if (senderMsgId) {
       const chatMessages = document.getElementById("chat-messages");
       const msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${senderMsgId}"]`);
       if (msgEl) {
-        const statusDiv = msgEl.querySelector(".file-pending");
-        if (statusDiv) {
-          statusDiv.textContent = "已失效";
+        if (newStatus === "invalid") {
+          const statusDiv = msgEl.querySelector(".file-pending");
+          if (statusDiv) statusDiv.textContent = "已失效";
+        } else if (newStatus === "sent") {
+          // 发送完成 → 清空状态文字
+          const statusDiv = msgEl.querySelector(".file-pending");
+          if (statusDiv) {
+            statusDiv.className = "";
+            statusDiv.textContent = "";
+          }
         }
       }
     }
     return;
   }
 
-  // ── file_download_progress：更新接收端下载速度 ──
+  // ── file_download_progress：直接展示发送端传来的速度 ──
   if (message.msg_type === "file_download_progress") {
     const senderMsgId = message.sender_msg_id;
-    if (senderMsgId && message.received && message.total && message.timestamp) {
+    if (senderMsgId && message.speed_mb_s !== undefined) {
       const chatMessages = document.getElementById("chat-messages");
       const msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${senderMsgId}"]`);
-      if (!msgEl) {
-        // 也可能通过 data-msg-id（offered 记录被更新后广播的消息走这个路径）
-        // 但 offered 记录有 sender_msg_id，所以 data-sender-msg-id 应该存在
-        return;
-      }
+      if (!msgEl) return;
       const statusDiv = msgEl.querySelector(".file-downloading");
       if (statusDiv) {
-        const speed = message.received / (1024 * 1024); // 简化：当前批次的 MB
-        // 存储上一次信息用于计算速度
-        if (!window.__downloadProgress) window.__downloadProgress = {};
-        const prev = window.__downloadProgress[senderMsgId];
-        if (prev) {
-          const timeDelta = (message.timestamp - prev.timestamp) / 1000; // 秒
-          if (timeDelta > 0) {
-            const byteDelta = message.received - prev.received;
-            const speedMbps = (byteDelta / (1024 * 1024)) / timeDelta;
-            statusDiv.textContent = speedMbps >= 1
-              ? Math.round(speedMbps) + " MB/s"
-              : Math.round(speedMbps * 1000) + " KB/s";
-          }
-        } else {
-          statusDiv.textContent = "0 MB/s";
-        }
-        window.__downloadProgress[senderMsgId] = {
-          received: message.received,
-          timestamp: message.timestamp,
-        };
-        // 下载完成 → 清空状态文字
+        const speedMbps = parseFloat(message.speed_mb_s);
+        statusDiv.textContent = speedMbps >= 1
+          ? Math.round(speedMbps) + " MB/s"
+          : (speedMbps * 1000).toFixed(0) + " KB/s";
+        // 下载完成 → 清空状态文字（通过 received >= total 判断）
         if (message.received >= message.total) {
           statusDiv.className = "";
           statusDiv.textContent = "";
-          delete window.__downloadProgress[senderMsgId];
         }
       }
     }

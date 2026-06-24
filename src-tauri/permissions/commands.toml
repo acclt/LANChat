@@ -151,6 +151,11 @@ description = "Allows starting tray icon flashing for unread messages"
 commands.allow = ["start_tray_flash"]
 
 [[permission]]
+identifier = "allow-request-file"
+description = "Allows requesting a file from a peer for manual download"
+commands.allow = ["request_file"]
+
+[[permission]]
 identifier = "allow-stop-tray-flash"
 description = "Allows stopping tray icon flashing"
 commands.allow = ["stop_tray_flash"]

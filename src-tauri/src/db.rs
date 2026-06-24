@@ -349,13 +349,21 @@ pub async fn save_file_message(
 
         // <--- 【修改 3】把 status 写入 INSERT
         let result = sqlx::query(
-            "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, status) VALUES ('me', ?, ?, 'file', ?, ?, ?, ?, ?)"
+            "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, sender_msg_id, status) VALUES ('me', ?, ?, 'file', ?, ?, ?, ?, '0', ?)"
         )
         .bind(&peer_id).bind(&file_name).bind(timestamp).bind(&file_path)
         .bind(&file_status).bind(file_size as i64).bind(&overall_status)
         .execute(pool).await.map_err(|e| e.to_string())?;
 
-        Ok(result.last_insert_rowid())
+        let new_id = result.last_insert_rowid();
+        // 更新 sender_msg_id 为实际 msg_id
+        let _ = sqlx::query("UPDATE messages SET sender_msg_id = ? WHERE id = ?")
+            .bind(new_id.to_string())
+            .bind(new_id)
+            .execute(pool)
+            .await;
+        println!("[DB] 文件消息保存完成, id={}, sender_msg_id={}", new_id, new_id);
+        Ok(new_id)
     }
 }
 
@@ -415,21 +423,30 @@ pub async fn create_upload_record(
         receiver_id, file_name, overall_status
     );
 
-    let result = sqlx::query(
-        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, status) 
-         VALUES ('me', ?, ?, 'file', ?, '', ?, ?, ?)"
-    )
-    .bind(&receiver_id)
-    .bind(&file_name)
-    .bind(timestamp)
-    .bind(&file_status)
-    .bind(file_size as i64)
-    .bind(&overall_status)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("创建记录失败: {}", e))?;
-
-    Ok(result.last_insert_rowid())
+    let new_id: i64 = {
+        let result = sqlx::query(
+            "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, sender_msg_id, status) 
+             VALUES ('me', ?, ?, 'file', ?, '', ?, ?, '0', ?)"
+        )
+        .bind(&receiver_id)
+        .bind(&file_name)
+        .bind(timestamp)
+        .bind(&file_status)
+        .bind(file_size as i64)
+        .bind(&overall_status)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("创建记录失败: {}", e))?;
+        result.last_insert_rowid()
+    };
+    // 更新 sender_msg_id 为实际 msg_id
+    let _ = sqlx::query("UPDATE messages SET sender_msg_id = ? WHERE id = ?")
+        .bind(new_id.to_string())
+        .bind(new_id)
+        .execute(pool)
+        .await;
+    println!("[DB] 上传记录创建完成, id={}, sender_msg_id={}", new_id, new_id);
+    Ok(new_id)
 }
 
 /// 更新上传状态
@@ -674,12 +691,13 @@ pub async fn create_received_file_record(
     file_path: String,
     file_size: u64,
     timestamp: i64,
+    sender_msg_id: &str,  // 发送端的 DB row ID，用于进度 DOM 查找
 ) -> Result<i64, String> {
     // 获取当前用户ID作为接收者
     let my_id = get_user_id(pool).await?;
 
     let result = sqlx::query(
-        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size) VALUES (?, ?, ?, 'file', ?, ?, 'downloading', ?)"
+        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, sender_msg_id) VALUES (?, ?, ?, 'file', ?, ?, 'downloading', ?, ?)"
     )
     .bind(&sender_id)
     .bind(&my_id)
@@ -687,14 +705,15 @@ pub async fn create_received_file_record(
     .bind(timestamp)
     .bind(&file_path)
     .bind(file_size as i64)
+    .bind(sender_msg_id)
     .execute(pool)
     .await
     .map_err(|e| format!("创建记录失败: {}", e))?;
 
     let msg_id = result.last_insert_rowid();
     println!(
-        "[DB] ✓ 接收文件记录已创建，ID: {}, 文件: {}, 状态: downloading",
-        msg_id, file_name
+        "[DB] ✓ 接收文件记录已创建，ID: {}, 文件: {}, 状态: downloading, sender_msg_id: {}",
+        msg_id, file_name, sender_msg_id
     );
     Ok(msg_id)
 }
@@ -884,9 +903,9 @@ pub async fn get_chat_history_with_offset(
 
     // 【核心修复】：在两处 SELECT 中加上了 status 字段
     let messages = sqlx::query_as::<_, crate::models::Message>(
-        "SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, status 
+        "SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, sender_msg_id, status 
          FROM (
-            SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, status 
+            SELECT id, sender_id, receiver_id, content, msg_type, timestamp, file_path, file_status, file_size, sender_msg_id, status 
             FROM messages 
             WHERE 
                 (sender_id = ? AND receiver_id = ?) OR 

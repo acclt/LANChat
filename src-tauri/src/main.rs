@@ -140,6 +140,7 @@ fn main() {
             lanchat::commands::add_custom_peer,
             lanchat::commands::remove_custom_peer,
             lanchat::commands::show_notification,
+            lanchat::commands::request_file,
             lanchat::commands::get_notifications_enabled,
             lanchat::commands::set_notifications_enabled,
             start_tray_flash,

@@ -48,6 +48,7 @@
 		"allow-get-custom-peers",
 		"allow-add-custom-peer",
 		"allow-remove-custom-peer",
+		"allow-request-file",
     {
       "identifier": "fs:scope",
       "allow": [

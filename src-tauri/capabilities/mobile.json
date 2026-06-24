@@ -57,7 +57,8 @@
 		"allow-delete-user-complete",
 		"allow-get-custom-peers",
 		"allow-add-custom-peer",
-		"allow-remove-custom-peer"
+		"allow-remove-custom-peer",
+		"allow-request-file"
   ],
   "scope": {
     "allow": [

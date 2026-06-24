@@ -191,12 +191,24 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
         let n = bytes_read;
 
         // 构造 multipart 请求
+        // 计算当前累计速度（发送给接收端直接展示）
+        let speed_mb_s = if chunk_index > 0 {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            if elapsed > 0.0 {
+                (offset as f64 / (1024.0 * 1024.0)) / elapsed
+            } else { 0.0 }
+        } else { 0.0 };
+
+        let sender_msg_id_str = message_id.map(|id| id.to_string()).unwrap_or_default();
+
         let form = reqwest::multipart::Form::new()
             .text("peer_id", my_id.clone())
             .text("file_name", file_name.clone())
             .text("file_size", file_size.to_string())
             .text("chunk_index", chunk_index.to_string())
             .text("chunk_total", total_chunks.to_string())
+            .text("sender_msg_id", sender_msg_id_str)
+            .text("speed_mb_s", format!("{:.1}", speed_mb_s))
             .part(
                 "chunk",
                 reqwest::multipart::Part::bytes(buf.clone())
@@ -582,7 +594,7 @@ pub async fn send_file(
             file_size,
             actual_path.clone(),
             "offering".to_string(),
-            "pending".to_string(),
+            "sent".to_string(),
         )
         .await
         .ok();
@@ -1367,6 +1379,22 @@ pub async fn add_custom_peer(state: tauri::State<'_, crate::db::DbState>, peer: 
 #[tauri::command]
 pub async fn remove_custom_peer(state: tauri::State<'_, crate::db::DbState>, peer: String) -> Result<(), String> {
     crate::db::remove_custom_peer(&state.pool, &peer).await
+}
+
+#[tauri::command]
+pub async fn request_file(
+    state: tauri::State<'_, crate::db::DbState>,
+    sender_addr: String,
+    sender_msg_id: i64,
+) -> Result<(), String> {
+    println!("[手动下载] 桌面端接收端请求文件: msg_id={}, 发送端地址={}", sender_msg_id, sender_addr);
+    let my_id = crate::db::get_user_id(&state.pool).await?;
+    let req_msg = serde_json::json!({
+        "msg_type": "file_request",
+        "sender_msg_id": sender_msg_id,
+        "from_id": my_id,
+    });
+    crate::network::messaging::send_json_via_ws(&sender_addr, &req_msg.to_string()).await
 }
 
 #[tauri::command]

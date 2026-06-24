@@ -557,6 +557,10 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
         formData.append("file_size", fileSize.toString());
         formData.append("chunk_index", chunkIndex.toString());
         formData.append("chunk_total", totalChunks.toString());
+        formData.append("sender_msg_id", createData.msg_id.toString());
+        const elapsed = (Date.now() - startTime) / 1000;
+        const speed = chunkIndex > 0 && elapsed > 0 ? offset / (1024 * 1024) / elapsed : 0;
+        formData.append("speed_mb_s", speed.toFixed(1));
         formData.append("chunk", chunk, "chunk");
 
         console.log("[JS-API] 上传分块", chunkIndex + 1, "大小:", size, "字节");

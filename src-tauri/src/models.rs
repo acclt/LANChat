@@ -12,6 +12,7 @@ pub struct Message {
     pub file_path: Option<String>,
     pub file_status: Option<String>,
     pub file_size: Option<i64>,
+    pub sender_msg_id: Option<String>,
     #[sqlx(default)]
     pub status: Option<String>,
 }
@@ -36,6 +37,8 @@ pub struct MessageResponse {
     pub file_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_msg_id: Option<String>,
 }
 
 impl From<Message> for MessageResponse {
@@ -51,28 +54,35 @@ impl From<Message> for MessageResponse {
             file_path: None,
             file_status: None,
             file_size: None,
+            sender_msg_id: None,
             status: msg.status.clone(),
         };
 
         // 如果是文件消息，添加文件信息
         if msg.msg_type == "file" {
+            response.file_name = Some(msg.content.clone()); // content 存储的是文件名
+            response.file_status = msg.file_status.clone();
+            response.sender_msg_id = msg.sender_msg_id.clone();
+
+            // 文件大小：优先使用 DB 值
+            if let Some(sz) = msg.file_size.filter(|&s| s > 0) {
+                response.file_size = Some(sz as u64);
+            }
+
+            // file_path 和 file_id 仅在路径有效时设置
             if let Some(ref path) = msg.file_path {
-                // 从路径提取文件名
+                response.file_path = Some(path.clone());
                 let filename = std::path::Path::new(path)
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("");
+                response.file_id = Some(filename.to_string());
 
-                response.file_id = Some(filename.to_string()); // 直接使用文件名作为 file_id
-                response.file_name = Some(msg.content.clone()); // content 存储的是文件名
-                response.file_path = Some(path.clone());
-                response.file_status = msg.file_status.clone();
-
-                // 优先使用数据库中存储的文件大小，fallback 到 stat
-                if let Some(sz) = msg.file_size.filter(|&s| s > 0) {
-                    response.file_size = Some(sz as u64);
-                } else if let Ok(metadata) = std::fs::metadata(path) {
-                    response.file_size = Some(metadata.len());
+                // 如果 DB 中没有文件大小，尝试从文件系统获取
+                if response.file_size.is_none() {
+                    if let Ok(metadata) = std::fs::metadata(path) {
+                        response.file_size = Some(metadata.len());
+                    }
                 }
             }
         }

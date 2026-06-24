@@ -583,6 +583,10 @@ async function handleStartUpload(data) {
       formData.append("file_size", fileSize.toString());
       formData.append("chunk_index", chunkIndex.toString());
       formData.append("chunk_total", totalChunks.toString());
+      formData.append("sender_msg_id", data.sender_msg_id.toString());
+      const elapsed = (Date.now() - startTime) / 1000;
+      const speed = chunkIndex > 0 && elapsed > 0 ? offset / (1024 * 1024) / elapsed : 0;
+      formData.append("speed_mb_s", speed.toFixed(1));
       formData.append("chunk", chunk, "chunk");
 
       const resp = await fetch(uploadUrl, { method: "POST", body: formData, mode: "cors" });

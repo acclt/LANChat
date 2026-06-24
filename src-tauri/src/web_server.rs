@@ -388,6 +388,10 @@ async fn start_send_http(
             let fsize = file_size as usize;
             let fpath = file_path.clone();
 
+            let sm_id = payload.sender_msg_id;
+            let ws_tx = state.ws_broadcast.clone();
+            #[cfg(feature = "desktop")]
+            let app_clone = state.app_handle.clone();
             tokio::spawn(async move {
                 upload_to_receiver(
                     &pool,
@@ -396,7 +400,22 @@ async fn start_send_http(
                     fsize,
                     &fpath,
                     file,
+                    sm_id,
                 ).await;
+                // 上传完成 → 更新发送端 DB 状态
+                let _ = crate::db::update_file_status_by_id(&pool, sm_id, "sent").await;
+                // 通知发送端前端更新 UI
+                let update = serde_json::json!({
+                    "msg_type": "file_status_update",
+                    "sender_msg_id": sm_id,
+                    "file_status": "sent",
+                });
+                let _ = ws_tx.send(update.to_string());
+                #[cfg(feature = "desktop")]
+                if let Some(ref app_ref) = app_clone {
+                    use tauri::Emitter;
+                    let _ = app_ref.emit("new-message", update);
+                }
             });
 
             (StatusCode::OK, Json(serde_json::json!({"success": true, "status": "sending"}))).into_response()
@@ -418,6 +437,7 @@ async fn upload_to_receiver(
     _file_size: usize,
     _file_path: &str,
     file: tokio::fs::File,
+    _sender_msg_id: i64,
 ) {
     // 获取自己的 ID
     let my_id = crate::db::get_user_id(_pool).await.unwrap_or_default();
@@ -432,6 +452,8 @@ async fn upload_to_receiver(
 
     let mut reader = tokio::io::BufReader::new(file);
     let mut chunk_index = 0usize;
+    let mut offset: usize = 0;
+    let start_time = std::time::Instant::now();
     let client = reqwest::Client::new();
     let upload_url = format!("http://{}/api/upload", peer_addr);
 
@@ -450,12 +472,21 @@ async fn upload_to_receiver(
         if bytes_read == 0 { break; }
         buf.truncate(bytes_read);
 
+        let speed_mb_s = if chunk_index > 0 {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            if elapsed > 0.0 {
+                (offset as f64 / (1024.0 * 1024.0)) / elapsed
+            } else { 0.0 }
+        } else { 0.0 };
+
         let form = reqwest::multipart::Form::new()
             .text("peer_id", my_id.clone())
             .text("file_name", file_name.clone())
             .text("file_size", file_size.to_string())
             .text("chunk_index", chunk_index.to_string())
             .text("chunk_total", total_chunks.to_string())
+            .text("sender_msg_id", _sender_msg_id.to_string())
+            .text("speed_mb_s", format!("{:.1}", speed_mb_s))
             .part("chunk", reqwest::multipart::Part::bytes(buf).mime_str("application/octet-stream").unwrap());
 
         if let Ok(resp) = client.post(&upload_url).multipart(form).send().await {
@@ -463,6 +494,7 @@ async fn upload_to_receiver(
                 println!("[WebServer] ✓ 分块 {}/{}", chunk_index + 1, total_chunks);
             }
         }
+        offset += bytes_read;
         chunk_index += 1;
     }
 
@@ -903,10 +935,30 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             Ok(file) => {
                                                 let pool = state.pool.clone();
                                                 let raddr = receiver_addr.clone();
+                                                let ws_tx = state.ws_broadcast.clone();
+                                                #[cfg(feature = "desktop")]
+                                                let app_clone = state.app_handle.clone();
                                                 tokio::spawn(async move {
                                                     upload_to_receiver(
                                                         &pool, &raddr, &fname, fsize as usize, &file_path, file,
+                                                        sender_msg_id,
                                                     ).await;
+                                                    // 上传完成 → 更新发送端 DB 状态
+                                                    let _ = crate::db::update_file_status_by_id(
+                                                        &pool, sender_msg_id, "sent",
+                                                    ).await;
+                                                    // 通知发送端前端更新 UI
+                                                    let update = serde_json::json!({
+                                                        "msg_type": "file_status_update",
+                                                        "sender_msg_id": sender_msg_id,
+                                                        "file_status": "sent",
+                                                    });
+                                                    let _ = ws_tx.send(update.to_string());
+                                                    #[cfg(feature = "desktop")]
+                                                    if let Some(ref app_ref) = app_clone {
+                                                        use tauri::Emitter;
+                                                        let _ = app_ref.emit("new-message", update);
+                                                    }
                                                 });
                                             }
                                             Err(_) => {
@@ -1040,6 +1092,8 @@ async fn upload_file_http(
     let mut chunk_index: usize = 0;
     let mut chunk_total: usize = 0;
     let mut chunk_data: Option<Vec<u8>> = None;
+    let mut sender_msg_id = String::new();
+    let mut speed_mb_s: f64 = 0.0;
 
     // 获取下载目录
     let download_dir = get_download_dir(&state.pool).await;
@@ -1080,6 +1134,16 @@ async fn upload_file_http(
                 if let Ok(text) = field.text().await {
                     chunk_total = text.parse().unwrap_or(0);
                     println!("[Web Server] 分块信息: {}/{}", chunk_index + 1, chunk_total);
+                }
+            }
+            "sender_msg_id" => {
+                if let Ok(text) = field.text().await {
+                    sender_msg_id = text;
+                }
+            }
+            "speed_mb_s" => {
+                if let Ok(text) = field.text().await {
+                    speed_mb_s = text.parse().unwrap_or(0.0);
                 }
             }
             "chunk" => {
@@ -1207,6 +1271,7 @@ async fn upload_file_http(
                         instant_path,
                         file_size,
                         timestamp,
+                        &sender_msg_id,
                     )
                     .await
                     {
@@ -1373,31 +1438,7 @@ async fn upload_file_http(
         chunk_data.len()
     );
 
-    // 广播下载进度（手动下载场景下接收端需要显示速度）
-    if let Ok(temp_meta) = tokio::fs::metadata(&temp_path).await {
-        let received = temp_meta.len();
-        let sender_msg_id_for_progress = match crate::db::get_sender_msg_id_by_file(
-            &state.pool, &sender_id, &final_file_name,
-        ).await {
-            Ok(id) if !id.is_empty() => id,
-            _ => String::new(),
-        };
-        if !sender_msg_id_for_progress.is_empty() {
-            let progress_msg = serde_json::json!({
-                "msg_type": "file_download_progress",
-                "sender_msg_id": sender_msg_id_for_progress,
-                "received": received,
-                "total": file_size,
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64,
-            });
-            let _ = state.ws_broadcast.send(progress_msg.to_string());
-        }
-    }
-
-    // 第一块时创建数据库记录（状态 downloading，路径指向最终路径）
+    // 第一块时创建/更新数据库记录，并广播初始消息给前端
     if chunk_index == 0 {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1416,8 +1457,13 @@ async fn upload_file_http(
         .await
         .unwrap_or(None);
 
-        if updated_offered.is_none() {
-            // 没有 offered 记录 → 新建接收记录
+        let record_id = if let Some((found_id, _)) = updated_offered {
+            println!(
+                "[Web Server] ✓ 已更新 offered 记录为 downloading，无需新建"
+            );
+            found_id
+        } else {
+            // 没有 offered 记录 → 新建接收记录（含 sender_msg_id，用于 DOM 查找）
             match crate::db::create_received_file_record(
                 &state.pool,
                 sender_id.clone(),
@@ -1425,6 +1471,7 @@ async fn upload_file_http(
                 file_path,
                 file_size,
                 timestamp,
+                &sender_msg_id,
             )
             .await
             {
@@ -1433,15 +1480,51 @@ async fn upload_file_http(
                         "[Web Server] ✓ 文件消息已创建，ID: {}, 最终名: {}",
                         msg_id, final_file_name
                     );
+                    msg_id
                 }
                 Err(e) => {
                     eprintln!("[Web Server] ✗ 创建文件消息失败: {}", e);
+                    0
                 }
             }
-        } else {
-            println!(
-                "[Web Server] ✓ 已更新 offered 记录为 downloading，无需新建"
-            );
+        };
+
+        // 广播初始消息（使前端创建 DOM 元素，data-sender-msg-id 供进度查找）
+        if record_id > 0 && !sender_msg_id.is_empty() {
+            let init_msg = serde_json::json!({
+                "id": record_id,
+                "from_id": sender_id,
+                "from_name": "",
+                "content": final_file_name,
+                "msg_type": "file",
+                "file_status": "downloading",
+                "file_size": file_size,
+                "sender_msg_id": sender_msg_id,
+                "timestamp": timestamp,
+            });
+            let _ = state.ws_broadcast.send(init_msg.to_string());
+            #[cfg(feature = "desktop")]
+            if let Some(ref app) = state.app_handle {
+                use tauri::Emitter;
+                let _ = app.emit("new-message", init_msg);
+            }
+        }
+    }
+
+    // 广播发送端速度给前端（用 sender_msg_id 查找 DOM 元素，无需查 DB）
+    if !sender_msg_id.is_empty() {
+        let progress_msg = serde_json::json!({
+            "msg_type": "file_download_progress",
+            "sender_msg_id": sender_msg_id,
+            "speed_mb_s": speed_mb_s,
+            "received": chunk_data.len(),
+            "total": file_size,
+        });
+        let _ = state.ws_broadcast.send(progress_msg.to_string());
+        #[cfg(feature = "desktop")]
+        if let Some(ref app) = state.app_handle {
+            use tauri::Emitter;
+            let _ = app.emit("new-message", progress_msg);
         }
     }
 
