@@ -339,11 +339,13 @@ pub async fn get_settings(state: State<'_, DbState>) -> Result<serde_json::Value
     let port = crate::db::get_port(&state.pool).await?;
     let cfg = crate::config_file::read_config();
     let db_path = cfg.db_path.unwrap_or_else(crate::config_file::get_default_db_path);
+    let auto_download = crate::db::get_auto_download(&state.pool).await;
 
     Ok(serde_json::json!({
         "download_path": download_path,
         "port": port,
         "db_path": db_path,
+        "auto_download": auto_download,
     }))
 }
 
@@ -353,6 +355,7 @@ pub async fn update_settings(
     download_path: Option<String>,
     port: Option<String>,
     db_path: Option<String>,
+    auto_download: Option<bool>,
 ) -> Result<(), String> {
     if let Some(path) = download_path {
         crate::db::update_download_path(&state.pool, path).await?;
@@ -370,6 +373,9 @@ pub async fn update_settings(
             }
             crate::config_file::write_config(&cfg)?;
         }
+    }
+    if let Some(enabled) = auto_download {
+        crate::db::set_auto_download(&state.pool, enabled).await?;
     }
 
     Ok(())
@@ -510,7 +516,6 @@ pub async fn send_file(
 
     // 处理 file:// URI 格式
     let actual_path = if file_path.starts_with("file://") {
-        // 移除 file:// 前缀并解码 URL 编码
         let path_without_prefix = &file_path[7..];
         urlencoding::decode(path_without_prefix)
             .map_err(|e| format!("解码 URI 失败: {}", e))?
@@ -521,153 +526,145 @@ pub async fn send_file(
 
     println!("[Command] 实际文件路径: {}", actual_path);
 
+    // ── 提取文件元数据（不打开文件） ──
+    let (file_name, file_size) = if actual_path.starts_with("content://") {
+        #[cfg(target_os = "android")]
+        {
+            use crate::android_fd::AndroidFile;
+            let (name, size) = AndroidFile::query_content_uri_info(&actual_path).unwrap_or_default();
+            let name = if name.is_empty() {
+                let raw_seg = actual_path.split('/').last()
+                    .and_then(|s| urlencoding::decode(s).ok())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let name = if let Some(idx) = raw_seg.rfind(':') {
+                    raw_seg[idx + 1..].to_string()
+                } else { raw_seg };
+                if !name.contains('.') || name.is_empty() {
+                    format!("file_{}.dat", chrono::Utc::now().timestamp())
+                } else { name }
+            } else { name };
+            (name, size as usize)
+        }
+        #[cfg(not(target_os = "android"))]
+        { return Err("content:// URI 仅在 Android 上支持".to_string()); }
+    } else {
+        let name = std::path::Path::new(&actual_path)
+            .file_name().and_then(|n| n.to_str())
+            .ok_or("无效的文件名")?
+            .to_string();
+        let metadata = std::fs::metadata(&actual_path)
+            .map_err(|e| format!("读取文件信息失败: {}", e))?;
+        (name, metadata.len() as usize)
+    };
+
+    println!("[Command] 文件: {}, 大小: {} 字节", file_name, file_size);
+
+    // ── 检查接收端的 auto_download 设置 ──
+    let auto_enabled = {
+        let auto_dl_url = format!("http://{}/api/auto_download", peer_addr);
+        match reqwest::Client::new().get(&auto_dl_url).send().await {
+            Ok(resp) => {
+                if let Ok(data) = resp.json::<serde_json::Value>().await {
+                    data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true)
+                } else { true }
+            }
+            Err(_) => true, // 连不上时默认 ON（保底走现有上传流程）
+        }
+    };
+
+    if !auto_enabled {
+        // ── 自动下载关闭：先发 file_offer，不上传 ──
+        let msg_id = crate::db::save_file_message(
+            &state.pool,
+            peer_id.clone(),
+            file_name.clone(),
+            file_size,
+            actual_path.clone(),
+            "offering".to_string(),
+            "pending".to_string(),
+        )
+        .await
+        .ok();
+
+        let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
+        let my_name = crate::db::get_username(&state.pool).await.unwrap_or_default();
+        let sender_msg_id = msg_id.unwrap_or(0);
+
+        // 通过 WS 向接收端发送 file_offer
+        let offer = serde_json::json!({
+            "msg_type": "file_offer",
+            "from_id": my_id,
+            "from_name": my_name,
+            "file_name": file_name,
+            "file_size": file_size,
+            "sender_msg_id": sender_msg_id,
+        });
+        let _ = crate::network::messaging::send_json_via_ws(&peer_addr, &offer.to_string()).await;
+
+        return Ok(serde_json::json!({
+            "success": true,
+            "status": "offered",
+            "msg_id": sender_msg_id,
+            "file_name": file_name,
+        }));
+    }
+
+    // ── 自动下载开启：现有上传流程 ──
     // 检测是否是 Android content URI
     if actual_path.starts_with("content://") {
         #[cfg(target_os = "android")]
         {
             println!("[Command] 检测到 Android content URI，使用 FD 方式");
-
-            // 使用 JNI 调用 Android ContentResolver 获取 FD
             use crate::android_fd::AndroidFile;
 
-            // 从 content URI 获取文件描述符
             let android_file = AndroidFile::from_content_uri(&actual_path)?;
             let std_file = android_file.into_file();
             let file = tokio::fs::File::from_std(std_file);
 
-            // 通过 ContentResolver 查询真实文件名和大小（OpenableColumns）
-            let (mut file_name, file_size) =
-                AndroidFile::query_content_uri_info(&actual_path).unwrap_or_default();
-
-            // 兜底：文件名为空时从 URI 末段 + MIME 类型推断
-            if file_name.is_empty() {
-                println!("[Command] ContentResolver 未返回文件名，尝试从 URI 推断");
-                let raw_seg = actual_path
-                    .split('/')
-                    .last()
-                    .and_then(|s| urlencoding::decode(s).ok())
-                    .map(|s| s.to_string())
-                    .unwrap_or_default();
-
-                // 去掉 "image:1000019507" 这类无意义前缀
-                file_name = if let Some(idx) = raw_seg.rfind(':') {
-                    raw_seg[idx + 1..].to_string()
-                } else {
-                    raw_seg
-                };
-
-                // 如果还是没有扩展名，用时间戳兜底
-                if !file_name.contains('.') || file_name.is_empty() {
-                    file_name = format!("file_{}.dat", chrono::Utc::now().timestamp());
-                }
-            }
-
-            // 兜底：大小为 0 时尝试 fstat
-            if file_size == 0 {
-                println!("[Command] ContentResolver 未返回文件大小，尝试 fstat");
-                // file 已经 move 进 tokio，无法再 stat；大小保持 0，上传完成后接收端会知道真实大小
-            }
-
-            println!("[Command] 文件名: {}, 大小: {} 字节", file_name, file_size);
-
-            // 使用统一的上传函数
             let peer_state = app.try_state::<PeerState>();
             let (is_online, backend_addr) = peer_state
                 .as_ref()
                 .map(|s| {
                     if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peer_id) {
                         (!p.is_offline, Some(p.addr.clone()))
-                    } else {
-                        (false, None)
-                    }
+                    } else { (false, None) }
                 })
                 .unwrap_or((true, None));
 
-            // 强制纠正文件接收端 IP
             if let Some(latest_addr) = backend_addr {
-                if latest_addr != peer_addr {
-                    println!(
-                        "[Command] 🛡️ 拦截到过期文件传输 IP，后端强行纠正: {} -> {}",
-                        peer_addr, latest_addr
-                    );
-                    peer_addr = latest_addr;
-                }
+                if latest_addr != peer_addr { peer_addr = latest_addr; }
             }
             return upload_file_internal(
-                &app,
-                &state,
-                peer_state.as_ref(),
-                peer_id,
-                peer_addr,
-                file_name,
-                file_size as usize,
-                actual_path,
-                file,
-                is_online,
-            )
-            .await;
+                &app, &state, peer_state.as_ref(),
+                peer_id, peer_addr, file_name, file_size, actual_path, file, is_online,
+            ).await;
         }
-
         #[cfg(not(target_os = "android"))]
-        {
-            return Err("content:// URI 仅在 Android 上支持".to_string());
-        }
+        { return Err("content:// URI 仅在 Android 上支持".to_string()); }
     }
 
-    // 普通文件路径处理
-    let file_name = std::path::Path::new(&actual_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or("无效的文件名")?
-        .to_string();
-
-    let file_metadata =
-        std::fs::metadata(&actual_path).map_err(|e| format!("读取文件信息失败: {}", e))?;
-    let file_size = file_metadata.len() as usize;
-
-    println!("[Command] 文件: {}, 大小: {} 字节", file_name, file_size);
-
-    // 打开文件
+    // 普通文件路径
     let file = tokio::fs::File::open(&actual_path)
         .await
         .map_err(|e| format!("打开文件失败: {}", e))?;
 
-    // 使用统一的上传函数
     let peer_state = app.try_state::<PeerState>();
-
-    // 获取在线状态和最新的后端 IP
     let (is_online, backend_addr) = peer_state
         .as_ref()
         .map(|s| {
             if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peer_id) {
                 (!p.is_offline, Some(p.addr.clone()))
-            } else {
-                (false, None)
-            }
+            } else { (false, None) }
         })
         .unwrap_or((true, None));
 
-    // 强制纠正文件接收端 IP
     if let Some(latest_addr) = backend_addr {
-        if latest_addr != peer_addr {
-            println!(
-                "[Command] 🛡️ 拦截到过期文件传输 IP，后端强行纠正: {} -> {}",
-                peer_addr, latest_addr
-            );
-            peer_addr = latest_addr; // 这里发生了修改，编译器的 mut 警告就会消失！
-        }
+        if latest_addr != peer_addr { peer_addr = latest_addr; }
     }
     upload_file_internal(
-        &app,
-        &state,
-        peer_state.as_ref(),
-        peer_id,
-        peer_addr,
-        file_name,
-        file_size,
-        actual_path,
-        file,
-        is_online,
+        &app, &state, peer_state.as_ref(),
+        peer_id, peer_addr, file_name, file_size, actual_path, file, is_online,
     )
     .await
 }

@@ -549,6 +549,100 @@ async function startUnreadMessageCheck() {
   setInterval(checkUnreadMessages, pollInterval);
 }
 
+// 处理 start_upload 事件（Web 端手动下载：浏览器上传文件到接收端）
+async function handleStartUpload(data) {
+  const upload = window.__pendingUploads?.[data.sender_msg_id];
+  if (!upload) {
+    console.error("[JS-App] start_upload: 找不到待上传文件，msg_id=", data.sender_msg_id);
+    return;
+  }
+  console.log("[JS-App] 开始上传:", upload.fileName, "->", data.receiver_addr);
+  try {
+    // 重新调用上传逻辑（直接上传到接收端）
+    const peerAddr = data.receiver_addr;
+    const file = upload.file;
+    const fileSize = upload.fileSize;
+    const fileName = upload.fileName;
+    const myId = await apiGetMyId();
+
+    const chunkSize = calculateOptimalChunkSize(fileSize);
+    const totalChunks = Math.ceil(fileSize / chunkSize);
+    const uploadUrl = `http://${peerAddr}/api/upload`;
+
+    let offset = 0;
+    let chunkIndex = 0;
+    const startTime = Date.now();
+    let lastLogTime = startTime;
+
+    while (offset < fileSize) {
+      const size = Math.min(chunkSize, fileSize - offset);
+      const chunk = file.slice(offset, offset + size);
+      const formData = new FormData();
+      formData.append("peer_id", myId);
+      formData.append("file_name", fileName);
+      formData.append("file_size", fileSize.toString());
+      formData.append("chunk_index", chunkIndex.toString());
+      formData.append("chunk_total", totalChunks.toString());
+      formData.append("chunk", chunk, "chunk");
+
+      const resp = await fetch(uploadUrl, { method: "POST", body: formData, mode: "cors" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+      // 秒传检查
+      if (chunkIndex === 0) {
+        const respData = await resp.json();
+        if (respData.status === "already_exists") {
+          console.log("[JS-App] ✓ 秒传命中");
+          delete window.__pendingUploads[data.sender_msg_id];
+          return;
+        }
+      }
+
+      offset += size;
+      chunkIndex++;
+
+      // 每秒更新一次速度
+      const now = Date.now();
+      if (now - lastLogTime > 1000) {
+        const elapsed = (now - startTime) / 1000;
+        const speed = offset / (1024 * 1024) / elapsed;
+        console.log("[JS-App] 手动上传: ", Math.round(offset / 1024 / 1024), "MB, 速度:", Math.round(speed), "MB/s");
+        const statusDivs = document.querySelectorAll(".file-uploading");
+        statusDivs.forEach((div) => {
+          div.textContent = Math.round(speed) + " MB/s";
+        });
+        lastLogTime = now;
+      }
+    }
+
+    console.log("[JS-App] ✓ 文件上传完成:", fileName);
+    delete window.__pendingUploads[data.sender_msg_id];
+    // 更新 DB 状态为 sent（使刷新后不再显示上传中）
+    try {
+      await fetch("/api/update_upload_status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_name: fileName, status: "sent" }),
+      });
+    } catch (_) {}
+    // 更新 UI 状态（发送端自己的消息用 data-msg-id，对方的消息用 data-sender-msg-id）
+    const chatMessages = document.getElementById("chat-messages");
+    let msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${data.sender_msg_id}"]`);
+    if (!msgEl) {
+      msgEl = chatMessages?.querySelector(`[data-msg-id="${data.sender_msg_id}"]`);
+    }
+    if (msgEl) {
+      const statusDiv = msgEl.querySelector(".file-uploading, .file-pending");
+      if (statusDiv) {
+        statusDiv.className = "";
+        statusDiv.textContent = "";
+      }
+    }
+  } catch (e) {
+    console.error("[JS-App] 上传失败:", e.message);
+  }
+}
+
 // Web 端：连接 WebSocket 接收流式事件
 function startStreamingWebSocket() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -566,7 +660,13 @@ function startStreamingWebSocket() {
       console.debug("[JS-App] WebSocket 收到消息:", event.data.substring(0, 80));
       try {
         const data = JSON.parse(event.data);
-        if (data.stream_id || data.from_id) {
+        if (data.msg_type === "start_upload") {
+          // ── 接收端请求开始上传（手动下载） ──
+          handleStartUpload(data);
+        } else if (data.msg_type === "file_status_update" || data.msg_type === "file_download_progress") {
+          console.debug("[JS-App] 转发", data.msg_type, "到 onReceiveMessage");
+          onReceiveMessage(data);
+        } else if (data.stream_id || data.from_id) {
           console.debug("[JS-App] 转发到 onReceiveMessage, is_streaming:", data.is_streaming);
           onReceiveMessage(data);
         }

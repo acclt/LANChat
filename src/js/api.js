@@ -81,7 +81,7 @@ async function apiGetSettings() {
 }
 
 // 更新设置
-async function apiUpdateSettings(downloadPath, port, dbPath) {
+async function apiUpdateSettings(downloadPath, port, dbPath, autoDownload) {
   const tauri = getTauri();
 
   if (tauri) {
@@ -92,6 +92,7 @@ async function apiUpdateSettings(downloadPath, port, dbPath) {
         downloadPath,
         port,
         dbPath,
+        autoDownload,
       });
     } catch (e) {
       console.error("[JS-API] 更新设置失败:", e);
@@ -108,6 +109,7 @@ async function apiUpdateSettings(downloadPath, port, dbPath) {
           download_path: downloadPath,
           port: port,
           db_path: dbPath,
+          auto_download: autoDownload,
         }),
       });
       const data = await resp.json();
@@ -447,11 +449,79 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
   } else {
     // Web 端 - 通过 HTTP 上传（使用分块协议）
     try {
+      // 先检查对方的自动下载设置
+      const autoEnabled = await apiCheckAutoDownload(peerAddr);
+      if (!autoEnabled) {
+        // 自动下载关闭 → 通过本地服务器发送 file_offer
+        const myId = await apiGetMyId();
+        const fileName = file.name;
+        const fileSize = file.size;
+        // 先创建上传记录
+        // 先创建上传记录（获得真实 msg_id）
+        const createResp = await fetch("/api/create_upload_record", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            file_name: fileName,
+            file_size: fileSize,
+            timestamp: Math.floor(Date.now() / 1000),
+            receiver_id: peerId,
+          }),
+        });
+        const createData = await createResp.json();
+        if (!createData.success) throw new Error("创建记录失败");
+
+        const senderMsgId = createData.msg_id;
+
+        // 存储 File 引用供后续上传
+        if (!window.__pendingUploads) window.__pendingUploads = {};
+        window.__pendingUploads[senderMsgId] = {
+          file,
+          peerId,
+          peerAddr,
+          fileName,
+          fileSize,
+        };
+
+        // 通过本地服务器发送 file_offer（它会通过 WS 发给对方）
+        const offerResp = await fetch("/api/offer_file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            peer_addr: peerAddr,
+            file_name: fileName,
+            file_size: fileSize,
+            sender_msg_id: senderMsgId,
+          }),
+        });
+        if (!offerResp.ok) throw new Error("发送 file_offer 失败");
+
+        return {
+          success: true,
+          status: "offered",
+          msg_id: senderMsgId,
+          file_name: fileName,
+        };
+      }
+
       // 获取自己的 ID（发送者 ID）
       const myId = await apiGetMyId();
 
       const fileName = file.name;
       const fileSize = file.size;
+
+      // 创建上传记录（用于在发送端消息列表中显示）
+      const createResp = await fetch("/api/create_upload_record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_name: fileName,
+          file_size: fileSize,
+          timestamp: Math.floor(Date.now() / 1000),
+          receiver_id: peerId,
+        }),
+      });
+      const createData = await createResp.json();
 
       console.log("[JS-API] Web 端分块上传");
       console.log("[JS-API] 文件信息:", fileName, fileSize, "字节");
@@ -555,6 +625,19 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
         avgSpeed.toFixed(2),
         "MB/s",
       );
+
+      // 更新发送端记录状态为 sent
+      if (createData && createData.success) {
+        await fetch("/api/update_upload_status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            file_name: fileName,
+            timestamp: Math.floor(Date.now() / 1000),
+            status: "sent",
+          }),
+        });
+      }
 
       return {
         success: true,
@@ -910,6 +993,37 @@ async function apiRemoveCustomPeer(peer) {
     return data;
   }
 }
+/** 检查对方设备的自动下载是否开启 */
+async function apiCheckAutoDownload(peerAddr) {
+  try {
+    const resp = await fetch(`http://${peerAddr}/api/auto_download`);
+    if (resp.ok) {
+      const data = await resp.json();
+      return data.enabled !== false;
+    }
+  } catch (_) {}
+  return true; // 默认开启
+}
+
+/** 发送 file_request 到对方（请求开始发送文件） */
+async function apiRequestFile(senderAddr, senderMsgId, myAddr) {
+  const payload = { sender_msg_id: senderMsgId, receiver_addr: myAddr };
+  // 通过 HTTP 调用发送端的 /api/start_send
+  const resp = await fetch(`http://${senderAddr}/api/start_send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    if (err.not_found) {
+      return { status: "not_found" };
+    }
+    throw new Error(err.error || "请求发送文件失败");
+  }
+  return await resp.json();
+}
+
 /** 请求通知权限（按需调用，不在初始化时触发以避免 WebKit 警告） */
 async function requestNotificationPermission() {
   if (!("Notification" in window)) return;

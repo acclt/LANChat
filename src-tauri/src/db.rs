@@ -235,6 +235,11 @@ async fn init_db_with_path(app_dir: PathBuf) -> Result<Pool<Sqlite>, sqlx::Error
         .execute(&pool)
         .await;
 
+    // 数据库迁移：为现有的messages表添加sender_msg_id字段（对方的消息ID，用于手动下载回执）
+    let _ = sqlx::query("ALTER TABLE messages ADD COLUMN sender_msg_id TEXT")
+        .execute(&pool)
+        .await;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -958,6 +963,24 @@ pub async fn get_latest_msg_id_by_file(
     None
 }
 
+/// 查询消息的 sender_msg_id（用于 file_status_update 广播）
+pub async fn get_sender_msg_id_by_file(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    sender_id: &str,
+    file_name: &str,
+) -> Result<String, String> {
+    let result = sqlx::query_scalar::<_, String>(
+        "SELECT sender_msg_id FROM messages WHERE sender_id = ? AND content = ? AND sender_msg_id IS NOT NULL AND sender_msg_id != '' ORDER BY id DESC LIMIT 1"
+    )
+    .bind(sender_id)
+    .bind(file_name)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("查询 sender_msg_id 失败: {}", e))?;
+    
+    Ok(result.unwrap_or_default())
+}
+
 /// 清空与某个用户的聊天记录
 pub async fn clear_chat_history(pool: &sqlx::Pool<sqlx::Sqlite>, my_id: &str, peer_id: &str) -> Result<(), String> {
     println!("[DB] 清空与用户 {} 的聊天记录", peer_id);
@@ -1065,4 +1088,124 @@ pub async fn set_notifications_enabled(
         .map_err(|e| format!("保存通知设置失败: {}", e))?;
     println!("[DB] 通知状态已设置为: {}", val);
     Ok(())
+}
+
+// ── 自动下载开关 ──────────────────────────────────────────────
+
+/// 获取自动下载开关状态（默认开启）
+pub async fn get_auto_download(pool: &sqlx::Pool<sqlx::Sqlite>) -> bool {
+    let res = sqlx::query_as::<_, (String,)>( 
+        "SELECT value FROM settings WHERE key = 'auto_download'"
+    )
+    .fetch_one(pool)
+    .await;
+
+    match res {
+        Ok((val,)) => val == "true",
+        Err(_) => true, // 默认开启
+    }
+}
+
+/// 设置自动下载开关
+pub async fn set_auto_download(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    enabled: bool,
+) -> Result<(), String> {
+    let val = if enabled { "true" } else { "false" };
+    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('auto_download', ?)")
+        .bind(val)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("保存自动下载设置失败: {}", e))?;
+    println!("[DB] 自动下载已设置为: {}", val);
+    Ok(())
+}
+
+// ── 手动下载（file_offer / file_request） ───────────────────────
+
+/// 当收到 file_offer 且 auto_download=OFF 时，创建 "offered" 状态的记录
+pub async fn create_offered_file_record(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    sender_id: &str,
+    file_name: &str,
+    file_size: u64,
+    sender_msg_id: &str,
+    timestamp: i64,
+) -> Result<i64, String> {
+    let my_id = get_user_id(pool).await?;
+    let result = sqlx::query(
+        "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp, file_status, file_size, sender_msg_id) \
+         VALUES (?, ?, ?, 'file', ?, 'offered', ?, ?)"
+    )
+    .bind(sender_id)
+    .bind(&my_id)
+    .bind(file_name)
+    .bind(timestamp)
+    .bind(file_size as i64)
+    .bind(sender_msg_id)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("创建 offered 记录失败: {}", e))?;
+    Ok(result.last_insert_rowid())
+}
+
+/// 当收到文件上传时，查找并更新已存在的 offered 记录为 downloading
+/// 返回 (被更新的记录ID, sender_msg_id)（如果找到并更新），否则返回 None
+pub async fn find_and_update_offered_record(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    sender_id: &str,
+    file_name: &str,
+    file_path: &str,
+) -> Result<Option<(i64, String)>, String> {
+    // 查找 sender_id + file_name 匹配且 file_status = 'offered' 的记录，获取 id 和 sender_msg_id
+    let result = sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, sender_msg_id FROM messages WHERE sender_id = ? AND content = ? AND file_status = 'offered' LIMIT 1"
+    )
+    .bind(sender_id)
+    .bind(file_name)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("查询 offered 记录失败: {}", e))?;
+
+    if let Some((msg_id, sender_msg_id)) = result {
+        sqlx::query("UPDATE messages SET file_status = 'downloading', file_path = ? WHERE id = ?")
+            .bind(file_path)
+            .bind(msg_id)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("更新 offered 为 downloading 失败: {}", e))?;
+        println!("[DB] 已更新 offered 记录(ID={}, sender_msg_id={}) 为 downloading，路径: {}", msg_id, sender_msg_id, file_path);
+        Ok(Some((msg_id, sender_msg_id)))
+    } else {
+        Ok(None)
+    }
+}
+
+/// 通过 sender_msg_id 更新 file_status
+pub async fn update_file_status_by_sender_msg_id(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    sender_msg_id: &str,
+    status: &str,
+) -> Result<(), String> {
+    sqlx::query("UPDATE messages SET file_status = ? WHERE sender_msg_id = ?")
+        .bind(status)
+        .bind(sender_msg_id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("更新文件状态失败: {}", e))?;
+    Ok(())
+}
+
+/// 通过 sender_msg_id 查询发送端的文件记录（file_path 等）
+pub async fn get_sender_file_by_msg_id(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    msg_id: i64,
+) -> Result<(String, String, i64), String> {
+    sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT file_path, content, file_size FROM messages WHERE id = ? AND sender_id = 'me'"
+    )
+    .bind(msg_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("查询发送端文件记录失败: {}", e))
 }

@@ -165,6 +165,26 @@ async fn send_via_tcp(peer_addr: &str, message: TextMessage) -> Result<(), Strin
     Ok(())
 }
 
+/// 发送任意 JSON 负载到对方的 WebSocket（用于 file_offer / file_request 等自定义协议）
+pub async fn send_json_via_ws(peer_addr: &str, json: &str) -> Result<(), String> {
+    let ws_url = format!("ws://{}/ws", peer_addr);
+    match tokio_tungstenite::connect_async(&ws_url).await {
+        Ok((mut ws_stream, _)) => {
+            use futures_util::SinkExt;
+            use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
+            ws_stream.send(WsMessage::Text(json.to_string().into()))
+                .await
+                .map_err(|e| format!("发送 WS 消息失败: {}", e))?;
+            let _ = ws_stream.close(None).await;
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("[Messaging] 发送 JSON via WS 失败: {}", e);
+            Err(format!("WS 连接失败: {}", e))
+        }
+    }
+}
+
 // 启动消息接收服务器
 pub async fn start_message_server(
     port: u16,

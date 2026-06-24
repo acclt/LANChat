@@ -990,6 +990,11 @@ function createMessageElement(message, isSent) {
     messageDiv.dataset.msgId = message.id;
   }
 
+  // 存储 sender_msg_id（用于手动下载时的 file_status_update 回查）
+  if (message.sender_msg_id !== undefined && message.sender_msg_id !== null) {
+    messageDiv.dataset.senderMsgId = message.sender_msg_id;
+  }
+
   // 把当前状态存入数据集,方便轮询检测
   messageDiv.dataset.status = message.status || "sent";
 
@@ -1051,7 +1056,43 @@ function createMessageElement(message, isSent) {
     contentDiv.appendChild(fileContainer);
 
     // 文件点击事件
-    if (message.file_status === "sent" || message.file_status === "accepted") {
+    if (message.file_status === "offered" || message.file_status === "invalid") {
+      fileContainer.style.cursor = "pointer";
+      fileContainer.title = "点击请求对方发送文件";
+      fileContainer.addEventListener("click", async () => {
+        if (!window.currentChatPeer) return;
+        const senderAddr = window.currentChatPeer.addr;
+        const senderMsgId = message.sender_msg_id;
+        const fromId = message.from_id;
+        if (!senderMsgId) {
+          console.error("[UI] 无法请求文件: 缺少 sender_msg_id");
+          return;
+        }
+        // 立即切换为下载中状态，速度会在第一块数据到达时更新
+        const statusEl = fileContainer.closest(".message-file")?.nextSibling;
+        if (statusEl) {
+          statusEl.className = "file-downloading";
+          statusEl.textContent = "0 MB/s";
+        }
+        console.log("[手动下载] 请求文件: msg_id=", senderMsgId, "from=", fromId, "addr=", senderAddr);
+        try {
+          const resp = await fetch("/api/request_file", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sender_addr: senderAddr,
+              sender_msg_id: senderMsgId,
+            }),
+          });
+          if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            console.error("[UI] 请求文件失败:", data.error || resp.status);
+          }
+        } catch (e) {
+          console.error("[UI] 请求文件失败:", e.message);
+        }
+      });
+    } else if (message.file_status === "sent" || message.file_status === "accepted") {
       fileContainer.style.cursor = "pointer";
       const tauri = window.__TAURI__;
       if (tauri) {
@@ -1290,8 +1331,17 @@ function createMessageElement(message, isSent) {
       statusDiv.textContent = message.transfer_speed
         ? Math.round(message.transfer_speed) + " MB/s"
         : "上传中...";
+    } else if (message.file_status === "offered") {
+      statusDiv.className = "file-pending";
+      statusDiv.textContent = "未下载";
+    } else if (message.file_status === "offering") {
+      statusDiv.className = "file-pending";
+      statusDiv.textContent = "等待对方接收";
+    } else if (message.file_status === "invalid") {
+      statusDiv.className = "file-pending";
+      statusDiv.textContent = "已失效";
     }
-    // 成功状态(sent/accepted)不再塞入任何多余的文本,保持极简
+    // 成功状态(sent/accepted/accepted)不再塞入任何多余的文本,保持极简
   }
 
   if (statusDiv.className) {
@@ -1331,6 +1381,86 @@ function onReceiveMessage(message) {
   console.debug("[UI] ========== onReceiveMessage 被调用 ==========");
   console.debug("[UI] 消息内容:", JSON.stringify(message, null, 2));
   console.debug("[UI] 当前聊天对象:", window.currentChatPeer);
+
+  // ── file_status_update：更新已存在消息的文件状态（不渲染新消息） ──
+  if (message.msg_type === "file_status_update") {
+    const senderMsgId = message.sender_msg_id;
+    const newStatus = message.file_status;
+    if (senderMsgId && newStatus === "invalid") {
+      const chatMessages = document.getElementById("chat-messages");
+      const msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${senderMsgId}"]`);
+      if (msgEl) {
+        const statusDiv = msgEl.querySelector(".file-pending");
+        if (statusDiv) {
+          statusDiv.textContent = "已失效";
+        }
+      }
+    }
+    return;
+  }
+
+  // ── file_download_progress：更新接收端下载速度 ──
+  if (message.msg_type === "file_download_progress") {
+    const senderMsgId = message.sender_msg_id;
+    if (senderMsgId && message.received && message.total && message.timestamp) {
+      const chatMessages = document.getElementById("chat-messages");
+      const msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${senderMsgId}"]`);
+      if (!msgEl) {
+        // 也可能通过 data-msg-id（offered 记录被更新后广播的消息走这个路径）
+        // 但 offered 记录有 sender_msg_id，所以 data-sender-msg-id 应该存在
+        return;
+      }
+      const statusDiv = msgEl.querySelector(".file-downloading");
+      if (statusDiv) {
+        const speed = message.received / (1024 * 1024); // 简化：当前批次的 MB
+        // 存储上一次信息用于计算速度
+        if (!window.__downloadProgress) window.__downloadProgress = {};
+        const prev = window.__downloadProgress[senderMsgId];
+        if (prev) {
+          const timeDelta = (message.timestamp - prev.timestamp) / 1000; // 秒
+          if (timeDelta > 0) {
+            const byteDelta = message.received - prev.received;
+            const speedMbps = (byteDelta / (1024 * 1024)) / timeDelta;
+            statusDiv.textContent = speedMbps >= 1
+              ? Math.round(speedMbps) + " MB/s"
+              : Math.round(speedMbps * 1000) + " KB/s";
+          }
+        } else {
+          statusDiv.textContent = "0 MB/s";
+        }
+        window.__downloadProgress[senderMsgId] = {
+          received: message.received,
+          timestamp: message.timestamp,
+        };
+        // 下载完成 → 清空状态文字
+        if (message.received >= message.total) {
+          statusDiv.className = "";
+          statusDiv.textContent = "";
+          delete window.__downloadProgress[senderMsgId];
+        }
+      }
+    }
+    return;
+  }
+
+  // ── start_upload：桌面端接收到对方请求发送文件，直接上传（由 Rust handler 处理，此处仅 UI 反馈） ──
+  if (message.msg_type === "start_upload") {
+    // 更新 UI 状态为上传中
+    const chatMessages = document.getElementById("chat-messages");
+    let msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${message.sender_msg_id}"]`);
+    if (!msgEl) {
+      msgEl = chatMessages?.querySelector(`[data-msg-id="${message.sender_msg_id}"]`);
+    }
+    if (msgEl) {
+      const statusDiv = msgEl.querySelector(".file-pending");
+      if (statusDiv) {
+        statusDiv.textContent = "上传中...";
+        statusDiv.className = "file-uploading";
+      }
+    }
+    return;
+  }
+
   // 仅在当前聊天窗口时处理
   if (window.currentChatPeer && window.currentChatPeer.id === message.from_id) {
     // —— 模型切换完成/失败时，重置按钮状态 ——
@@ -1558,48 +1688,19 @@ async function sendFile(file) {
     }
   } else {
     // Web 端
-    const timestamp = Math.floor(Date.now() / 1000);
     try {
-      await fetch("/api/create_upload_record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file_name: file.name,
-          file_size: file.size,
-          timestamp: timestamp,
-          receiver_id: window.currentChatPeer.id,
-        }),
-      });
-      // 让UI渲染出刚存入数据库的 uploading 状态
-      await loadChatHistory(window.currentChatPeer.id, true);
-      await scrollToBottom();
-
       await apiSendFile(
         window.currentChatPeer.id,
         window.currentChatPeer.addr,
         file,
       );
 
-      await fetch("/api/update_upload_status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file_name: file.name,
-          timestamp: timestamp,
-          status: "sent",
-        }),
-      });
-
-      // 完成后再刷一次
+      // 完成后刷新 UI
       await loadChatHistory(window.currentChatPeer.id, true);
+      await scrollToBottom();
     } catch (e) {
       console.error("[UI] ✗ 文件发送失败:", e);
       alert("文件发送失败: " + e.message);
-      await fetch("/api/delete_upload_record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_name: file.name, timestamp: timestamp }),
-      });
       await loadChatHistory(window.currentChatPeer.id, true);
     }
   }
@@ -1844,6 +1945,8 @@ function initSettings() {
   let initialPort = "8888";
   let initialDbPath = "";
   let initialDlPath = "";
+  let initialAutoDl = true;
+  const autoDownloadToggle = document.getElementById("auto-download-toggle");
 
   // Android 端隐藏数据库路径配置
   const isAndroid = window.__TAURI__ && navigator.userAgent.includes("Android");
@@ -1890,6 +1993,8 @@ function initSettings() {
         dbPathInput.value = settings.db_path || "";
         initialDbPath = dbPathInput.value;
         initialDlPath = downloadPathInput.value;
+        autoDownloadToggle.checked = settings.auto_download !== false;
+        initialAutoDl = autoDownloadToggle.checked;
       } catch (e) {
         settingsErrorMsg.textContent = "加载设置失败: " + e.message;
       }
@@ -2017,15 +2122,17 @@ function initSettings() {
       const dlPath = downloadPathInput.value.trim() || (await getDefaultDownloadPath());
       const myPort = portInput.value || "8888";
       const myDbPath = dbPathInput.value.trim() || "";
+      const autoDl = autoDownloadToggle.checked;
 
-      await apiUpdateSettings(dlPath, myPort, myDbPath);
+      await apiUpdateSettings(dlPath, myPort, myDbPath, autoDl);
 
       // 检测是否有实际改动
       const portChanged = myPort !== initialPort;
       const dbPathChanged = myDbPath !== initialDbPath;
       const dlPathChanged = dlPath !== initialDlPath;
+      const autoDlChanged = autoDl !== initialAutoDl;
 
-      if (!portChanged && !dbPathChanged && !dlPathChanged) {
+      if (!portChanged && !dbPathChanged && !dlPathChanged && !autoDlChanged) {
         // 没有任何改动，直接关闭
         settingsPanel.style.display = "none";
         return;
