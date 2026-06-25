@@ -641,13 +641,13 @@ pub async fn resend_pending_messages(
                                     let _ = crate::db::update_file_status_by_id(
                                         pool, msg_id, "offering",
                                     ).await;
-                                    let update = serde_json::json!({
-                                        "msg_type": "file_status_update",
-                                        "sender_msg_id": msg_id,
-                                        "file_status": "offering",
-                                    });
                                     #[cfg(feature = "desktop")]
                                     if let Some(ref app_handle) = app {
+                                        let update = serde_json::json!({
+                                            "msg_type": "file_status_update",
+                                            "sender_msg_id": msg_id,
+                                            "file_status": "offering",
+                                        });
                                         let _ = app_handle.emit("new-message", update);
                                     }
                                     println!(

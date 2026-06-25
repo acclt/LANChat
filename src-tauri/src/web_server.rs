@@ -502,10 +502,10 @@ async fn upload_to_receiver(
         // 发送进度到发送端前端
         let elapsed = start_time.elapsed().as_secs_f64();
         if elapsed > 0.0 {
-            let speed = offset as f64 / (1024.0 * 1024.0) / elapsed;
             #[cfg(feature = "desktop")]
             if let Some(ref app_ref) = _app {
                 use tauri::Emitter;
+                let speed = offset as f64 / (1024.0 * 1024.0) / elapsed;
                 let _ = app_ref.emit("upload_progress", serde_json::json!({
                     "file_name": _file_name,
                     "speed_mb_s": speed,
