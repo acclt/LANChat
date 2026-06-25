@@ -288,8 +288,18 @@ function initChat() {
   attachFileBtn.addEventListener("click", () => {
     const tauri = window.__TAURI__;
     if (tauri) {
-      // 桌面端 - 直接调用 sendFile,它会弹出对话框
-      sendFile(null);
+      // Android: 使用自定义 SAF 选择器（持久化权限）
+      const isAndroid = navigator.userAgent.includes("Android");
+      if (isAndroid) {
+        tauri.core.invoke("open_saf_picker").catch(e => {
+          console.error("[UI] SAF 选择器调用失败:", e);
+          // 降级为桌面端对话框
+          sendFile(null);
+        });
+      } else {
+        // 桌面端 - 直接调用 sendFile,它会弹出对话框
+        sendFile(null);
+      }
     } else {
       // Web 端 - 触发文件选择
       fileInput.click();
@@ -304,6 +314,40 @@ function initChat() {
       fileInput.value = ""; // 清空选择
     }
   });
+
+  // Android SAF 文件选择器回调（持久化权限 URI）
+  (async () => {
+    const tauri = window.__TAURI__;
+    const isAndroid = navigator.userAgent.includes("Android");
+    if (tauri && isAndroid && tauri.event) {
+      try {
+        await tauri.event.listen("saf-file-selected", async (event) => {
+          const fileInfo = event.payload;
+          console.log("[UI] SAF 持久化文件已选择:", fileInfo);
+          if (!window.currentChatPeer) {
+            alert("请先选择一个聊天对象");
+            return;
+          }
+          try {
+            await apiSendFile(
+              window.currentChatPeer.id,
+              window.currentChatPeer.addr,
+              null,
+              fileInfo.uri
+            );
+            await loadChatHistory(window.currentChatPeer.id, true);
+            await scrollToBottom();
+          } catch (e) {
+            console.error("[UI] SAF 文件发送失败:", e);
+            alert("文件发送失败: " + e.message);
+          }
+        });
+        console.log("[UI] SAF 文件选择器监听已注册");
+      } catch (e) {
+        console.error("[UI] 注册 SAF 监听器失败:", e);
+      }
+    }
+  })();
 
   // 拖拽文件功能
   initDragAndDrop(chatContainer);

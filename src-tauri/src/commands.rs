@@ -1,4 +1,8 @@
 // commands.rs - Tauri 命令（桌面端和移动端共享）
+#[cfg(not(target_os = "android"))]
+use std::sync::atomic::Ordering;
+use std::sync::atomic::AtomicBool;
+
 #[cfg(feature = "desktop")]
 use crate::db::DbState;
 
@@ -9,12 +13,25 @@ use crate::peers::{Peer, PeerManager};
 use std::sync::Arc;
 
 #[cfg(feature = "desktop")]
-use tauri::{Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 // 用于管理 PeerManager 的状态
 #[cfg(feature = "desktop")]
 pub struct PeerState {
     pub manager: Arc<PeerManager>,
+}
+
+/// 托盘闪烁状态（仅桌面端）
+pub struct TrayFlashState {
+    pub is_flashing: Arc<AtomicBool>,
+}
+
+impl Default for TrayFlashState {
+    fn default() -> Self {
+        Self {
+            is_flashing: Arc::new(AtomicBool::new(false)),
+        }
+    }
 }
 
 #[cfg(feature = "desktop")]
@@ -1072,6 +1089,18 @@ impl AndroidShareState {
 }
 
 #[tauri::command]
+pub async fn open_saf_picker() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android_fd::AndroidFile::trigger_saf_picker_jni()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("该功能仅在 Android 端可用".to_string())
+    }
+}
+
+#[tauri::command]
 pub async fn send_file_from_fd(
     app: tauri::AppHandle,
     state: State<'_, DbState>,
@@ -1624,21 +1653,81 @@ pub fn show_notification(_app: tauri::AppHandle, title: String, body: String) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Android 空实现：无系统托盘，前端调用时不报 Command not found
+// 托盘图标闪烁（桌面端 real，Android 空实现）
 // ═══════════════════════════════════════════════════════════════
 
-/// 无系统托盘平台的空实现（桌面端在 main.rs 中有真实实现）。
-/// lib.rs 作为库被两端共用，handler 需要注册此命令。
+#[cfg(not(target_os = "android"))]
+const ICON_EMPTY: &[u8] = include_bytes!("../icons/icon_empty.png");
+#[cfg(not(target_os = "android"))]
+const ICON_NORMAL: &[u8] = include_bytes!("../icons/32x32.png");
+
+/// 开始托盘闪烁
 #[tauri::command]
-pub fn start_tray_flash() {
+pub fn start_tray_flash(
+    #[allow(unused_variables)] app: AppHandle,
+    #[allow(unused_variables)] state: State<'_, TrayFlashState>,
+) {
     #[cfg(not(target_os = "android"))]
-    println!("[TrayFlash] 非 Android 平台 stub（main.rs 中有真实托盘实现）");
+    {
+        use tauri::image::Image;
+
+        println!("[TrayFlash] start_tray_flash 被调用");
+        if state.is_flashing.load(Ordering::Relaxed) {
+            println!("[TrayFlash] 已在闪烁中，跳过");
+            return;
+        }
+        state.is_flashing.store(true, Ordering::Relaxed);
+        println!("[TrayFlash] 开始闪烁");
+
+        let flashing = state.is_flashing.clone();
+        let app = app.clone();
+
+        std::thread::spawn(move || {
+            let normal_img = match Image::from_bytes(ICON_NORMAL) {
+                Ok(img) => img,
+                Err(e) => {
+                    eprintln!("[TrayFlash] 无法加载正常图标: {}", e);
+                    return;
+                }
+            };
+            let empty_img = match Image::from_bytes(ICON_EMPTY) {
+                Ok(img) => img,
+                Err(e) => {
+                    eprintln!("[TrayFlash] 无法加载空白图标: {}", e);
+                    return;
+                }
+            };
+
+            let mut toggle = false;
+            while flashing.load(Ordering::Relaxed) {
+                if let Some(tray) = app.tray_by_id("main") {
+                    let icon = if toggle { &normal_img } else { &empty_img };
+                    let _ = tray.set_icon(Some(icon.clone() as tauri::image::Image));
+                } else {
+                    eprintln!("[TrayFlash] 找不到托盘 'main'");
+                }
+                toggle = !toggle;
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            // 停止闪烁，恢复为正常图标
+            println!("[TrayFlash] 停止闪烁，恢复图标");
+            if let Some(tray) = app.tray_by_id("main") {
+                let _ = tray.set_icon(Some(normal_img as tauri::image::Image));
+            }
+        });
+    }
+    #[cfg(target_os = "android")]
+    println!("[TrayFlash] Android 无系统托盘，忽略 start_tray_flash");
 }
 
+/// 停止托盘闪烁
 #[tauri::command]
-pub fn stop_tray_flash() {
+pub fn stop_tray_flash(#[allow(unused_variables)] state: State<'_, TrayFlashState>) {
     #[cfg(not(target_os = "android"))]
-    println!("[TrayFlash] 非 Android 平台 stub");
+    {
+        println!("[TrayFlash] stop_tray_flash 被调用");
+        state.is_flashing.store(false, Ordering::Relaxed);
+    }
+    #[cfg(target_os = "android")]
+    println!("[TrayFlash] Android 无系统托盘，忽略 stop_tray_flash");
 }
-
-

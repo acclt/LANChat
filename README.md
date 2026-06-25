@@ -23,6 +23,7 @@
 - 🤖 **LANClaw 智能机器人** - 由 Pi 驱动的 AI 聊天机器人，支持自动回复、文件分析和定时任务
 - 📱 **Android 双轨文件引擎** — SAF 持久化权限 + Share Intent FD 缓存零拷贝双轨并行
 - 🔁 **离线补发** — 离线消息自动缓存，上线后自动补发，支持文件消息
+- 📁 **SAF 文件选择器** — Android 原生 `ACTION_OPEN_DOCUMENT`，选中的文件跨进程/跨重启持久可读
 
 ## 技术栈
 
@@ -156,6 +157,7 @@ make help         # 查看帮助
 - [x] 通知开关（托盘右键菜单，仅桌面端）
 - [x] 手动接收文件
 - [x] Android SAF 持久化权限 + 零拷贝 FD 缓存双轨机制
+- [x] Android SAF 原生文件选择器（`ACTION_OPEN_DOCUMENT` + `takePersistableUriPermission`）
 - [x] 文件传输速度实时显示
 
 ### 🚧 进行中

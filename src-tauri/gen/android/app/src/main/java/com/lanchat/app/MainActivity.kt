@@ -10,6 +10,7 @@ import android.provider.OpenableColumns
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.Keep
 import androidx.core.content.FileProvider
 import org.json.JSONArray
@@ -22,10 +23,22 @@ private const val NOTIFICATION_OBJ_INTENT_KEY = "LocalNotficationObject"
 private const val ACTION_INTENT_KEY = "NotificationUserAction"
 
 class MainActivity : TauriActivity() {
+    // ─── JNI：Rust 侧的回调 ───
+    private external fun nativeOnSafFileSelected(uri: String, name: String, size: Long)
+
     private var pendingSharedFiles: List<SharedFileInfo>? = null
     private var webView: WebView? = null
     private var shareReceiver: BroadcastReceiver? = null
     private var lastNotificationFromId: String? = null
+
+    // ─── SAF 文件选择器（持久化权限） ───
+    private val safPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            handleSafSelectedFile(uri)
+        }
+    }
 
     data class SharedFileInfo(
         val uri: Uri,
@@ -46,6 +59,42 @@ class MainActivity : TauriActivity() {
         
         // 检测冷启动是否来自通知点击
         checkNotificationLaunch(intent)
+    }
+
+    /**
+     * 供 Rust JNI 调用：打开 SAF 文件选择器
+     */
+    fun launchSafFilePicker() {
+        runOnUiThread {
+            safPickerLauncher.launch(arrayOf("*/*"))
+        }
+    }
+
+    private fun handleSafSelectedFile(uri: Uri) {
+        try {
+            // 持久化读取权限
+            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            contentResolver.takePersistableUriPermission(uri, takeFlags)
+
+            // 提取文件名和大小
+            var fileName = "unknown_file"
+            var fileSize: Long = 0
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (nameIndex >= 0) fileName = cursor.getString(nameIndex)
+                    if (sizeIndex >= 0) fileSize = cursor.getLong(sizeIndex)
+                }
+            }
+
+            // 回调 Rust 侧，走 Tauri 事件总线广播给前端
+            nativeOnSafFileSelected(uri.toString(), fileName, fileSize)
+
+        } catch (e: Exception) {
+            println("[MainActivity] SAF 文件选择持久化失败: ${e.message}")
+            e.printStackTrace()
+        }
     }
 
     private fun checkNotificationLaunch(intent: Intent?) {

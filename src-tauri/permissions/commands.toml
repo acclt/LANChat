@@ -159,3 +159,8 @@ commands.allow = ["request_file"]
 identifier = "allow-stop-tray-flash"
 description = "Allows stopping tray icon flashing"
 commands.allow = ["stop_tray_flash"]
+
+[[permission]]
+identifier = "allow-open-saf-picker"
+description = "Allows opening the SAF file picker on Android"
+commands.allow = ["open_saf_picker"]

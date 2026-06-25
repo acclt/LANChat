@@ -3,86 +3,12 @@
 
 use lanchat::db;
 use lanchat::peers::PeerManager;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{
-    image::Image,
     menu::{Menu, MenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager,
+    Emitter, Manager,
 };
-
-// 托盘闪烁状态
-pub struct TrayFlashState {
-    is_flashing: Arc<AtomicBool>,
-}
-
-impl Default for TrayFlashState {
-    fn default() -> Self {
-        Self {
-            is_flashing: Arc::new(AtomicBool::new(false)),
-        }
-    }
-}
-
-const ICON_EMPTY: &[u8] = include_bytes!("../icons/icon_empty.png");
-
-// 读取正常图标字节（与 bundle.icon 第一项一致）
-const ICON_NORMAL: &[u8] = include_bytes!("../icons/32x32.png");
-
-#[tauri::command]
-fn start_tray_flash(app: AppHandle, state: tauri::State<'_, TrayFlashState>) {
-    println!("[TrayFlash] start_tray_flash 被调用");
-    if state.is_flashing.load(Ordering::Relaxed) {
-        println!("[TrayFlash] 已在闪烁中，跳过");
-        return;
-    }
-    state.is_flashing.store(true, Ordering::Relaxed);
-    println!("[TrayFlash] 开始闪烁");
-
-    let flashing = state.is_flashing.clone();
-    let app = app.clone();
-
-    std::thread::spawn(move || {
-        let normal_img = match Image::from_bytes(ICON_NORMAL) {
-            Ok(img) => img,
-            Err(e) => {
-                eprintln!("[TrayFlash] 无法加载正常图标: {}", e);
-                return;
-            }
-        };
-        let empty_img = match Image::from_bytes(ICON_EMPTY) {
-            Ok(img) => img,
-            Err(e) => {
-                eprintln!("[TrayFlash] 无法加载空白图标: {}", e);
-                return;
-            }
-        };
-
-        let mut toggle = false;
-        while flashing.load(Ordering::Relaxed) {
-            if let Some(tray) = app.tray_by_id("main") {
-                let icon = if toggle { &normal_img } else { &empty_img };
-                let _ = tray.set_icon(Some(icon.clone()));
-            } else {
-                eprintln!("[TrayFlash] 找不到托盘 'main'");
-            }
-            toggle = !toggle;
-            std::thread::sleep(std::time::Duration::from_millis(500));
-        }
-        // 停止闪烁，恢复为正常图标
-        println!("[TrayFlash] 停止闪烁，恢复图标");
-        if let Some(tray) = app.tray_by_id("main") {
-            let _ = tray.set_icon(Some(normal_img));
-        }
-    });
-}
-
-#[tauri::command]
-fn stop_tray_flash(state: tauri::State<'_, TrayFlashState>) {
-    println!("[TrayFlash] stop_tray_flash 被调用");
-    state.is_flashing.store(false, Ordering::Relaxed);
-}
 
 fn main() {
     let builder = tauri::Builder::default()
@@ -143,8 +69,9 @@ fn main() {
             lanchat::commands::request_file,
             lanchat::commands::get_notifications_enabled,
             lanchat::commands::set_notifications_enabled,
-            start_tray_flash,
-            stop_tray_flash,
+            lanchat::commands::open_saf_picker,
+            lanchat::commands::start_tray_flash,
+            lanchat::commands::stop_tray_flash,
         ])
         // --------------------------
         .setup(|app| {
@@ -196,7 +123,7 @@ fn main() {
             });
 
             handle.manage(db::DbState { pool: pool.clone() });
-            handle.manage(TrayFlashState::default());
+            handle.manage(lanchat::commands::TrayFlashState::default());
             println!("[Main] 我的用户名: {}", my_name);
             println!("[Main] 我的 ID: {}", my_id);
             println!("[Main] 服务端口: {}", port);

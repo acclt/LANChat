@@ -528,9 +528,78 @@ impl AndroidFile {
         println!("[AndroidFD] 系统持久化 URI 权限数量: {}", count);
         Ok(count)
     }
+
+    /// JNI：主动调用 Kotlin 的 launchSafFilePicker 唤起系统文件选择器
+    pub fn trigger_saf_picker_jni() -> Result<(), String> {
+        use jni::objects::JObject;
+        use jni::JavaVM;
+
+        let ctx = ndk_context::android_context();
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("获取 JavaVM 失败: {}", e))?;
+        let mut env = vm.attach_current_thread()
+            .map_err(|e| format!("附加线程失败: {}", e))?;
+
+        let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+        env.call_method(
+            &activity,
+            "launchSafFilePicker",
+            "()V",
+            &[]
+        ).map_err(|e| format!("JNI 调用 launchSafFilePicker 失败: {}", e))?;
+
+        println!("[AndroidFD] JNI 已触发 launchSafFilePicker");
+        Ok(())
+    }
 }
 
-// ─── 非 Android 存根 ───
+/// JNI 导出：供 Kotlin 在选完文件并提取持久化权限后回调
+/// 函数名必须严格匹配 Kotlin 的包名: com_lanchat_app_MainActivity_nativeOnSafFileSelected
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_lanchat_app_MainActivity_nativeOnSafFileSelected(
+    mut env: jni::JNIEnv,
+    _activity: jni::objects::JObject,
+    uri: jni::objects::JString,
+    name: jni::objects::JString,
+    size: jni::sys::jlong,
+) {
+    use tauri::Emitter;
+
+    let uri_str: String = match env.get_string(&uri) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            eprintln!("[JNI-Callback] 获取 URI 失败: {}", e);
+            return;
+        }
+    };
+    let name_str: String = match env.get_string(&name) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            eprintln!("[JNI-Callback] 获取文件名失败: {}", e);
+            return;
+        }
+    };
+    let size_val: i64 = size;
+
+    println!(
+        "[JNI-Callback] 接收到 Kotlin 空投: uri={}, name={}, size={}",
+        uri_str, name_str, size_val
+    );
+
+    if let Some(app) = crate::APP_HANDLE.get() {
+        let payload = serde_json::json!({
+            "uri": uri_str,
+            "name": name_str,
+            "size": size_val,
+        });
+        let _ = app.emit("saf-file-selected", payload);
+        println!("[JNI-Callback] ✓ 已通过 AppHandle 广播 saf-file-selected 事件");
+    } else {
+        eprintln!("[JNI-Callback] 错误：全局 APP_HANDLE 尚未初始化！");
+    }
+}
 
 #[cfg(not(target_os = "android"))]
 pub struct AndroidFile;

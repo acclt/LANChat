@@ -25,6 +25,7 @@
     "allow-set-notifications-enabled",
     "allow-start-tray-flash",
     "allow-stop-tray-flash",
+    "allow-open-saf-picker",
     "allow-get-my-name",
     "allow-get-my-id",
     "allow-update-my-name",

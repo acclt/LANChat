@@ -2,6 +2,15 @@
 #[cfg(feature = "desktop")]
 pub mod commands;
 
+#[cfg(feature = "desktop")]
+use std::sync::OnceLock;
+#[cfg(feature = "desktop")]
+use tauri::AppHandle;
+
+/// 全局 AppHandle 缓存，供 JNI 回调发射 Tauri 事件
+#[cfg(feature = "desktop")]
+pub static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+
 pub mod android_fd;
 pub mod config_file;
 pub mod db;
@@ -67,9 +76,11 @@ pub fn run() {
             commands::set_notifications_enabled,
             commands::start_tray_flash,
             commands::stop_tray_flash,
+            commands::open_saf_picker,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+            APP_HANDLE.set(handle.clone()).ok();
 
             tauri::async_runtime::block_on(async move {
                 println!("[Lib] 正在初始化数据库...");
@@ -106,6 +117,7 @@ pub fn run() {
 
                 // 注册 Android 分享状态
                 handle.manage(commands::AndroidShareState::new());
+                handle.manage(commands::TrayFlashState::default());
 
                 let h1 = handle.clone();
                 let id1 = my_id.clone();
