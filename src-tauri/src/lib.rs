@@ -65,6 +65,8 @@ pub fn run() {
             commands::show_notification,
             commands::get_notifications_enabled,
             commands::set_notifications_enabled,
+            commands::start_tray_flash,
+            commands::stop_tray_flash,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

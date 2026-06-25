@@ -401,6 +401,7 @@ async fn start_send_http(
                     &fpath,
                     file,
                     sm_id,
+                    #[cfg(feature = "desktop")] app_clone.clone(),
                 ).await;
                 // 上传完成 → 更新发送端 DB 状态
                 let _ = crate::db::update_file_status_by_id(&pool, sm_id, "sent").await;
@@ -438,6 +439,7 @@ async fn upload_to_receiver(
     _file_path: &str,
     file: tokio::fs::File,
     _sender_msg_id: i64,
+    #[cfg(feature = "desktop")] _app: Option<tauri::AppHandle>,
 ) {
     // 获取自己的 ID
     let my_id = crate::db::get_user_id(_pool).await.unwrap_or_default();
@@ -496,6 +498,20 @@ async fn upload_to_receiver(
         }
         offset += bytes_read;
         chunk_index += 1;
+
+        // 发送进度到发送端前端
+        let elapsed = start_time.elapsed().as_secs_f64();
+        if elapsed > 0.0 {
+            let speed = offset as f64 / (1024.0 * 1024.0) / elapsed;
+            #[cfg(feature = "desktop")]
+            if let Some(ref app_ref) = _app {
+                use tauri::Emitter;
+                let _ = app_ref.emit("upload_progress", serde_json::json!({
+                    "file_name": _file_name,
+                    "speed_mb_s": speed,
+                }));
+            }
+        }
     }
 
     println!("[WebServer] ✓ 文件上传完成: {}", file_name);
@@ -902,24 +918,90 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                             // 查询发送端文件记录
                             match crate::db::get_sender_file_by_msg_id(&state.pool, sender_msg_id).await {
                                 Ok((file_path, fname, fsize)) => {
-                                    if file_path.is_empty() || !std::path::Path::new(&file_path).exists() {
-                                        if file_path.is_empty() {
-                                            println!("[手动下载] Web端文件在浏览器中，通知浏览器上传: msg_id={}", sender_msg_id);
-                                            let start_evt = serde_json::json!({
-                                                "msg_type": "start_upload",
-                                                "sender_msg_id": sender_msg_id,
-                                                "file_name": fname,
-                                                "file_size": fsize,
-                                                "receiver_addr": receiver_addr,
-                                            });
-                                            let _ = state.ws_broadcast.send(start_evt.to_string());
-                                            #[cfg(feature = "desktop")]
-                                            if let Some(ref app) = state.app_handle {
-                                                use tauri::Emitter;
-                                                let _ = app.emit("new-message", start_evt);
+                                    // 立即更新为 uploading，前端显示「上传中」
+                                    let _ = crate::db::update_file_status_by_id(
+                                        &state.pool, sender_msg_id, "uploading",
+                                    ).await;
+                                    let update = serde_json::json!({
+                                        "msg_type": "file_status_update",
+                                        "sender_msg_id": sender_msg_id,
+                                        "file_status": "uploading",
+                                    });
+                                    let _ = state.ws_broadcast.send(update.to_string());
+                                    #[cfg(feature = "desktop")]
+                                    if let Some(ref app) = state.app_handle {
+                                        use tauri::Emitter;
+                                        let _ = app.emit("new-message", update);
+                                    }
+
+                                    if file_path.is_empty() {
+                                        // ── Web 端：文件在浏览器中，通知浏览器上传 ──
+                                        println!("[手动下载] Web端文件在浏览器中，通知浏览器上传: msg_id={}", sender_msg_id);
+                                        let start_evt = serde_json::json!({
+                                            "msg_type": "start_upload",
+                                            "sender_msg_id": sender_msg_id,
+                                            "file_name": fname,
+                                            "file_size": fsize,
+                                            "receiver_addr": receiver_addr,
+                                        });
+                                        let _ = state.ws_broadcast.send(start_evt.to_string());
+                                        #[cfg(feature = "desktop")]
+                                        if let Some(ref app) = state.app_handle {
+                                            use tauri::Emitter;
+                                            let _ = app.emit("new-message", start_evt);
+                                        }
+                                    } else if file_path.starts_with("content://") {
+                                        // ── Android SAF 文件（URI 已持久化权限） ──
+                                        println!("[手动下载] Android content URI 文件: msg_id={}, uri={}", sender_msg_id, file_path);
+                                        #[cfg(target_os = "android")]
+                                        {
+                                            use crate::android_fd::AndroidFile;
+                                            match AndroidFile::from_content_uri(&file_path) {
+                                                Ok(af) => {
+                                                    let file = tokio::fs::File::from_std(af.into_file());
+                                                    let pool = state.pool.clone();
+                                                    let raddr = receiver_addr.clone();
+                                                    let ws_tx = state.ws_broadcast.clone();
+                                                    #[cfg(feature = "desktop")]
+                                                    let app_clone = state.app_handle.clone();
+                                                    let fname2 = fname.clone();
+                                                    tokio::spawn(async move {
+                                                        upload_to_receiver(
+                                                            &pool, &raddr, &fname2, fsize as usize, &file_path, file,
+                                                            sender_msg_id,
+                                                            #[cfg(feature = "desktop")] app_clone.clone(),
+                                                        ).await;
+                                                        let _ = crate::db::update_file_status_by_id(
+                                                            &pool, sender_msg_id, "sent",
+                                                        ).await;
+                                                        let update = serde_json::json!({
+                                                            "msg_type": "file_status_update",
+                                                            "sender_msg_id": sender_msg_id,
+                                                            "file_status": "sent",
+                                                        });
+                                                        let _ = ws_tx.send(update.to_string());
+                                                        #[cfg(feature = "desktop")]
+                                                        if let Some(ref app_ref) = app_clone {
+                                                            use tauri::Emitter;
+                                                            let _ = app_ref.emit("new-message", update);
+                                                        }
+                                                    });
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("[手动下载] content URI 打开失败: {}", e);
+                                                    let notice = serde_json::json!({
+                                                        "msg_type": "file_not_found",
+                                                        "sender_msg_id": sender_msg_id,
+                                                    });
+                                                    let _ = crate::network::messaging::send_json_via_ws(
+                                                        &receiver_addr,
+                                                        &notice.to_string(),
+                                                    ).await;
+                                                }
                                             }
-                                        } else {
-                                            println!("[手动下载] 文件已丢失(路径存在但文件不存在): msg_id={}, path={}", sender_msg_id, file_path);
+                                        }
+                                        #[cfg(not(target_os = "android"))]
+                                        {
                                             let notice = serde_json::json!({
                                                 "msg_type": "file_not_found",
                                                 "sender_msg_id": sender_msg_id,
@@ -929,7 +1011,78 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                 &notice.to_string(),
                                             ).await;
                                         }
+                                    } else if file_path.starts_with("fd:") {
+                                        // ── Android Share Intent 文件（FD 缓存） ──
+                                        println!("[手动下载] Share Intent FD 缓存文件: msg_id={}", sender_msg_id);
+                                        #[cfg(target_os = "android")]
+                                        {
+                                            match crate::android_fd::duplicate_cached_file(sender_msg_id) {
+                                                Some((file, cached_name, cached_size)) => {
+                                                    let pool = state.pool.clone();
+                                                    let raddr = receiver_addr.clone();
+                                                    let ws_tx = state.ws_broadcast.clone();
+                                                    #[cfg(feature = "desktop")]
+                                                    let app_clone = state.app_handle.clone();
+                                                    let fname2 = cached_name;
+                                                    tokio::spawn(async move {
+                                                        upload_to_receiver(
+                                                            &pool, &raddr, &fname2, cached_size as usize, &file_path, file,
+                                                            sender_msg_id,
+                                                            #[cfg(feature = "desktop")] app_clone.clone(),
+                                                        ).await;
+                                                        let _ = crate::db::update_file_status_by_id(
+                                                            &pool, sender_msg_id, "sent",
+                                                        ).await;
+                                                        let update = serde_json::json!({
+                                                            "msg_type": "file_status_update",
+                                                            "sender_msg_id": sender_msg_id,
+                                                            "file_status": "sent",
+                                                        });
+                                                        let _ = ws_tx.send(update.to_string());
+                                                        #[cfg(feature = "desktop")]
+                                                        if let Some(ref app_ref) = app_clone {
+                                                            use tauri::Emitter;
+                                                            let _ = app_ref.emit("new-message", update);
+                                                        }
+                                                    });
+                                                }
+                                                None => {
+                                                    eprintln!("[手动下载] FD 缓存未命中 (app 可能已被杀): msg_id={}", sender_msg_id);
+                                                    let notice = serde_json::json!({
+                                                        "msg_type": "file_not_found",
+                                                        "sender_msg_id": sender_msg_id,
+                                                    });
+                                                    let _ = crate::network::messaging::send_json_via_ws(
+                                                        &receiver_addr,
+                                                        &notice.to_string(),
+                                                    ).await;
+                                                }
+                                            }
+                                        }
+                                        #[cfg(not(target_os = "android"))]
+                                        {
+                                            let notice = serde_json::json!({
+                                                "msg_type": "file_not_found",
+                                                "sender_msg_id": sender_msg_id,
+                                            });
+                                            let _ = crate::network::messaging::send_json_via_ws(
+                                                &receiver_addr,
+                                                &notice.to_string(),
+                                            ).await;
+                                        }
+                                    } else if !std::path::Path::new(&file_path).exists() {
+                                        // ── 普通文件不存在 ──
+                                        println!("[手动下载] 文件已丢失: msg_id={}, path={}", sender_msg_id, file_path);
+                                        let notice = serde_json::json!({
+                                            "msg_type": "file_not_found",
+                                            "sender_msg_id": sender_msg_id,
+                                        });
+                                        let _ = crate::network::messaging::send_json_via_ws(
+                                            &receiver_addr,
+                                            &notice.to_string(),
+                                        ).await;
                                     } else {
+                                        // ── 普通文件存在，开始上传 ──
                                         println!("[手动下载] 文件存在，开始上传: msg_id={}, file={}, to={}", sender_msg_id, file_path, receiver_addr);
                                         match tokio::fs::File::open(&file_path).await {
                                             Ok(file) => {
@@ -938,10 +1091,12 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                 let ws_tx = state.ws_broadcast.clone();
                                                 #[cfg(feature = "desktop")]
                                                 let app_clone = state.app_handle.clone();
+                                                let fname2 = fname.clone();
                                                 tokio::spawn(async move {
                                                     upload_to_receiver(
-                                                        &pool, &raddr, &fname, fsize as usize, &file_path, file,
+                                                        &pool, &raddr, &fname2, fsize as usize, &file_path, file,
                                                         sender_msg_id,
+                                                        #[cfg(feature = "desktop")] app_clone.clone(),
                                                     ).await;
                                                     // 上传完成 → 更新发送端 DB 状态
                                                     let _ = crate::db::update_file_status_by_id(
@@ -1263,12 +1418,34 @@ async fn upload_file_http(
                         "[Web Server] ✓ 秒传: 已更新 offered 记录(ID={}) 为 accepted",
                         existing_id
                     );
+
+                    // 通知前端替换消息元素（完整 file 消息，触发图片渲染）
+                    let full_msg = serde_json::json!({
+                        "id": existing_id,
+                        "from_id": sender_id,
+                        "content": file_name,
+                        "msg_type": "file",
+                        "file_status": "accepted",
+                        "file_path": instant_path,
+                        "file_size": file_size,
+                        "file_id": instant_path.split('/').last().unwrap_or(&file_name),
+                        "file_name": file_name,
+                        "sender_msg_id": sender_msg_id,
+                        "timestamp": std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+                    });
+                    let _ = state.ws_broadcast.send(full_msg.to_string());
+                    #[cfg(feature = "desktop")]
+                    if let Some(ref app) = state.app_handle {
+                        use tauri::Emitter;
+                        let _ = app.emit("new-message", full_msg);
+                    }
                 } else {
                     match crate::db::create_received_file_record(
                         &state.pool,
                         sender_id.clone(),
                         file_name.clone(),
-                        instant_path,
+                        instant_path.clone(),
                         file_size,
                         timestamp,
                         &sender_msg_id,
@@ -1285,6 +1462,27 @@ async fn upload_file_http(
                                 "[Web Server] ✓ 秒传记录已创建并标记为 accepted，ID: {}",
                                 msg_id
                             );
+                            // 通知前端替换消息元素（完整 file 消息，触发图片渲染）
+                            let full_msg = serde_json::json!({
+                                "id": msg_id,
+                                "from_id": sender_id,
+                                "content": file_name,
+                                "msg_type": "file",
+                                "file_status": "accepted",
+                                "file_path": instant_path,
+                                "file_size": file_size,
+                                "file_id": instant_path.split('/').last().unwrap_or(&file_name),
+                                "file_name": file_name,
+                                "sender_msg_id": sender_msg_id,
+                                "timestamp": std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+                            });
+                            let _ = state.ws_broadcast.send(full_msg.to_string());
+                            #[cfg(feature = "desktop")]
+                            if let Some(ref app) = state.app_handle {
+                                use tauri::Emitter;
+                                let _ = app.emit("new-message", full_msg);
+                            }
                         }
                         Err(e) => {
                             eprintln!("[Web Server] ✗ 秒传记录创建失败: {}", e);
@@ -2287,23 +2485,46 @@ async fn serve_media_http(
 
     println!("[Media] 请求媒体: {}", params.uri);
 
-    // 通过 JNI 获取 content URI 的文件描述符
-    use crate::android_fd::AndroidFile;
-    let android_file = match AndroidFile::from_content_uri(&params.uri) {
-        Ok(f) => f,
-        Err(e) => {
-            println!("[Media] 获取 FD 失败（权限过期或文件不存在）: {}", e);
-            return (StatusCode::FORBIDDEN, e).into_response();
-        }
-    };
-
     // 获取 MIME 类型（用于 Content-Type header）
     let mime = mime_guess::from_path(params.uri.split('/').last().unwrap_or("file"))
         .first_or_octet_stream();
 
-    // 转为 tokio 异步文件，流式返回
-    let std_file = android_file.into_file();
-    let tokio_file = tokio::fs::File::from_std(std_file);
+    // 支持 fd: 路径：从 FD 缓存获取文件句柄
+    let tokio_file: tokio::fs::File;
+    if params.uri.starts_with("fd:") {
+        let msg_id_str = &params.uri["fd:".len()..];
+        match msg_id_str.parse::<i64>() {
+            Ok(msg_id) => {
+                match crate::android_fd::duplicate_cached_file(msg_id) {
+                    Some((f, _name, _size)) => {
+                        tokio_file = f;
+                    }
+                    None => {
+                        println!("[Media] FD 缓存未命中: msg_id={}", msg_id);
+                        return (StatusCode::GONE, "FD cache miss").into_response();
+                    }
+                }
+            }
+            Err(_) => {
+                println!("[Media] 无效的 fd: 路径: {}", params.uri);
+                return (StatusCode::BAD_REQUEST, "Invalid fd: path").into_response();
+            }
+        }
+    } else {
+        // content:// URI：通过 JNI 获取 FD
+        use crate::android_fd::AndroidFile;
+        let android_file = match AndroidFile::from_content_uri(&params.uri) {
+            Ok(f) => f,
+            Err(e) => {
+                println!("[Media] 获取 FD 失败（权限过期或文件不存在）: {}", e);
+                return (StatusCode::FORBIDDEN, e).into_response();
+            }
+        };
+        let std_file = android_file.into_file();
+        tokio_file = tokio::fs::File::from_std(std_file);
+    }
+
+    // 流式返回
     let stream = tokio_util::io::ReaderStream::new(tokio_file);
     let body = Body::from_stream(stream);
 

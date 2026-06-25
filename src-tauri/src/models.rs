@@ -38,7 +38,7 @@ pub struct MessageResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sender_msg_id: Option<String>,
+    pub sender_msg_id: Option<i64>,
 }
 
 impl From<Message> for MessageResponse {
@@ -62,7 +62,9 @@ impl From<Message> for MessageResponse {
         if msg.msg_type == "file" {
             response.file_name = Some(msg.content.clone()); // content 存储的是文件名
             response.file_status = msg.file_status.clone();
-            response.sender_msg_id = msg.sender_msg_id.clone();
+            response.sender_msg_id = msg.sender_msg_id
+                .as_ref()
+                .and_then(|s| s.parse::<i64>().ok());
 
             // 文件大小：优先使用 DB 值
             if let Some(sz) = msg.file_size.filter(|&s| s > 0) {

@@ -1497,6 +1497,21 @@ h2::before {
 	/* 隐藏绿点 */
 }
 
+/* 离线用户样式 */
+.share-user-list li.offline {
+	opacity: 0.6;
+}
+.share-user-list li.offline::before {
+	background: #555;
+	box-shadow: none;
+}
+.share-user-list li.offline .offline-tag {
+	margin-left: auto;
+	font-size: 12px;
+	color: var(--text-dim);
+	font-weight: normal;
+}
+
 .share-user-list li.no-users:hover {
 	background: transparent;
 	border-color: rgba(255, 255, 255, 0.15);
@@ -1864,6 +1879,16 @@ h2::before {
 .share-user-list li.no-users:hover {
 	background: var(--bg-light);
 	transform: none;
+}
+
+/* 移动端离线用户样式 */
+.share-user-list li.offline {
+	opacity: 0.55;
+}
+.share-user-list li.offline .offline-tag {
+	float: right;
+	font-size: 12px;
+	color: var(--text-dim);
 }
 
 .share-dialog-content .cancel-btn {

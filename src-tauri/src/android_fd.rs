@@ -1,6 +1,129 @@
-// android_fd.rs - Android 文件描述符处理
+// android_fd.rs - Android 文件描述符处理 + URI 持久化权限 + FD 缓存
+
+// ─── Android 实现 ───
 #[cfg(target_os = "android")]
 use std::os::unix::io::{FromRawFd, RawFd};
+
+// ═══════════════════════════════════════════════════════════════
+// FD Cache (全局、进程生命周期)
+// 用于 Share Intent 文件：从外部应用分享进来时提前拿到 FD
+// 缓存住，供后续 auto_download OFF 延迟上传使用
+// ═══════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "android")]
+use std::collections::HashMap;
+#[cfg(target_os = "android")]
+use std::sync::{Mutex, OnceLock};
+
+#[cfg(target_os = "android")]
+type FdCacheEntry = (RawFd, String, u64); // (raw_fd, file_name, file_size)
+
+#[cfg(target_os = "android")]
+const FD_CACHE_MAX: usize = 30;
+
+#[cfg(target_os = "android")]
+fn fd_cache() -> &'static Mutex<HashMap<i64, FdCacheEntry>> {
+    static CACHE: OnceLock<Mutex<HashMap<i64, FdCacheEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 缓存一个 FD 供后续使用（auto_download OFF 场景）。
+/// 在 msg_id 已知后调用，将 FD 与 msg_id 绑定。
+/// 超过 FD_CACHE_MAX 则 FIFO 淘汰最老的。
+#[cfg(target_os = "android")]
+pub fn cache_fd_for_msg(msg_id: i64, fd: RawFd, name: String, size: u64) {
+    let mut cache = fd_cache().lock().unwrap();
+
+    // FIFO: 超出上限则淘汰最老的
+    while cache.len() >= FD_CACHE_MAX {
+        // HashMap 的迭代顺序是未定义的，但 remove 第一个 entry 是快速清理
+        // 近似 FIFO：取任意一条清理（实践中谁先被 iterate 到就清谁）
+        let oldest = cache.keys().next().copied();
+        if let Some(old_id) = oldest {
+            if let Some((old_fd, _, _)) = cache.remove(&old_id) {
+                // 关闭 FD 释放内核资源
+                unsafe { std::fs::File::from_raw_fd(old_fd) };
+            }
+        } else {
+            break;
+        }
+    }
+
+    cache.insert(msg_id, (fd, name, size));
+    println!("[AndroidFD] FD 已缓存: msg_id={}, fd={} (cache_size={})", msg_id, fd, cache.len());
+}
+
+/// 从 FD 缓存中克隆一个文件对象（通过 try_clone / dup 系统调用），
+/// 不消耗原始 FD，支持多次重试调用。
+/// 返回 (tokio::fs::File, file_name, file_size)。
+#[cfg(target_os = "android")]
+pub fn duplicate_cached_file(msg_id: i64) -> Option<(tokio::fs::File, String, u64)> {
+    use std::io::Seek;
+    use std::mem::ManuallyDrop;
+    use std::os::unix::io::FromRawFd;
+
+    let cache = fd_cache().lock().unwrap();
+    if let Some((raw_fd, name, size)) = cache.get(&msg_id) {
+        // ManuallyDrop 包裹：借用原始 FD 包装为 File，但绝不 close 它
+        let mut original = ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(*raw_fd) });
+
+        // 重置游标到起点（共享游标，每次克隆前必须 seek）
+        if let Err(e) = original.seek(std::io::SeekFrom::Start(0)) {
+            eprintln!("[AndroidFD] 警告: seek(0) 失败: {}", e);
+        }
+
+        // try_clone → 底层 fcntl(F_DUPFD_CLOEXEC)，纯内存复制 FD，绕过路径权限检查
+        match original.try_clone() {
+            Ok(cloned) => {
+                println!("[AndroidFD] FD 克隆成功 (try_clone): msg_id={}, raw_fd={}", msg_id, raw_fd);
+                Some((tokio::fs::File::from_std(cloned), name.clone(), *size))
+            }
+            Err(e) => {
+                eprintln!("[AndroidFD] FD try_clone 失败: msg_id={}, err={}", msg_id, e);
+                None
+            }
+        }
+        // original 离开作用域时不会被 drop（ManuallyDrop 保护），缓存中的 raw_fd 依然有效
+    } else {
+        eprintln!("[AndroidFD] FD 缓存未命中: msg_id={}", msg_id);
+        None
+    }
+}
+
+/// 从缓存中移除 FD 并关闭底层文件描述符。
+/// 在消息删除或传输终结时调用。
+#[cfg(target_os = "android")]
+pub fn remove_cached_fd(msg_id: i64) {
+    let mut cache = fd_cache().lock().unwrap();
+    if let Some((fd, _, _)) = cache.remove(&msg_id) {
+        // drop File → 自动 close(fd)
+        unsafe { std::fs::File::from_raw_fd(fd) };
+        println!("[AndroidFD] FD 已移除并关闭: msg_id={}, fd={}", msg_id, fd);
+    }
+}
+
+#[cfg(target_os = "android")]
+pub fn cached_fd_count() -> usize {
+    fd_cache().lock().unwrap().len()
+}
+
+/// 清理全部缓存 FD（应用退出或全局重置时使用）。
+#[cfg(target_os = "android")]
+pub fn clear_all_cached_fds() {
+    let mut cache = fd_cache().lock().unwrap();
+    for (_msg_id, (fd, _, _)) in cache.drain() {
+        unsafe { std::fs::File::from_raw_fd(fd) };
+    }
+    println!("[AndroidFD] 全部 FD 缓存已清理");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AndroidFile 结构体
+//   - 从 FD 创建 File
+//   - 从 content URI 打开 FD
+//   - URI 持久化权限管理
+//   - 系统 API level 查询
+// ═══════════════════════════════════════════════════════════════
 
 #[cfg(target_os = "android")]
 pub struct AndroidFile {
@@ -14,12 +137,8 @@ impl AndroidFile {
         if fd < 0 {
             return Err("无效的文件描述符".to_string());
         }
-
         println!("[AndroidFD] 从 FD 创建文件对象: fd={}", fd);
-
-        // SAFETY: 我们假设 FD 是有效的，由 Android ContentResolver 提供
         let file = unsafe { std::fs::File::from_raw_fd(fd) };
-
         Ok(AndroidFile { file })
     }
 
@@ -27,28 +146,29 @@ impl AndroidFile {
     pub fn into_file(self) -> std::fs::File {
         self.file
     }
-    
+
+    /// 获取内部的原始文件描述符（所有权转移，调用后 AndroidFile 被消费）
+    pub fn into_raw_fd(self) -> RawFd {
+        use std::os::unix::io::IntoRawFd;
+        let fd = self.file.into_raw_fd();
+        println!("[AndroidFD] into_raw_fd: {}", fd);
+        fd
+    }
+
     /// 从 content:// URI 获取文件描述符
-    /// 这需要通过 JNI 调用 Android 的 ContentResolver
     pub fn from_content_uri(uri: &str) -> Result<Self, String> {
         println!("[AndroidFD] 尝试从 content URI 获取 FD: {}", uri);
-        
-        // 使用 ndk-context 获取 Android 上下文
+
         use jni::objects::{JObject, JValue};
         use jni::JavaVM;
-        
-        // 获取 JNI 环境
+
         let ctx = ndk_context::android_context();
         let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
-        
         let mut env = vm.attach_current_thread()
             .map_err(|e| format!("无法附加到当前线程: {}", e))?;
-        
-        // 获取 Context 对象
         let context = unsafe { JObject::from_raw(ctx.context().cast()) };
-        
-        // 调用 ContentResolver
+
         let content_resolver = env.call_method(
             context,
             "getContentResolver",
@@ -56,11 +176,9 @@ impl AndroidFile {
             &[]
         ).map_err(|e| format!("无法获取 ContentResolver: {}", e))?
         .l().map_err(|e| format!("无法转换为对象: {}", e))?;
-        
-        // 创建 URI 对象
+
         let uri_string = env.new_string(uri)
             .map_err(|e| format!("无法创建 URI 字符串: {}", e))?;
-        
         let uri_obj = env.call_static_method(
             "android/net/Uri",
             "parse",
@@ -68,11 +186,9 @@ impl AndroidFile {
             &[JValue::Object(&JObject::from(uri_string))]
         ).map_err(|e| format!("无法解析 URI: {}", e))?
         .l().map_err(|e| format!("无法转换为对象: {}", e))?;
-        
-        // 打开文件描述符
+
         let mode_string = env.new_string("r")
             .map_err(|e| format!("无法创建模式字符串: {}", e))?;
-        
         let pfd_result = env.call_method(
             content_resolver,
             "openFileDescriptor",
@@ -83,10 +199,8 @@ impl AndroidFile {
             ]
         );
 
-        // 捕获 Java 异常（SecurityException / FileNotFoundException）
-        // 必须先清除 JVM 异常状态，否则后续任何 JNI 调用都会崩溃
         if env.exception_check().unwrap_or(false) {
-            let _ = env.exception_describe(); // 打印到 logcat 方便调试
+            let _ = env.exception_describe();
             let _ = env.exception_clear();
             return Err(format!("content URI 权限已过期或文件不存在: {}", uri));
         }
@@ -98,8 +212,7 @@ impl AndroidFile {
         if pfd.is_null() {
             return Err(format!("openFileDescriptor 返回 null: {}", uri));
         }
-        
-        // 获取文件描述符
+
         let fd = env.call_method(
             pfd,
             "detachFd",
@@ -107,14 +220,12 @@ impl AndroidFile {
             &[]
         ).map_err(|e| format!("无法分离文件描述符: {}", e))?
         .i().map_err(|e| format!("无法转换为整数: {}", e))?;
-        
+
         println!("[AndroidFD] 成功获取文件描述符: fd={}", fd);
-        
         Self::from_fd(fd)
     }
 
     /// 通过 ContentResolver 查询 content URI 的真实文件名和大小
-    /// 对应 Android 的 OpenableColumns.DISPLAY_NAME / SIZE
     pub fn query_content_uri_info(uri: &str) -> Result<(String, u64), String> {
         println!("[AndroidFD] 查询 content URI 文件信息: {}", uri);
 
@@ -124,13 +235,10 @@ impl AndroidFile {
         let ctx = ndk_context::android_context();
         let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
-
         let mut env = vm.attach_current_thread()
             .map_err(|e| format!("无法附加到当前线程: {}", e))?;
-
         let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-        // 获取 ContentResolver
         let content_resolver = env.call_method(
             &context,
             "getContentResolver",
@@ -139,7 +247,6 @@ impl AndroidFile {
         ).map_err(|e| format!("无法获取 ContentResolver: {}", e))?
         .l().map_err(|e| format!("转换失败: {}", e))?;
 
-        // 解析 URI
         let uri_jstring = env.new_string(uri)
             .map_err(|e| format!("创建字符串失败: {}", e))?;
         let uri_obj = env.call_static_method(
@@ -150,7 +257,6 @@ impl AndroidFile {
         ).map_err(|e| format!("解析 URI 失败: {}", e))?
         .l().map_err(|e| format!("转换失败: {}", e))?;
 
-        // 调用 contentResolver.query(uri, null, null, null, null)
         let cursor = env.call_method(
             &content_resolver,
             "query",
@@ -169,7 +275,6 @@ impl AndroidFile {
             return Err("ContentResolver.query 返回 null".to_string());
         }
 
-        // moveToFirst()
         let has_row = env.call_method(&cursor, "moveToFirst", "()Z", &[])
             .map_err(|e| format!("moveToFirst 失败: {}", e))?
             .z().map_err(|e| format!("转换失败: {}", e))?;
@@ -179,7 +284,6 @@ impl AndroidFile {
             return Err("Cursor 为空，无法获取文件信息".to_string());
         }
 
-        // 获取 DISPLAY_NAME 列索引
         let display_name_col = {
             let col_name = env.new_string("_display_name")
                 .map_err(|e| format!("创建字符串失败: {}", e))?;
@@ -192,7 +296,6 @@ impl AndroidFile {
             .i().map_err(|e| format!("转换失败: {}", e))?
         };
 
-        // 获取 SIZE 列索引
         let size_col = {
             let col_name = env.new_string("_size")
                 .map_err(|e| format!("创建字符串失败: {}", e))?;
@@ -205,7 +308,6 @@ impl AndroidFile {
             .i().map_err(|e| format!("转换失败: {}", e))?
         };
 
-        // 读取文件名
         let file_name = if display_name_col >= 0 {
             let name_obj = env.call_method(
                 &cursor,
@@ -227,7 +329,6 @@ impl AndroidFile {
             String::new()
         };
 
-        // 读取文件大小
         let file_size = if size_col >= 0 {
             env.call_method(
                 &cursor,
@@ -246,7 +347,190 @@ impl AndroidFile {
         println!("[AndroidFD] 查询结果: 文件名={}, 大小={}", file_name, file_size);
         Ok((file_name, file_size))
     }
+
+    // ─── 新方法：URI 持久化权限 ───
+
+    /// 获取 Android API level
+    pub fn get_api_level() -> Result<i32, String> {
+        use jni::JavaVM;
+
+        let ctx = ndk_context::android_context();
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
+        let mut env = vm.attach_current_thread()
+            .map_err(|e| format!("无法附加到当前线程: {}", e))?;
+
+        let sdk_int = env.get_static_field(
+            "android/os/Build$VERSION",
+            "SDK_INT",
+            "I",
+        ).map_err(|e| format!("获取 SDK_INT 失败: {}", e))?
+        .i().map_err(|e| format!("转换为 int 失败: {}", e))?;
+
+        println!("[AndroidFD] API level: {}", sdk_int);
+        Ok(sdk_int)
+    }
+
+    /// 持久化 content URI 的读取权限。
+    /// 调用 ContentResolver.takePersistableUriPermission(uri, FLAG_GRANT_READ_URI_PERMISSION)
+    pub fn take_persistable_uri_permission(uri: &str) -> Result<(), String> {
+        use jni::objects::{JObject, JValue};
+        use jni::JavaVM;
+
+        let ctx = ndk_context::android_context();
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
+        let mut env = vm.attach_current_thread()
+            .map_err(|e| format!("无法附加到当前线程: {}", e))?;
+        let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+        let content_resolver = env.call_method(
+            context,
+            "getContentResolver",
+            "()Landroid/content/ContentResolver;",
+            &[],
+        ).map_err(|e| format!("无法获取 ContentResolver: {}", e))?
+        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+
+        let uri_string = env.new_string(uri)
+            .map_err(|e| format!("创建 URI 字符串失败: {}", e))?;
+        let uri_obj = env.call_static_method(
+            "android/net/Uri",
+            "parse",
+            "(Ljava/lang/String;)Landroid/net/Uri;",
+            &[JValue::Object(&JObject::from(uri_string))],
+        ).map_err(|e| format!("解析 URI 失败: {}", e))?
+        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+
+        // FLAG_GRANT_READ_URI_PERMISSION = 1
+        let flags: i32 = 1;
+
+        let call_result = env.call_method(
+            content_resolver,
+            "takePersistableUriPermission",
+            "(Landroid/net/Uri;I)V",
+            &[
+                JValue::Object(&uri_obj),
+                JValue::Int(flags),
+            ],
+        );
+
+        // ★ 必须先检查并清除 Java 异常，再处理 Result
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_describe();
+            let _ = env.exception_clear();
+            return Err(format!("URI 不支持持久化权限: {}", uri));
+        }
+
+        // 此时 JVM 状态干净，安全地处理 JNI Result
+        call_result.map_err(|e| format!("takePersistableUriPermission JNI 错误: {}", e))?;
+
+        println!("[AndroidFD] ✓ 持久化 URI 权限: {}", uri);
+        Ok(())
+    }
+
+    /// 释放 content URI 的持久化权限。
+    /// 调用 ContentResolver.releasePersistableUriPermission(uri, FLAG_GRANT_READ_URI_PERMISSION)
+    pub fn release_persistable_uri_permission(uri: &str) -> Result<(), String> {
+        use jni::objects::{JObject, JValue};
+        use jni::JavaVM;
+
+        let ctx = ndk_context::android_context();
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
+        let mut env = vm.attach_current_thread()
+            .map_err(|e| format!("无法附加到当前线程: {}", e))?;
+        let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+        let content_resolver = env.call_method(
+            context,
+            "getContentResolver",
+            "()Landroid/content/ContentResolver;",
+            &[],
+        ).map_err(|e| format!("无法获取 ContentResolver: {}", e))?
+        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+
+        let uri_string = env.new_string(uri)
+            .map_err(|e| format!("创建 URI 字符串失败: {}", e))?;
+        let uri_obj = env.call_static_method(
+            "android/net/Uri",
+            "parse",
+            "(Ljava/lang/String;)Landroid/net/Uri;",
+            &[JValue::Object(&JObject::from(uri_string))],
+        ).map_err(|e| format!("解析 URI 失败: {}", e))?
+        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+
+        let flags: i32 = 1; // FLAG_GRANT_READ_URI_PERMISSION
+
+        let call_result = env.call_method(
+            content_resolver,
+            "releasePersistableUriPermission",
+            "(Landroid/net/Uri;I)V",
+            &[
+                JValue::Object(&uri_obj),
+                JValue::Int(flags),
+            ],
+        );
+
+        // ★ 必须先检查并清除 Java 异常
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_describe();
+            let _ = env.exception_clear();
+            // 释放失败也 OK，可能这条 URI 已被系统回收
+        } else {
+            // 无异常时才需要处理 Result（异常已清除，Result 内容无关紧要）
+            let _ = call_result;
+        }
+
+        println!("[AndroidFD] 释放 URI 权限: {}", uri);
+        Ok(())
+    }
+
+    /// 查询当前系统记录的持久化 URI 权限数量。
+    /// 调用 ContentResolver.getPersistedUriPermissions()
+    pub fn get_persisted_uri_count() -> Result<i32, String> {
+        use jni::objects::JObject;
+        use jni::JavaVM;
+
+        let ctx = ndk_context::android_context();
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
+        let mut env = vm.attach_current_thread()
+            .map_err(|e| format!("无法附加到当前线程: {}", e))?;
+        let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+        let content_resolver = env.call_method(
+            context,
+            "getContentResolver",
+            "()Landroid/content/ContentResolver;",
+            &[],
+        ).map_err(|e| format!("无法获取 ContentResolver: {}", e))?
+        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+
+        // getPersistedUriPermissions() → java.util.List
+        let list = env.call_method(
+            content_resolver,
+            "getPersistedUriPermissions",
+            "()Ljava/util/List;",
+            &[],
+        ).map_err(|e| format!("getPersistedUriPermissions 失败: {}", e))?
+        .l().map_err(|e| format!("无法转换为 List: {}", e))?;
+
+        // List.size() → int
+        let count = env.call_method(
+            &list,
+            "size",
+            "()I",
+            &[],
+        ).map_err(|e| format!("List.size() 失败: {}", e))?
+        .i().map_err(|e| format!("转换为 int 失败: {}", e))?;
+
+        println!("[AndroidFD] 系统持久化 URI 权限数量: {}", count);
+        Ok(count)
+    }
 }
+
+// ─── 非 Android 存根 ───
 
 #[cfg(not(target_os = "android"))]
 pub struct AndroidFile;
@@ -260,8 +544,32 @@ impl AndroidFile {
     pub fn into_file(self) -> std::fs::File {
         panic!("此功能仅在 Android 上可用")
     }
-    
+
     pub fn from_content_uri(_uri: &str) -> Result<Self, String> {
+        Err("此功能仅在 Android 上可用".to_string())
+    }
+
+    pub fn query_content_uri_info(_uri: &str) -> Result<(String, u64), String> {
+        Err("此功能仅在 Android 上可用".to_string())
+    }
+
+    pub fn get_api_level() -> Result<i32, String> {
+        Err("此功能仅在 Android 上可用".to_string())
+    }
+
+    pub fn take_persistable_uri_permission(_uri: &str) -> Result<(), String> {
+        Err("此功能仅在 Android 上可用".to_string())
+    }
+
+    pub fn release_persistable_uri_permission(_uri: &str) -> Result<(), String> {
+        Err("此功能仅在 Android 上可用".to_string())
+    }
+
+    pub fn into_raw_fd(self) -> i32 {
+        panic!("此功能仅在 Android 上可用")
+    }
+
+    pub fn get_persisted_uri_count() -> Result<i32, String> {
         Err("此功能仅在 Android 上可用".to_string())
     }
 }

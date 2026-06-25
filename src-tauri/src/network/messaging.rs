@@ -441,6 +441,14 @@ async fn resend_file_background(
         let android_file = crate::android_fd::AndroidFile::from_content_uri(file_path)
             .map_err(|e| format!("无法从 Content URI 获取文件: {}", e))?;
         tokio::fs::File::from_std(android_file.into_file())
+    } else if file_path.starts_with("fd:") {
+        // 解析 msg_id 并从 FD 缓存克隆
+        let msg_id_str = &file_path["fd:".len()..];
+        let msg_id: i64 = msg_id_str.parse().map_err(|_| format!("无效的 fd: 路径: {}", file_path))?;
+        match crate::android_fd::duplicate_cached_file(msg_id) {
+            Some((file, _, _)) => file,
+            None => return Err(format!("FD 缓存未命中: msg_id={}", msg_id)),
+        }
     } else {
         tokio::fs::File::open(file_path)
             .await
@@ -566,16 +574,92 @@ pub async fn resend_pending_messages(
                 } else if msg_type == "file" {
                     match (file_path.as_ref(), file_size) {
                         (Some(path), Some(size)) if !path.trim().is_empty() => {
-                            // 只有路径非空时，才尝试读取文件补发
-                            match resend_file_background(&my_id, peer_addr, &content, path, size)
+                            // 检查接收端 auto_download 设置
+                            let auto_dl_url = format!("http://{}/api/auto_download", peer_addr);
+                            let auto_enabled = match reqwest::Client::new()
+                                .get(&auto_dl_url)
+                                .send()
                                 .await
                             {
-                                Ok(_) => {
-                                    println!("[UDP] ✓ 文件消息 {} 补发成功", msg_id);
-                                    msg_ids_to_mark.push(msg_id);
+                                Ok(resp) => {
+                                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                        data.get("enabled")
+                                            .and_then(|v| v.as_bool())
+                                            .unwrap_or(true)
+                                    } else {
+                                        true
+                                    }
                                 }
-                                Err(e) => {
-                                    eprintln!("[UDP] ✗ 文件消息 {} 补发失败: {}", msg_id, e);
+                                Err(_) => true,
+                            };
+
+                            if auto_enabled {
+                                // 自动下载开启 → 直接上传（原行为）
+                                match resend_file_background(
+                                    &my_id, peer_addr, &content, path, size,
+                                )
+                                .await
+                                {
+                                    Ok(_) => {
+                                        println!(
+                                            "[UDP] ✓ 文件消息 {} 补发成功",
+                                            msg_id
+                                        );
+                                        msg_ids_to_mark.push(msg_id);
+                                    }
+                                    Err(e) => {
+                                        eprintln!(
+                                            "[UDP] ✗ 文件消息 {} 补发失败: {}",
+                                            msg_id, e
+                                        );
+                                    }
+                                }
+                            } else {
+                                // 自动下载关闭 → 发 file_offer，不直接上传
+                                let my_name = crate::db::get_username(pool)
+                                    .await
+                                    .unwrap_or_default();
+                                let offer = serde_json::json!({
+                                    "msg_type": "file_offer",
+                                    "from_id": my_id,
+                                    "from_name": my_name,
+                                    "file_name": content,
+                                    "file_size": size,
+                                    "sender_msg_id": msg_id,
+                                });
+                                let ws_url = format!("ws://{}/ws", peer_addr);
+                                if let Ok((mut ws_stream, _)) =
+                                    tokio_tungstenite::connect_async(&ws_url).await
+                                {
+                                    use futures_util::SinkExt;
+                                    use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
+                                    let _ = ws_stream
+                                        .send(WsMessage::Text(offer.to_string()))
+                                        .await;
+                                    let _ = ws_stream.close(None).await;
+                                    // 更新发送端 status 为 offering，前端显示「等待对方接收」
+                                    let _ = crate::db::update_file_status_by_id(
+                                        pool, msg_id, "offering",
+                                    ).await;
+                                    let update = serde_json::json!({
+                                        "msg_type": "file_status_update",
+                                        "sender_msg_id": msg_id,
+                                        "file_status": "offering",
+                                    });
+                                    #[cfg(feature = "desktop")]
+                                    if let Some(ref app_handle) = app {
+                                        let _ = app_handle.emit("new-message", update);
+                                    }
+                                    println!(
+                                        "[UDP] ✓ 文件消息 {} 已发出 file_offer，等待手动接收",
+                                        msg_id
+                                    );
+                                    msg_ids_to_mark.push(msg_id);
+                                } else {
+                                    eprintln!(
+                                        "[UDP] ✗ 文件消息 {} file_offer 发送失败（无法连接 WS）",
+                                        msg_id
+                                    );
                                 }
                             }
                         }

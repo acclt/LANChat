@@ -263,6 +263,18 @@ async fn init_db_with_path(app_dir: PathBuf) -> Result<Pool<Sqlite>, sqlx::Error
     .execute(&pool)
     .await?;
 
+    // 创建 persisted_uris 表追踪已持久化的 content URI 权限
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS persisted_uris (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uri TEXT NOT NULL,
+            msg_id INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await?;
+
     // 初始化配置 (如果没有用户名则生成一个)
     let user_exists = sqlx::query("SELECT value FROM settings WHERE key = 'username'")
         .fetch_optional(&pool)
@@ -1227,4 +1239,131 @@ pub async fn get_sender_file_by_msg_id(
     .fetch_one(pool)
     .await
     .map_err(|e| format!("查询发送端文件记录失败: {}", e))
+}
+
+// ═══════════════════════════════════════════════════════════════
+// persisted_uris 表 CRUD
+// ═══════════════════════════════════════════════════════════════
+
+/// 添加一条持久化 URI 追踪记录
+pub async fn add_persisted_uri(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    uri: &str,
+    msg_id: i64,
+) -> Result<(), String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO persisted_uris (uri, msg_id, created_at) VALUES (?, ?, ?)"
+    )
+    .bind(uri)
+    .bind(msg_id)
+    .bind(now)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("添加持久化 URI 记录失败: {}", e))?;
+
+    println!("[DB] 已添加持久化 URI: msg_id={}, uri={}", msg_id, uri);
+    Ok(())
+}
+
+/// 删除一条持久化 URI 追踪记录
+pub async fn remove_persisted_uri(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    uri: &str,
+) -> Result<(), String> {
+    sqlx::query("DELETE FROM persisted_uris WHERE uri = ?")
+        .bind(uri)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("删除持久化 URI 记录失败: {}", e))?;
+    Ok(())
+}
+
+/// 通过 msg_id 删除持久化 URI 追踪记录
+pub async fn remove_persisted_uri_by_msg_id(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    msg_id: i64,
+) -> Result<(), String> {
+    sqlx::query("DELETE FROM persisted_uris WHERE msg_id = ?")
+        .bind(msg_id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("删除持久化 URI 通过 msg_id 失败: {}", e))?;
+    Ok(())
+}
+
+/// 查询最早的持久化 URI（用于 FIFO 淘汰）
+pub async fn get_oldest_persisted_uri(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+) -> Result<Option<(i64, String, i64)>, String> {
+    // 返回 (id, uri, msg_id)，按 created_at ASC
+    let result = sqlx::query_as::<_, (i64, String, i64)>(
+        "SELECT id, uri, msg_id FROM persisted_uris ORDER BY created_at ASC LIMIT 1"
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("查询最旧持久化 URI 失败: {}", e))?;
+    Ok(result)
+}
+
+/// 统计当前追踪的持久化 URI 数量
+pub async fn count_persisted_uris(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+) -> Result<i64, String> {
+    let result = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM persisted_uris"
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("统计持久化 URI 数量失败: {}", e))?;
+    Ok(result)
+}
+
+/// 通过 URI 查询对应的 msg_id
+pub async fn get_msg_id_for_uri(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    uri: &str,
+) -> Result<Option<i64>, String> {
+    let result = sqlx::query_scalar::<_, i64>(
+        "SELECT msg_id FROM persisted_uris WHERE uri = ?"
+    )
+    .bind(uri)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("通过 URI 查询 msg_id 失败: {}", e))?;
+    Ok(result)
+}
+
+/// 通过 msg_id 查询对应的 URI
+pub async fn get_uri_by_msg_id(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    msg_id: i64,
+) -> Result<Option<String>, String> {
+    let result = sqlx::query_scalar::<_, String>(
+        "SELECT uri FROM persisted_uris WHERE msg_id = ?"
+    )
+    .bind(msg_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("通过 msg_id 查询 URI 失败: {}", e))?;
+    Ok(result)
+}
+
+/// 更新消息的 file_path（用于持久化失败时降级为 FD 缓存标记）
+pub async fn update_file_path_by_id(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    msg_id: i64,
+    file_path: &str,
+) -> Result<(), String> {
+    sqlx::query("UPDATE messages SET file_path = ? WHERE id = ?")
+        .bind(file_path)
+        .bind(msg_id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("更新 file_path 失败: {}", e))?;
+    Ok(())
 }

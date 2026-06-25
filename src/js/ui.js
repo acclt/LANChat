@@ -1009,7 +1009,8 @@ function createMessageElement(message, isSent) {
     const isImage = isImageFile(message.file_name || message.content);
     if (
       isImage && message.file_path &&
-      (message.file_status === "sent" || message.file_status === "accepted")
+      (message.file_status === "sent" || message.file_status === "accepted" ||
+       message.file_status === "offering" || message.file_status === "uploading")
     ) {
       const imgPreview = document.createElement("div");
       imgPreview.className = "image-preview";
@@ -1020,7 +1021,7 @@ function createMessageElement(message, isSent) {
         const isAndroid = navigator.userAgent.includes("Android");
         if (
           isAndroid && message.file_path &&
-          message.file_path.startsWith("content://")
+          (message.file_path.startsWith("content://") || message.file_path.startsWith("fd:"))
         ) {
           apiGetMediaToken().then((token) => {
             img.src = `http://127.0.0.1:8888/api/media?uri=${
@@ -1334,15 +1335,13 @@ function createMessageElement(message, isSent) {
       statusDiv.textContent = "0 MB/s";
     } else if (message.file_status === "uploading") {
       statusDiv.className = "file-uploading";
-      statusDiv.textContent = message.transfer_speed
-        ? Math.round(message.transfer_speed) + " MB/s"
-        : "上传中...";
+      statusDiv.textContent = "0 MB/s";
     } else if (message.file_status === "offered") {
       statusDiv.className = "file-pending";
       statusDiv.textContent = "未下载";
     } else if (message.file_status === "offering") {
       statusDiv.className = "file-pending";
-      statusDiv.textContent = "上传中";
+      statusDiv.textContent = isSent ? "待接收" : "未下载";
     } else if (message.file_status === "invalid") {
       statusDiv.className = "file-pending";
       statusDiv.textContent = "已失效";
@@ -1396,11 +1395,11 @@ function onReceiveMessage(message) {
       const chatMessages = document.getElementById("chat-messages");
       const msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${senderMsgId}"]`);
       if (msgEl) {
-        const statusDiv = msgEl.querySelector(".file-pending, .file-downloading");
+        const statusDiv = msgEl.querySelector(".file-pending, .file-downloading, .file-uploading");
         if (newStatus === "invalid") {
           if (statusDiv) statusDiv.textContent = "已失效";
         } else if (newStatus === "sent") {
-          // 发送完成 → 清空状态文字
+          // 发送完成 → 清空所有状态类
           if (statusDiv) {
             statusDiv.className = "";
             statusDiv.textContent = "";
@@ -1409,6 +1408,21 @@ function onReceiveMessage(message) {
           if (statusDiv) {
             statusDiv.className = "file-downloading";
             statusDiv.textContent = "0 MB/s";
+          }
+        } else if (newStatus === "offering") {
+          if (statusDiv) {
+            statusDiv.className = "file-pending";
+            statusDiv.textContent = "待接收";
+          }
+        } else if (newStatus === "uploading") {
+          if (statusDiv) {
+            statusDiv.className = "file-uploading";
+            statusDiv.textContent = "0 MB/s";
+          }
+        } else if (newStatus === "accepted") {
+          if (statusDiv) {
+            statusDiv.className = "";
+            statusDiv.textContent = "";
           }
         }
       }
@@ -1450,8 +1464,8 @@ function onReceiveMessage(message) {
     if (msgEl) {
       const statusDiv = msgEl.querySelector(".file-pending");
       if (statusDiv) {
-        statusDiv.textContent = "上传中...";
-        statusDiv.className = "file-uploading";
+        statusDiv.textContent = "待接收";
+        statusDiv.className = "file-pending";
       }
     }
     return;
@@ -2543,6 +2557,14 @@ function initDragAndDrop(chatContainer) {
 
     tauri.event.listen("tauri://drag-drop", () => {
       chatContainer.classList.remove("drag-over");
+    });
+
+    // 持久监听上传进度（覆盖 file_request 手动下载场景）
+    tauri.event.listen("upload_progress", (event) => {
+      const speed = event.payload.speed_mb_s;
+      document.querySelectorAll(".file-uploading").forEach((div) => {
+        div.textContent = Math.round(speed) + " MB/s";
+      });
     });
   } else {
     // Web 端:使用传统的 HTML5 拖拽 API(需要读取文件内容)

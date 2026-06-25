@@ -80,6 +80,7 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
     file_path_for_db: String,
     mut file: R,
     is_online: bool,
+    pre_saved_msg_id: Option<i64>, // 消息已提前保存时传入（如 Android FD 缓存场景），不再新建
 ) -> Result<serde_json::Value, String> {
     // 决定存入数据库的状态：如果离线，那就是 pending 且不用显示上传中
     let overall_status = if is_online {
@@ -93,17 +94,31 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
         "accepted".to_string()
     };
 
-    let message_id = crate::db::save_file_message(
-        &state.pool,
-        peer_id.clone(),
-        file_name.clone(),
-        file_size,
-        file_path_for_db.clone(),
-        file_status,
-        overall_status, // 传入状态
-    )
-    .await
-    .ok();
+    let message_id = if let Some(existing_id) = pre_saved_msg_id {
+        Some(existing_id)
+    } else {
+        crate::db::save_file_message(
+            &state.pool,
+            peer_id.clone(),
+            file_name.clone(),
+            file_size,
+            file_path_for_db.clone(),
+            file_status,
+            overall_status,
+        )
+        .await
+        .ok()
+    };
+
+    // 统一修正 fd: 路径为 fd:{msg_id}（媒体服务器按 msg_id 查 FD 缓存）
+    if let Some(mid) = message_id {
+        if file_path_for_db.starts_with("fd:") {
+            let corrected = format!("fd:{}", mid);
+            if let Err(e) = crate::db::update_file_path_by_id(&state.pool, mid, &corrected).await {
+                eprintln!("[Command] 修正 FD 路径失败: {}", e);
+            }
+        }
+    }
 
     if !is_online {
         println!("[Command] 对方离线，文件保存为待上线");
@@ -599,6 +614,59 @@ pub async fn send_file(
         .await
         .ok();
 
+        // ── Android: 持久化 content URI 权限（auto OFF 场景） ──
+        #[cfg(target_os = "android")]
+        if actual_path.starts_with("content://") {
+            use crate::android_fd::AndroidFile;
+            let sender_msg_id_val = msg_id.unwrap_or(0);
+
+            // 1. 如果系统配额将满，FIFO 淘汰最旧的
+            let max_limit = if AndroidFile::get_api_level().unwrap_or(30) >= 30 { 500 } else { 120 };
+            let sys_count = AndroidFile::get_persisted_uri_count().unwrap_or(0);
+            let need_free = (sys_count as i64) - (max_limit as i64 - 1);
+            if need_free > 0 {
+                for _ in 0..need_free {
+                    match crate::db::get_oldest_persisted_uri(&state.pool).await.unwrap_or(None) {
+                        Some((_id, oldest_uri, _oldest_msg_id)) => {
+                            let _ = AndroidFile::release_persistable_uri_permission(&oldest_uri);
+                            let _ = crate::db::remove_persisted_uri(&state.pool, &oldest_uri).await;
+                            println!("[Command] FIFO 淘汰持久化 URI: {}", oldest_uri);
+                        }
+                        None => break,
+                    }
+                }
+            }
+
+            // 2. 尝试持久化当前 URI
+            match AndroidFile::take_persistable_uri_permission(&actual_path) {
+                Ok(_) => {
+                    let _ = crate::db::add_persisted_uri(&state.pool, &actual_path, sender_msg_id_val).await;
+                    println!("[Command] ✓ content URI 权限已持久化: {}", actual_path);
+                }
+                Err(e) => {
+                    // 持久化失败（例如 Tauri dialog 未加 FLAG_GRANT_PERSISTABLE_URI_PERMISSION）
+                    // 降级方案：趁临时权限还在，立刻提取 FD 入缓存
+                    println!("[Command] ⚠ URI 不支持持久化，使用 FD 缓存兜底: {}", e);
+                    if let Ok(af) = AndroidFile::from_content_uri(&actual_path) {
+                        let raw_fd = af.into_raw_fd();
+                        crate::android_fd::cache_fd_for_msg(
+                            sender_msg_id_val,
+                            raw_fd,
+                            file_name.clone(),
+                            file_size as u64,
+                        );
+                        // 更新 DB 文件路径为 "fd:{msg_id}" 标记，让 file_request 走 FD 缓存
+                        let _ = crate::db::update_file_path_by_id(
+                            &state.pool,
+                            sender_msg_id_val,
+                            &format!("fd:{}", sender_msg_id_val),
+                        ).await;
+                        println!("[Command] ✓ FD 已缓存作为降级: msg_id={}", sender_msg_id_val);
+                    }
+                }
+            }
+        }
+
         let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
         let my_name = crate::db::get_username(&state.pool).await.unwrap_or_default();
         let sender_msg_id = msg_id.unwrap_or(0);
@@ -649,7 +717,7 @@ pub async fn send_file(
             }
             return upload_file_internal(
                 &app, &state, peer_state.as_ref(),
-                peer_id, peer_addr, file_name, file_size, actual_path, file, is_online,
+                peer_id, peer_addr, file_name, file_size, actual_path, file, is_online, None,
             ).await;
         }
         #[cfg(not(target_os = "android"))]
@@ -676,7 +744,7 @@ pub async fn send_file(
     }
     upload_file_internal(
         &app, &state, peer_state.as_ref(),
-        peer_id, peer_addr, file_name, file_size, actual_path, file, is_online,
+        peer_id, peer_addr, file_name, file_size, actual_path, file, is_online, None,
     )
     .await
 }
@@ -1022,16 +1090,70 @@ pub async fn send_file_from_fd(
     #[cfg(target_os = "android")]
     {
         use crate::android_fd::AndroidFile;
+        use std::os::unix::io::IntoRawFd;
 
-        // 从 FD 创建文件对象
-        let android_file = AndroidFile::from_fd(fd)?;
-        let std_file = android_file.into_file();
-        let file = tokio::fs::File::from_std(std_file);
+        // ── 1. 检查接收端的 auto_download 设置 ──
+        let auto_enabled = {
+            let auto_dl_url = format!("http://{}/api/auto_download", peerAddr);
+            match reqwest::Client::new().get(&auto_dl_url).send().await {
+                Ok(resp) => {
+                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                        data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true)
+                    } else { true }
+                }
+                Err(_) => true,
+            }
+        };
 
-        // 使用原始 URI 作为 file_path（如果有），否则使用 fd:xxx
-        let file_path = originalUri.unwrap_or_else(|| format!("fd:{}", fd));
+        if !auto_enabled {
+            // ── 自动下载关闭：发 file_offer，FD 入缓存 ──
+            let sender_msg_id = crate::db::save_file_message(
+                &state.pool,
+                peerId.clone(),
+                fileName.clone(),
+                fileSize,
+                "fd:share".to_string(),  // 标记为 FD 缓存文件
+                "offering".to_string(),
+                "sent".to_string(),
+            ).await.map_err(|e| format!("创建发送记录失败: {}", e))?;
 
-        // 使用统一的上传函数，后端校验文件发送的 IP
+            // 更新 DB 路径为 fd:{msg_id}，使媒体服务器能按 msg_id 查到 FD
+            let fd_path = format!("fd:{}", sender_msg_id);
+            if let Err(e) = crate::db::update_file_path_by_id(&state.pool, sender_msg_id, &fd_path).await {
+                eprintln!("[Command] 更新 FD 文件路径失败: {}", e);
+            }
+
+            // 缓存 FD（用 msg_id 作为 key，供后续 file_request 查找）
+            crate::android_fd::cache_fd_for_msg(
+                sender_msg_id,
+                fd,
+                fileName.clone(),
+                fileSize as u64,
+            );
+
+            let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
+            let my_name = crate::db::get_username(&state.pool).await.unwrap_or_default();
+
+            // 通过 WS 向接收端发送 file_offer
+            let offer = serde_json::json!({
+                "msg_type": "file_offer",
+                "from_id": my_id,
+                "from_name": my_name,
+                "file_name": fileName,
+                "file_size": fileSize,
+                "sender_msg_id": sender_msg_id,
+            });
+            let _ = crate::network::messaging::send_json_via_ws(&peerAddr, &offer.to_string()).await;
+
+            return Ok(serde_json::json!({
+                "success": true,
+                "status": "offered",
+                "msg_id": sender_msg_id,
+                "file_name": fileName,
+            }));
+        }
+
+        // ── 自动下载开启：先保存消息 + 缓存 FD，再上传 ──
         let peer_state = app.try_state::<PeerState>();
         let (is_online, backend_addr) = peer_state
             .as_ref()
@@ -1058,17 +1180,47 @@ pub async fn send_file_from_fd(
             peerAddr
         };
 
+        // 保存消息 + 缓存 FD，再上传
+        let overall_status = if is_online { "sent" } else { "pending" };
+        let file_path = originalUri.unwrap_or_else(|| format!("fd:{}", fd));
+        let android_file = AndroidFile::from_fd(fd)?;
+        let std_file = android_file.into_file();
+        let dup = std_file.try_clone().map_err(|e| format!("FD 克隆失败: {}", e))?;
+        let file = tokio::fs::File::from_std(std_file);
+
+        // 先存消息获取 msg_id
+        let msg_id = crate::db::save_file_message(
+            &state.pool,
+            peerId.clone(),
+            fileName.clone(),
+            fileSize,
+            file_path,
+            "uploading".to_string(),
+            overall_status.to_string(),
+        ).await.map_err(|e| format!("保存消息失败: {}", e))?;
+
+        // 缓存 FD（用 msg_id 作为 key，供媒体服务器 /api/media 读取）
+        let raw_fd = dup.into_raw_fd();
+        crate::android_fd::cache_fd_for_msg(msg_id, raw_fd, fileName.clone(), fileSize as u64);
+
+        // 修正 DB 路径为 fd:{msg_id}
+        let corrected = format!("fd:{}", msg_id);
+        if let Err(e) = crate::db::update_file_path_by_id(&state.pool, msg_id, &corrected).await {
+            eprintln!("[Command] 修正 FD 路径失败: {}", e);
+        }
+
         upload_file_internal(
             &app,
             &state,
             peer_state.as_ref(),
-            peerId, 
+            peerId,
             peer_addr,
             fileName.clone(),
             fileSize,
-            file_path,
+            format!("fd:{}", msg_id),
             file,
             is_online,
+            Some(msg_id),
         )
         .await
     }
@@ -1335,6 +1487,23 @@ pub async fn delete_messages(
     msg_ids: Vec<i64>,
 ) -> Result<(), String> {
     println!("[Command] 批量删除消息: {:?}", msg_ids);
+
+    // ── 删除前清理关联的资源 ──
+    #[cfg(target_os = "android")]
+    {
+        use crate::android_fd::AndroidFile;
+        for &msg_id in &msg_ids {
+            // 释放持久化 URI 权限
+            if let Ok(Some(uri)) = crate::db::get_uri_by_msg_id(&state.pool, msg_id).await {
+                let _ = AndroidFile::release_persistable_uri_permission(&uri);
+                let _ = crate::db::remove_persisted_uri(&state.pool, &uri).await;
+                println!("[Command] 释放 URI 权限: msg_id={}, uri={}", msg_id, uri);
+            }
+            // 清理 FD 缓存
+            crate::android_fd::remove_cached_fd(msg_id);
+        }
+    }
+
     crate::db::delete_messages_by_ids(&state.pool, msg_ids).await
 }
 
@@ -1453,3 +1622,23 @@ pub fn show_notification(_app: tauri::AppHandle, title: String, body: String) {
             .show();
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Android 空实现：无系统托盘，前端调用时不报 Command not found
+// ═══════════════════════════════════════════════════════════════
+
+/// 无系统托盘平台的空实现（桌面端在 main.rs 中有真实实现）。
+/// lib.rs 作为库被两端共用，handler 需要注册此命令。
+#[tauri::command]
+pub fn start_tray_flash() {
+    #[cfg(not(target_os = "android"))]
+    println!("[TrayFlash] 非 Android 平台 stub（main.rs 中有真实托盘实现）");
+}
+
+#[tauri::command]
+pub fn stop_tray_flash() {
+    #[cfg(not(target_os = "android"))]
+    println!("[TrayFlash] 非 Android 平台 stub");
+}
+
+

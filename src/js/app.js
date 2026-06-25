@@ -276,56 +276,43 @@ function syncShareUserList(sharedFiles) {
 
   // 获取主界面上最新的用户列表
   const allUsers = document.querySelectorAll("#user-list li");
-  let onlineCount = 0;
-  const currentOnlineIds = new Set();
 
+  // 收集所有用户（含离线），排序后构建渲染数组
+  const allEntries = [];
   allUsers.forEach((userItem) => {
     const isOffline = userItem.classList.contains("offline");
-
-    // 只挑选在线的用户
-    if (!isOffline) {
-      onlineCount++;
-      const userId = userItem.dataset.id;
-      const userName = userItem.dataset.name;
-      const userAddr = userItem.dataset.addr;
-
-      currentOnlineIds.add(userId);
-
-      // 查找弹窗中是否已经渲染过这个用户
-      let li = userList.querySelector(`li[data-id="${userId}"]`);
-      if (!li) {
-        // 如果是新上线的用户，动态创建并插入（不影响其他正在显示的节点）
-        li = document.createElement("li");
-        li.dataset.id = userId;
-        userList.appendChild(li);
-      }
-
-      // 实时更新名称和点击事件（防止对方期间改名或 IP 变更）
-      li.textContent = userName;
-      li.onclick = () =>
-        handleShareToUser(userId, userName, userAddr, sharedFiles);
-    }
+    allEntries.push({
+      id: userItem.dataset.id,
+      name: userItem.dataset.name,
+      addr: userItem.dataset.addr,
+      isOffline,
+    });
   });
 
-  // 找出已离线或消失的用户并移除
-  const currentItems = userList.querySelectorAll("li:not(.no-users)");
-  currentItems.forEach((item) => {
-    if (!currentOnlineIds.has(item.dataset.id)) {
-      item.remove(); // 对方掉线，立刻从弹窗列表中剔除
-    }
+  // 排序：在线 > 离线，同名按名称字母
+  allEntries.sort((a, b) => {
+    if (a.isOffline !== b.isOffline) return a.isOffline ? 1 : -1;
+    return a.name.localeCompare(b.name);
   });
 
-  // 处理空状态提示（如果没有在线用户）
-  const noUsersLi = userList.querySelector(".no-users");
-  if (onlineCount === 0) {
-    if (!noUsersLi) {
-      userList.innerHTML = '<li class="no-users">暂无在线用户</li>';
-    }
-  } else {
-    if (noUsersLi) {
-      noUsersLi.remove(); // 有人上线了，移除“暂无用户”的提示
-    }
+  // 重建弹窗列表
+  userList.innerHTML = "";
+
+  if (allEntries.length === 0) {
+    userList.innerHTML = '<li class="no-users">暂无用户</li>';
+    return;
   }
+
+  allEntries.forEach(({ id, name, addr, isOffline }) => {
+    const li = document.createElement("li");
+    li.dataset.id = id;
+    if (isOffline) li.classList.add("offline");
+    li.innerHTML = isOffline
+      ? `${name} <span class="offline-tag">(离线)</span>`
+      : name;
+    li.onclick = () => handleShareToUser(id, name, addr, sharedFiles);
+    userList.appendChild(li);
+  });
 }
 
 // 用户主动取消分享
