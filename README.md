@@ -255,16 +255,16 @@ LANChat/
 
 ## File Status Reference
 
-| Role       | Status Value                | Display Text |
-|------------|-----------------------------|--------------|
-| **Sender** | `status: "pending"`         | Pending      |
-| **Sender** | `file_status: "offering"`   | Offering     |
-| **Sender** | `file_status: "uploading"`  | xx MB/s      |
-| **Sender** | `file_status: "sent"`       | (empty)      |
-| **Receiver** | `file_status: "offered"`  | Offered      |
-| **Receiver** | `file_status: "invalid"`  | Invalid      |
-| **Receiver** | `file_status: "downloading"` | xx MB/s   |
-| **Receiver** | `file_status: "accepted"` | (empty)      |
+| Role         | Status Value                 | Display Text |
+|--------------|------------------------------|--------------|
+| **Sender**   | `status: "pending"`          | pending      |
+| **Sender**   | `file_status: "offering"`    | offering     |
+| **Sender**   | `file_status: "uploading"`   | xx MB/s      |
+| **Sender**   | `file_status: "sent"`        | (empty)      |
+| **Receiver** | `file_status: "offered"`     | offered      |
+| **Receiver** | `file_status: "invalid"`     | invalid      |
+| **Receiver** | `file_status: "downloading"` | xx MB/s      |
+| **Receiver** | `file_status: "accepted"`    | (empty)      |
 
 ## Troubleshooting
 
