@@ -164,3 +164,13 @@ commands.allow = ["stop_tray_flash"]
 identifier = "allow-open-saf-picker"
 description = "Allows opening the SAF file picker on Android"
 commands.allow = ["open_saf_picker"]
+
+[[permission]]
+identifier = "allow-get-language"
+description = "Allows reading the language setting"
+commands.allow = ["get_language"]
+
+[[permission]]
+identifier = "allow-set-language"
+description = "Allows setting the language"
+commands.allow = ["set_language"]

@@ -56,6 +56,8 @@ fn main() {
             lanchat::commands::send_file,
             lanchat::commands::get_settings,
             lanchat::commands::update_settings,
+            lanchat::commands::get_language,
+            lanchat::commands::set_language,
             lanchat::commands::get_theme_list,
             lanchat::commands::get_theme_css,
             lanchat::commands::save_current_theme,
@@ -138,15 +140,33 @@ fn main() {
             println!("[Main] 我的 ID: {}", my_id);
             println!("[Main] 服务端口: {}", port);
 
+            // 读取语言设置用于托盘菜单
+            let tray_lang = lanchat::config_file::get_lang_from_config()
+                .or_else(|| std::env::var("LANG").ok().map(|l| if l.starts_with("zh") { "zh".to_string() } else { "en".to_string() }))
+                .unwrap_or_else(|| "zh".to_string());
+            let (show_text, notif_text, quit_text) = if tray_lang == "en" {
+                ("Show Window", "Enable Notifications", "Quit")
+            } else {
+                ("显示窗口", "开启通知", "退出")
+            };
+
             // 创建托盘菜单（现在 DB 已就绪）
-            let show_item = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
+            let show_item = MenuItem::with_id(app, "show", show_text, true, None::<&str>)?;
             let toggle_notif = tauri::menu::CheckMenuItem::with_id(
-                app, "toggle_notif", "开启通知", true, notif_enabled, None::<&str>,
+                app, "toggle_notif", notif_text, true, notif_enabled, None::<&str>,
             )?;
             let toggle_notif_clone = toggle_notif.clone();
             let notif_enabled_atomic = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(notif_enabled));
-            let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", quit_text, true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &toggle_notif, &quit_item])?;
+
+            // 注册托盘菜单项到状态（供 set_language 热更新）
+            #[cfg(all(feature = "desktop", not(target_os = "android")))]
+            handle.manage(lanchat::commands::TrayMenuItems {
+                show_item: show_item.clone(),
+                toggle_notif: toggle_notif.clone(),
+                quit_item: quit_item.clone(),
+            });
 
             // 创建托盘图标
             let _tray = TrayIconBuilder::with_id("main")

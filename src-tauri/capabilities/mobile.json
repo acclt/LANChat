@@ -59,7 +59,9 @@
 		"allow-get-custom-peers",
 		"allow-add-custom-peer",
 		"allow-remove-custom-peer",
-		"allow-request-file"
+		"allow-request-file",
+		"allow-get-language",
+		"allow-set-language"
   ],
   "scope": {
     "allow": [

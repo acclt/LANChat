@@ -7,11 +7,13 @@ pub struct Config {
     pub db_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { db_path: None, port: None }
+        Config { db_path: None, port: None, lang: None }
     }
 }
 
@@ -108,4 +110,19 @@ pub fn save_port_to_config(port: u16) -> Result<(), String> {
     write_config(&cfg)?;
     println!("[Config] 端口配置已保存: {}", port);
     Ok(())
+}
+
+/// 从配置读取语言，不存在返回 None
+pub fn get_lang_from_config() -> Option<String> {
+    read_config().lang
+}
+
+/// 保存语言到配置
+pub fn save_lang_to_config(lang: &str) -> Result<(), String> {
+    if lang != "zh" && lang != "en" {
+        return Err("不支持的语言: {lang}".to_string());
+    }
+    let mut cfg = read_config();
+    cfg.lang = Some(lang.to_string());
+    write_config(&cfg)
 }

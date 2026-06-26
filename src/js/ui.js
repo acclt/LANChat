@@ -1368,10 +1368,10 @@ function createMessageElement(message, isSent) {
   // ---- 统一处理纯净版的状态展示 ----
   const statusDiv = document.createElement("div");
 
-  // 优先级 1: 只要数据库中 status 是 pending,一律展示"待上线"
+  // 优先级 1: 只要数据库中 status 是 pending,一律展示待上线
   if (message.status === "pending") {
     statusDiv.className = "file-pending";
-    statusDiv.textContent = "待上线";
+    statusDiv.textContent = t("file_pending");
   } // 优先级 2: 如果不是 pending 且是文件,展示上传/下载进度
   else if (message.msg_type === "file") {
     if (message.file_status === "downloading") {
@@ -1382,13 +1382,13 @@ function createMessageElement(message, isSent) {
       statusDiv.textContent = "0 MB/s";
     } else if (message.file_status === "offered") {
       statusDiv.className = "file-pending";
-      statusDiv.textContent = "未下载";
+      statusDiv.textContent = t("file_offered");
     } else if (message.file_status === "offering") {
       statusDiv.className = "file-pending";
-      statusDiv.textContent = isSent ? "待接收" : "未下载";
+      statusDiv.textContent = isSent ? t("file_offering") : t("file_offered");
     } else if (message.file_status === "invalid") {
       statusDiv.className = "file-pending";
-      statusDiv.textContent = "已失效";
+      statusDiv.textContent = t("file_invalid");
     }
     // 成功状态(sent/accepted/accepted)不再塞入任何多余的文本,保持极简
   }
@@ -1456,7 +1456,7 @@ function onReceiveMessage(message) {
         } else if (newStatus === "offering") {
           if (statusDiv) {
             statusDiv.className = "file-pending";
-            statusDiv.textContent = "待接收";
+            statusDiv.textContent = t("file_offering");
           }
         } else if (newStatus === "uploading") {
           if (statusDiv) {
@@ -1508,7 +1508,7 @@ function onReceiveMessage(message) {
     if (msgEl) {
       const statusDiv = msgEl.querySelector(".file-pending");
       if (statusDiv) {
-        statusDiv.textContent = "待接收";
+        statusDiv.textContent = t("file_offering");
         statusDiv.className = "file-pending";
       }
     }
@@ -2163,7 +2163,7 @@ function initSettings() {
       } else {
         const portNum = parseInt(portVal, 10);
         if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-          settingsErrorMsg.textContent = "端口格式无效（1-65535）";
+          settingsErrorMsg.textContent = t("port_invalid");
           return;
         }
         portInput.value = String(portNum);
@@ -2190,9 +2190,9 @@ function initSettings() {
       }
 
       if (portChanged || dbPathChanged) {
-        settingsSuccessMsg.textContent = "✓ 设置保存成功，需重启生效";
+        settingsSuccessMsg.textContent = t("settings_save_restart");
       } else {
-        settingsSuccessMsg.textContent = "✓ 设置保存成功";
+        settingsSuccessMsg.textContent = t("settings_saved");
       }
       settingsSuccessMsg.classList.add("show");
       setTimeout(() => {
@@ -2249,7 +2249,7 @@ function initAddPeer() {
           await apiAddCustomPeer(validation.address);
           customPeerInput.value = "";
           renderCustomPeers();
-          successMsg.textContent = isIp(val) ? "✓ 已添加 IP" : "✓ 已添加域名";
+          successMsg.textContent = isIp(val) ? t("peer_added_ip") : t("peer_added_domain");
           successMsg.classList.add("show");
         } catch (_) {}
       }
@@ -2285,7 +2285,7 @@ function initAddPeer() {
       if (hostnamePortPattern.test(val)) {
         return { address: val };
       }
-      return { error: "格式错误，支持 IP (192.168.1.100:8888) 或 域名 (myhost.local:8888)" };
+      return { error: t("peer_format_error") };
     } else {
       if (ipv4Pattern.test(val)) {
         const myPort = window.__TAURI__ ? "8888" : (window.location.port || "8888");
@@ -2295,7 +2295,7 @@ function initAddPeer() {
         const myPort = window.__TAURI__ ? "8888" : (window.location.port || "8888");
         return { address: `${val}:${myPort}` };
       }
-      return { error: "格式错误，支持 IP (192.168.1.100) 或 域名 (myhost.local)" };
+      return { error: t("peer_format_error2") };
     }
   }
 
@@ -2371,6 +2371,207 @@ function initAddPeer() {
   });
 }
 
+// ─── 国际化 (i18n) ──────────────────────────────────────────────
+
+const i18n = {
+  zh: {
+    language: "语言",
+    theme: "主题",
+    theme_default: "默认主题",
+    apply: "应用",
+    cancel: "取消",
+    send: "发送",
+    settings: "设置",
+    add: "添加",
+    theme_btn: "主题",
+    chat_input_placeholder: "输入消息...",
+    name_placeholder: "输入新名字",
+    saving: "保存中...",
+    save: "保存",
+    add_peer_title: "手动添加设备",
+    peer_input_placeholder: "例: 192.168.1.100 或 myhost.local:8888",
+    peer_input_label: "IP / 域名:端口",
+    port_label: "端口:",
+    download_path_label: "下载路径:",
+    db_path_label: "数据库路径:",
+    choose: "选择",
+    auto_download_label: "自动下载:",
+    settings_save_restart: "✓ 设置保存成功，需重启生效",
+    settings_saved: "✓ 设置保存成功",
+    port_invalid: "端口格式无效（1-65535）",
+    peer_added_ip: "✓ 已添加 IP",
+    peer_added_domain: "✓ 已添加域名",
+    peer_format_error: "格式错误，支持 IP (192.168.1.100:8888) 或 域名 (myhost.local:8888)",
+    peer_format_error2: "格式错误，支持 IP (192.168.1.100) 或 域名 (myhost.local)",
+    apply_success: "✓ 应用成功",
+    theme_apply_error: "应用主题失败",
+    file_pending: "待上线",
+    file_offering: "待接收",
+    file_offered: "未下载",
+    file_invalid: "已失效",
+  },
+  en: {
+    language: "Language",
+    theme: "Theme",
+    theme_default: "Default",
+    apply: "Apply",
+    cancel: "Cancel",
+    send: "Send",
+    settings: "Settings",
+    add: "Add",
+    theme_btn: "Theme",
+    chat_input_placeholder: "Type a message...",
+    name_placeholder: "Enter new name",
+    saving: "Saving...",
+    save: "Save",
+    add_peer_title: "Add Peer",
+    peer_input_placeholder: "e.g. 192.168.1.100 or myhost.local:8888",
+    peer_input_label: "IP / Domain:Port",
+    port_label: "Port:",
+    download_path_label: "Download Path:",
+    db_path_label: "Database Path:",
+    choose: "Choose",
+    auto_download_label: "Auto Download:",
+    settings_save_restart: "✓ Saved. Restart to apply.",
+    settings_saved: "✓ Saved.",
+    port_invalid: "Invalid port (1-65535)",
+    peer_added_ip: "✓ IP added",
+    peer_added_domain: "✓ Domain added",
+    peer_format_error: "Format: IP (192.168.1.100:8888) or Domain (myhost.local:8888)",
+    peer_format_error2: "Format: IP (192.168.1.100) or Domain (myhost.local)",
+    apply_success: "✓ Applied",
+    theme_apply_error: "Apply failed",
+    file_pending: "pending",
+    file_offering: "offering",
+    file_offered: "offered",
+    file_invalid: "expired",
+  },
+};
+
+let currentLang = "zh";
+
+// 获取系统语言
+function detectSystemLang() {
+  const lang = (navigator.language || navigator.userLanguage || "en").toLowerCase();
+  if (lang.startsWith("zh")) return "zh";
+  return "en";
+}
+
+// 加载语言设置
+async function loadLanguage() {
+  const tauri = getTauri();
+  try {
+    let saved;
+    if (tauri) {
+      saved = await tauri.core.invoke("get_language");
+    } else {
+      const resp = await fetch("/api/get_language");
+      const data = await resp.json();
+      saved = data.lang;
+    }
+    if (saved && saved !== "auto") {
+      currentLang = saved;
+    } else {
+      currentLang = detectSystemLang();
+    }
+  } catch (e) {
+    currentLang = detectSystemLang();
+  }
+}
+
+// 保存语言设置
+async function saveLanguage(lang) {
+  const tauri = getTauri();
+  try {
+    if (tauri) {
+      await tauri.core.invoke("set_language", { lang });
+    } else {
+      await fetch("/api/set_language", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang }),
+      });
+    }
+  } catch (e) {
+    console.error("[i18n] 保存语言设置失败:", e);
+  }
+}
+
+// 翻译 key
+function t(key) {
+  const dict = i18n[currentLang] || i18n.zh;
+  return dict[key] || key;
+}
+
+// 应用翻译
+function applyTranslation() {
+  const dict = i18n[currentLang] || i18n.zh;
+  // 处理 data-i18n 属性元素
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    const key = el.getAttribute("data-i18n");
+    if (dict[key] !== undefined) {
+      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+        el.placeholder = dict[key];
+      } else {
+        el.textContent = dict[key];
+      }
+    }
+  });
+  // 处理没有 data-i18n 但需要翻译的元素
+  const sendBtn = document.getElementById("send-btn");
+  if (sendBtn) sendBtn.textContent = t("send");
+  const settingsBtn = document.getElementById("settings-btn");
+  if (settingsBtn) settingsBtn.textContent = t("settings");
+  const addPeerBtn = document.getElementById("add-peer-btn");
+  if (addPeerBtn) addPeerBtn.textContent = t("add");
+  const themeBtn = document.getElementById("theme-btn");
+  if (themeBtn) themeBtn.textContent = t("theme_btn");
+  const chatInput = document.getElementById("chat-input");
+  if (chatInput) chatInput.placeholder = t("chat_input_placeholder");
+  const nameInput = document.getElementById("new-name-input");
+  if (nameInput) nameInput.placeholder = t("name_placeholder");
+  const addPeerTitle = document.querySelector("#add-peer-panel h2");
+  if (addPeerTitle) addPeerTitle.textContent = t("add_peer_title");
+  const peerInput = document.getElementById("custom-peer-input");
+  if (peerInput) peerInput.placeholder = t("peer_input_placeholder");
+}
+
+// 同步语言 radio 选中状态
+function syncLangRadio() {
+  const radio = document.querySelector(`input[name="lang"][value="${currentLang}"]`);
+  if (radio) {
+    radio.checked = true;
+    document.querySelectorAll(".lang-item").forEach(item => item.classList.remove("active"));
+    document.querySelector(`.lang-item[data-lang="${currentLang}"]`)?.classList.add("active");
+  }
+}
+
+// 初始化语言功能
+async function initLanguage() {
+  await loadLanguage();
+  applyTranslation();
+  syncLangRadio();
+
+  // 语言 radio 变更只记录选中状态，不立刻生效
+  document.querySelectorAll('input[name="lang"]').forEach(radio => {
+    radio.addEventListener("change", (e) => {
+      document.querySelectorAll(".lang-item").forEach(item => item.classList.remove("active"));
+      const parent = e.target.closest(".lang-item");
+      if (parent) parent.classList.add("active");
+    });
+  });
+
+  // 点击整个 lang-item 也能选中 radio
+  document.querySelectorAll(".lang-item").forEach(item => {
+    item.addEventListener("click", (e) => {
+      if (e.target.tagName !== "INPUT") {
+        const radio = item.querySelector('input[type="radio"]');
+        if (radio) radio.click();
+      }
+    });
+  });
+}
+
 // 初始化主题功能
 function initTheme() {
   const themeBtn = document.getElementById("theme-btn");
@@ -2402,7 +2603,7 @@ function initTheme() {
     }
   });
 
-  // 应用主题
+  // 应用主题 / 语言
   applyThemeBtn.addEventListener("click", async () => {
     const selectedTheme = document.querySelector('input[name="theme"]:checked');
     if (!selectedTheme) {
@@ -2415,10 +2616,30 @@ function initTheme() {
       themeSuccessMsg.textContent = "";
       themeSuccessMsg.classList.remove("show");
 
-      await applyTheme(selectedTheme.value);
-      await apiSaveCurrentTheme(selectedTheme.value);
+      const selectedLang = document.querySelector('input[name="lang"]:checked');
+      const currentTheme = await apiGetCurrentTheme().catch(() => null);
+      const themeChanged = selectedTheme.value !== currentTheme;
+      const langChanged = selectedLang && selectedLang.value !== currentLang;
 
-      themeSuccessMsg.textContent = "✓ 主题应用成功";
+      if (!themeChanged && !langChanged) {
+        // 没有任何改动，直接关闭
+        themePanel.style.display = "none";
+        return;
+      }
+
+      if (themeChanged) {
+        await applyTheme(selectedTheme.value);
+        await apiSaveCurrentTheme(selectedTheme.value);
+      }
+
+      if (langChanged && selectedLang) {
+        currentLang = selectedLang.value;
+        applyTranslation();
+        await saveLanguage(currentLang);
+        document.dispatchEvent(new CustomEvent("language-changed", { detail: { lang: currentLang } }));
+      }
+
+      themeSuccessMsg.textContent = t("apply_success");
       themeSuccessMsg.classList.add("show");
 
       setTimeout(() => {
@@ -2426,10 +2647,10 @@ function initTheme() {
         themeSuccessMsg.classList.remove("show");
       }, 1500);
 
-      console.log("[UI] 主题应用成功:", selectedTheme.value);
+      console.log("[UI] 应用成功:", selectedTheme.value, selectedLang?.value);
     } catch (e) {
-      themeErrorMsg.textContent = "应用主题失败: " + e.message;
-      console.error("[UI] 应用主题失败:", e);
+      themeErrorMsg.textContent = t("theme_apply_error") + ": " + e.message;
+      console.error("[UI] 应用失败:", e);
     }
   });
 
@@ -2463,9 +2684,7 @@ async function loadThemeList() {
             <input type="radio" id="theme-${theme.name}" name="theme" value="${theme.name}" ${
       isSelected ? "checked" : ""
     }>
-            <label for="theme-${theme.name}">${theme.display_name}${
-      theme.is_custom ? " (自定义)" : ""
-    }</label>
+            <label for="theme-${theme.name}">${theme.display_name}${theme.is_custom ? " (custom)" : ""}</label>
         `;
 
     if (isSelected) {

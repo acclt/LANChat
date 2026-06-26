@@ -20,6 +20,7 @@
 - 🌐 **Web 端** - 可部署到无图形界面服务器
 - 🔔 **系统通知** - Linux 桌面端、Windows 桌面端、Android App、Web 端均支持
 - 💡 **托盘图标闪烁** - 点击后跳转最新未读，右键菜单开/关通知
+- 🌍 **中英文界面** - 自动检测系统语言，支持手动切换，托盘菜单即时热更新
 - 🤖 **LANClaw 智能机器人** - 由 Pi 驱动的 AI 聊天机器人，支持自动回复、文件分析和定时任务
 - 📱 **Android 双轨文件引擎** — SAF 持久化权限 + Share Intent FD 缓存零拷贝双轨并行
 - 🔁 **离线补发** — 离线消息自动缓存，上线后自动补发，支持文件消息
@@ -93,6 +94,24 @@ make help         # 查看帮助
 
 可以参考内置的主题：[https://github.com/cap153/LANChat/tree/main/src/css](https://github.com/cap153/LANChat/tree/main/src/css) 
 
+## 配置
+
+### 配置文件 (`config.json`)
+端口和语言等设置存储在 `config.json` 中，桌面端 CLI 参数 `--port` 和 `--db-path` 拥有最高优先级。
+
+- **Linux**: `~/.config/lanchat/config.json`
+- **Windows**: `%APPDATA%\lanchat\config.json`
+- **macOS**: `~/Library/Application Support/lanchat/config.json`
+
+配置文件内容：
+```json
+{
+  "db_path": null,
+  "port": 8888,
+  "lang": "zh"
+}
+```
+
 ## 数据库
 
 ### 默认路径
@@ -159,6 +178,9 @@ make help         # 查看帮助
 - [x] Android SAF 持久化权限 + 零拷贝 FD 缓存双轨机制
 - [x] Android SAF 原生文件选择器（`ACTION_OPEN_DOCUMENT` + `takePersistableUriPermission`）
 - [x] 文件传输速度实时显示
+- [x] 端口配置迁移至 `config.json`（支持 CLI `--port` / `--db-path`）
+- [x] 配置文件路径按平台标准（Linux `~/.config/`、Windows `%APPDATA%`、macOS `~/Library/Application Support`）
+- [x] 中英文界面（自动检测系统语言 + 手动切换 + 托盘热更新）
 
 ### 🚧 进行中
 
@@ -173,7 +195,15 @@ make help         # 查看帮助
 lanchat-web --port 8888
 ```
 
-CLI 参数 `--port` 和 `--db-path` 会覆盖设置中的配置，优先级最高。
+CLI 参数 `--port` 和 `--db-path` 会覆盖配置文件中的对应设置，优先级最高。
+
+```bash
+# Web 端
+lanchat-web --port 8888
+
+# 桌面端
+lanchat --port 8889 --db-path /custom/path/lanchat.db
+```
 
 2. 配置防火墙示例:
 ```bash
@@ -243,6 +273,7 @@ LANChat/
 | **发送端** | `file_status: "uploading"`   | xx MB/s  |
 | **发送端** | `file_status: "sent"`        | 无文字   |
 | **接收端** | `file_status: "offered"`     | 未下载   |
+| **接收端** | `file_status: "invalid"`     | 已失效   |
 | **接收端** | `file_status: "downloading"` | xx MB/s  |
 | **接收端** | `file_status: "accepted"`    | 无文字   |
 

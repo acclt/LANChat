@@ -49,6 +49,8 @@ pub fn run() {
             commands::send_file,
             commands::get_settings,
             commands::update_settings,
+            commands::get_language,
+            commands::set_language,
             commands::get_theme_list,
             commands::get_theme_css,
             commands::save_current_theme,

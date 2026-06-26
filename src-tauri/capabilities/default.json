@@ -50,6 +50,8 @@
 		"allow-add-custom-peer",
 		"allow-remove-custom-peer",
 		"allow-request-file",
+		"allow-get-language",
+		"allow-set-language",
     {
       "identifier": "fs:scope",
       "allow": [

@@ -34,6 +34,14 @@ impl Default for TrayFlashState {
     }
 }
 
+/// 托盘菜单项（桌面端），用于语言热更新
+#[cfg(all(feature = "desktop", not(target_os = "android")))]
+pub struct TrayMenuItems {
+    pub show_item: tauri::menu::MenuItem<tauri::Wry>,
+    pub toggle_notif: tauri::menu::CheckMenuItem<tauri::Wry>,
+    pub quit_item: tauri::menu::MenuItem<tauri::Wry>,
+}
+
 #[cfg(feature = "desktop")]
 
 /// 根据设备内存和文件大小计算最优分块大小
@@ -429,6 +437,32 @@ pub async fn update_settings(
 }
 
 #[tauri::command]
+pub fn get_language() -> Result<String, String> {
+    Ok(crate::config_file::get_lang_from_config().unwrap_or_else(|| "auto".to_string()))
+}
+
+#[tauri::command]
+pub fn set_language(lang: String, app: tauri::AppHandle) -> Result<(), String> {
+    crate::config_file::save_lang_to_config(&lang)?;
+
+    // 桌面端托盘菜单热更新
+    #[cfg(all(feature = "desktop", not(target_os = "android")))]
+    if let Some(state) = app.try_state::<TrayMenuItems>() {
+        if lang == "en" {
+            let _ = state.show_item.set_text("Show Window");
+            let _ = state.toggle_notif.set_text("Enable Notifications");
+            let _ = state.quit_item.set_text("Quit");
+        } else {
+            let _ = state.show_item.set_text("显示窗口");
+            let _ = state.toggle_notif.set_text("开启通知");
+            let _ = state.quit_item.set_text("退出");
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn update_my_name(state: State<'_, DbState>, new_name: String) -> Result<String, String> {
     // 更新数据库
     crate::db::update_username(&state.pool, new_name.clone()).await?;
@@ -774,13 +808,13 @@ pub async fn get_theme_list() -> Result<Vec<serde_json::Value>, String> {
     let mut themes = vec![
         serde_json::json!({
             "name": "default",
-            "display_name": "默认主题",
+            "display_name": "Default",
             "is_custom": false,
             "is_builtin": true
         }),
         serde_json::json!({
             "name": "vscode",
-            "display_name": "VSCode 主题",
+            "display_name": "VSCode",
             "is_custom": false,
             "is_builtin": true
         }),

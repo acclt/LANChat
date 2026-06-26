@@ -897,6 +897,7 @@ h2::before {
 }
 
 .settings-panel h2,
+.settings-panel h3,
 .edit-panel h2,
 .theme-panel h2 {
 	margin-top: 0;
@@ -1699,6 +1700,56 @@ h2::before {
 }
 
 .theme-item.active {
+	background: rgba(189, 147, 249, 0.2);
+	border: 1px solid var(--primary);
+}
+
+.theme-section {
+	margin-bottom: 20px;
+}
+
+.theme-section h3 {
+	color: var(--primary);
+	font-size: 15px;
+	margin-bottom: 10px;
+	padding-bottom: 8px;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.language-list {
+	display: flex;
+	gap: 12px;
+}
+
+.lang-item {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	padding: 12px;
+	margin-bottom: 8px;
+	background: rgba(0, 0, 0, 0.2);
+	border-radius: 8px;
+	transition: all 0.3s ease;
+	cursor: pointer;
+}
+
+.lang-item:hover {
+	background: rgba(189, 147, 249, 0.1);
+	border-color: var(--primary);
+}
+
+.lang-item input[type="radio"] {
+	margin-right: 12px;
+	accent-color: var(--primary);
+}
+
+.lang-item label {
+	color: var(--text-main);
+	cursor: pointer;
+	font-size: 14px;
+}
+
+.lang-item.active {
 	background: rgba(189, 147, 249, 0.2);
 	border: 1px solid var(--primary);
 }

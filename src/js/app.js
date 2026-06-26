@@ -17,6 +17,9 @@ async function renderPage() {
   // 初始化手动添加设备功能
   initAddPeer();
 
+  // 初始化语言功能（放在主题前面，确保翻译尽早应用）
+  await initLanguage();
+
   // 初始化主题功能
   initTheme();
 

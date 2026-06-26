@@ -107,6 +107,8 @@ pub async fn start_server(
         .route("/api/update_my_name", post(update_name_http))
         .route("/api/get_settings", get(get_settings_http))
         .route("/api/update_settings", post(update_settings_http))
+        .route("/api/get_language", get(get_language_http))
+        .route("/api/set_language", post(set_language_http))
         .route("/api/get_custom_peers", get(get_custom_peers_http))
         .route("/api/add_custom_peer", post(add_custom_peer_http))
         .route("/api/remove_custom_peer", post(remove_custom_peer_http))
@@ -253,6 +255,24 @@ async fn update_settings_http(
     }
 
     Json(serde_json::json!({ "success": true })).into_response()
+}
+
+async fn get_language_http() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "lang": crate::config_file::get_lang_from_config().unwrap_or_else(|| "auto".to_string())
+    }))
+}
+
+#[derive(Deserialize)]
+struct SetLanguageRequest {
+    lang: String,
+}
+
+async fn set_language_http(Json(payload): Json<SetLanguageRequest>) -> impl IntoResponse {
+    match crate::config_file::save_lang_to_config(&payload.lang) {
+        Ok(()) => Json(serde_json::json!({ "success": true })).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -2202,13 +2222,13 @@ async fn get_theme_list_http() -> impl IntoResponse {
     let mut themes = vec![
         serde_json::json!({
             "name": "default",
-            "display_name": "默认主题",
+            "display_name": "Default",
             "is_custom": false,
             "is_builtin": true
         }),
         serde_json::json!({
             "name": "vscode",
-            "display_name": "VSCode 主题",
+            "display_name": "VSCode",
             "is_custom": false,
             "is_builtin": true
         }),
