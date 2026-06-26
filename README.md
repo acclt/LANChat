@@ -1,43 +1,38 @@
-<img width="1923" height="2104" alt="image" src="https://github.com/user-attachments/assets/454c170a-272a-4997-b096-569fc7c4dc53" />
 
 # LANChat
 
-一个跨平台的、无需注册的、支持文件传输的局域网聊天软件。
+> A cross-platform, no-registration LAN chat app with file transfer support.
+>
+> 📖 [中文文档](README_CN.md)
 
-## 特性
+<img width="1923" height="2104" alt="LANChat screenshot" src="https://github.com/user-attachments/assets/454c170a-272a-4997-b096-569fc7c4dc53" />
 
-- 🚀 **无需注册** - 自动生成随机用户名，点击用户名即可修改
-- 💻 **跨平台支持** - Linux 桌面端、Windows 桌面端、Android App、Web 端
-- 🔍 **自动发现** - 基于 UDP 广播/组播的局域网设备自动发现
-- 🔗 **手动发现** - 支持 IP 地址、域名、主机名，跨 VLAN / WireGuard 也能互通
-- 🔄 **智能回复** - 收到心跳自动回复，只需一方手动添加即可双向发现
-- 💬 **实时聊天** - 支持文本消息、流式消息和文件传输
-- 📁 **文件传输** - 支持大文件分块传输，可设置自动接收
-- 📸 **图片预览** - 图片消息自动预览
-- 💾 **历史记录** - SQLite 数据库保存聊天记录
-- 🔧 **端口配置** - 可在设置中自定义服务端口，支持 CLI 参数覆盖
-- 📂 **数据库路径** - 支持自定义数据库存储位置，配置文件持久化
-- 🌐 **Web 端** - 可部署到无图形界面服务器
-- 🔔 **系统通知** - Linux 桌面端、Windows 桌面端、Android App、Web 端均支持
-- 💡 **托盘图标闪烁** - 点击后跳转最新未读，右键菜单开/关通知
-- 🌍 **中英文界面** - 自动检测系统语言，支持手动切换，托盘菜单即时热更新
-- 🤖 **LANClaw 智能机器人** - 由 Pi 驱动的 AI 聊天机器人，支持自动回复、文件分析和定时任务
-- 📱 **Android 双轨文件引擎** — SAF 持久化权限 + Share Intent FD 缓存零拷贝双轨并行
-- 🔁 **离线补发** — 离线消息自动缓存，上线后自动补发，支持文件消息
-- 📁 **SAF 文件选择器** — Android 原生 `ACTION_OPEN_DOCUMENT`，选中的文件跨进程/跨重启持久可读
+## Features
 
-## 技术栈
+- 🚀 **No Registration** - Auto-generates random usernames; click to change anytime
+- 💻 **Cross-Platform** - Linux desktop, Windows desktop, Android App, Web
+- 🔍 **Auto Discovery** - UDP broadcast/multicast based LAN device discovery
+- 🔗 **Manual Discovery** - Add by IP, domain, or hostname; works across VLANs / WireGuard
+- 🔄 **Smart Reply** - Auto-replies to heartbeats; only one side needs to add the other for mutual discovery
+- 💬 **Real-time Chat** - Text messages, streaming messages, and file transfer
+- 📁 **File Transfer** - Large file chunked transfer with configurable auto-accept
+- 📸 **Image Preview** - Automatic preview for image messages
+- 💾 **History** - SQLite database for chat history
+- 🔧 **Port Config** - Customizable service port in settings, overridable via CLI
+- 📂 **Database Path** - Custom database location, persisted in config file
+- 🌐 **Web Client** - Deployable on headless servers
+- 🔔 **System Notifications** - Linux desktop, Windows desktop, Android App, Web
+- 💡 **Tray Icon Flash** - Click to jump to latest unread; right-click menu to toggle notifications
+- 🌍 **i18n** - Automatic system language detection, manual switch, tray menu hot-reload
+- 🤖 **LANClaw AI Bot** - Pi-powered AI chatbot with auto-reply, file analysis, and scheduled tasks
+- 📱 **Android Dual-Track File Engine** — SAF persistable permissions + Share Intent FD cache zero-copy dual track
+- 📁 **SAF File Picker** — Android native `ACTION_OPEN_DOCUMENT`; selected files remain readable across process/reboot
+- 🔁 **Offline Re-send** — Offline messages auto-cached; auto-re-send on reconnect, including files
+- 🔗 **Manual Receive** - Turn off **Auto Download** and click to download files manually
 
-- **后端**: Rust + Tauri 2.0
-- **前端**: 原生 HTML + CSS + JavaScript
-- **数据库**: SQLite (sqlx)
-- **网络**: UDP 广播/组播 + TCP/WebSocket 传输 + HTTP 分块上传
-- **Web 服务器**: Axum
-- **AI 机器人**: LANClaw（独立进程，通过 Pi RPC 驱动）
+## Quick Start
 
-## 快速开始
-
-### aur
+### AUR
 
 ```bash
 paru -S lanchat-bin
@@ -45,267 +40,283 @@ paru -S lanchat-bin
 
 ### Releases
 
-[https://github.com/cap153/LANChat/releases](https://github.com/cap153/LANChat/releases) 
+[https://github.com/cap153/LANChat/releases](https://github.com/cap153/LANChat/releases)
 
-### 编译
+### Build from Source
 
-前置要求：
+Prerequisites:
 
-[https://v2.tauri.app/start/prerequisites/](https://v2.tauri.app/start/prerequisites/)   
+[https://v2.tauri.app/start/prerequisites/](https://v2.tauri.app/start/prerequisites/)
 
 ```bash
-# 桌面端
+# Desktop Linux
 cargo tauri build --bundles deb
 cargo tauri build --bundles rpm
 
-# apk
+# Android APK
 cargo tauri android build --target aarch64
 ./sign-apk.sh
 
-# windows桌面端
+# Windows desktop
 cd src-tauri
 cargo xwin build --release --bin lanchat --target x86_64-pc-windows-msvc
 
-# Web 端（精简版，无 GUI 依赖）
+# Web (lightweight, no GUI dependencies)
 cd src-tauri
 cargo build --release --bin lanchat-web --features web --no-default-features
-cargo build --no-default-features --features web --release --target x86_64-pc-windows-gnu # windows网页端
+cargo build --no-default-features --features web --release --target x86_64-pc-windows-gnu # Windows web
 ```
 
-也可以使用 Makefile 一键构建：
+Or use the Makefile for one-click builds:
 
 ```bash
-make all          # 构建测试过的所有平台
+make all          # Build all tested platforms
 make deb          # Linux .deb
 make rpm          # Linux .rpm
-make apk          # Android APK（自动签名）
-make windows-desktop  # Windows 桌面端（需要 cargo-xwin）
-make web          # Web 端 Linux
-make web-windows  # Web 端 Windows
-make help         # 查看帮助
+make apk          # Android APK (auto-signed)
+make windows-desktop  # Windows desktop (requires cargo-xwin)
+make web          # Web (Linux)
+make web-windows  # Web (Windows)
+make help         # Show help
 ```
 
-## 主题
+## Running
 
-支持自定义`css`，文件名称随意，存储路径：
+1. Start the service (default port `8888`, configurable in settings):
+
+```bash
+# Desktop
+lanchat
+
+# Web
+lanchat-web
+```
+
+CLI arguments `--port` and `--db-path` override config file settings with highest priority.
+
+```bash
+# Web / Desktop
+lanchat --port 8889 --db-path /custom/path/lanchat.db
+```
+
+> [!TIP]
+> Run multiple instances by specifying different ports and database paths.
+> Use the **Add** panel with `<IP>:<port>` to discover across ports.
+> Once one side receives a heartbeat, the reply mechanism enables mutual discovery.
+
+2. Firewall configuration (ufw example):
+
+> [!IMPORTANT]
+> Ensure both TCP and UDP are allowed for the configured port.
+
+```bash
+# TCP: Web pages and WebSocket communication
+sudo ufw allow 8888/tcp
+# UDP: Device discovery (broadcast/multicast/heartbeat)
+sudo ufw allow 8888/udp
+```
+
+## Custom Themes
+
+Place custom `.css` files in the config directory (any filename):
 
 - **Linux**: `~/.config/lanchat/`
 - **Windows**: `%APPDATA%\.config\lanchat`
 
-可以参考内置的主题：[https://github.com/cap153/LANChat/tree/main/src/css](https://github.com/cap153/LANChat/tree/main/src/css) 
+See built-in themes for reference: [https://github.com/cap153/LANChat/tree/main/src/css](https://github.com/cap153/LANChat/tree/main/src/css)
 
-## 配置
+## Configuration
 
-### 配置文件 (`config.json`)
-端口和语言等设置存储在 `config.json` 中，桌面端 CLI 参数 `--port` 和 `--db-path` 拥有最高优先级。
+### Config File (`config.json`)
+
+Port, language, and other settings are stored in `config.json`. CLI arguments `--port` and `--db-path` take highest priority.
 
 - **Linux**: `~/.config/lanchat/config.json`
 - **Windows**: `%APPDATA%\lanchat\config.json`
 - **macOS**: `~/Library/Application Support/lanchat/config.json`
 
-配置文件内容：
+Example content:
+
 ```json
 {
   "db_path": null,
   "port": 8888,
-  "lang": "zh"
+  "lang": "en"
 }
 ```
 
-## 数据库
+| Field     | Description                                       |
+|-----------|---------------------------------------------------|
+| `db_path` | [Database path](#database); `null` = default      |
+| `port`    | Listening port, default 8888                      |
+| `lang`    | Interface language: `zh` (Chinese), `en` (English) |
 
-### 默认路径
-桌面端和 Web 端共享同一个数据库：
+## Database
+
+Desktop and Web share the same database:
+
 - **Linux**: `~/.local/share/com.lanchat.app/lanchat.db`
 - **Windows**: `%APPDATA%\com.lanchat.app\lanchat.db`
 
-可在设置面板中修改数据库路径，修改后需重启生效。路径存储在 `~/.config/lanchat/config.json`。
+The database path can be changed in settings (requires restart). The path is stored in `~/.config/lanchat/config.json`.
 
-### 数据表
-- `settings` - 用户配置（用户名、自动接收、保存路径等）
-- `messages` - 聊天记录
-- `users` - 局域网发现的用户（计划中）
+## Feature Status
 
-## 功能状态
+### ✅ Done
 
-### ✅ 已完成
+- [x] Auto-generated random usernames
+- [x] Click username to rename
+- [x] LAN device discovery (UDP broadcast/multicast)
+- [x] Real-time online user list
+- [x] Standalone Web deployment
+- [x] Shared database between desktop and Web
+- [x] Settings panel (port, db path, download path)
+- [x] Chat history query
+- [x] Theme switching
+- [x] Android support
+- [x] Text message transfer
+- [x] File transfer
+- [x] Windows support
+- [x] Single instance lock
+- [x] Streaming file transfer
+- [x] Dynamic chunk size based on system memory
+- [x] Broadcast and multicast support
+- [x] Android hotspot random subnet brute-force
+- [x] Web: click file message to download directly
+- [x] Desktop: click file message to open containing folder
+- [x] Android: receive shared files from other apps and send
+- [x] Android: share file messages to other apps
+- [x] Desktop & Web: drag-and-drop file sending
+- [x] Desktop: paste file sending (zero-copy, Wayland-first)
+- [x] Web: paste file sending
+- [x] Auto image preview
+- [x] Red dot for unread messages
+- [x] Lazy-load history (scroll to trigger)
+- [x] Delete chat history
+- [x] Android: open file messages
+- [x] Smart file deduplication (reuse identical files, auto-rename on conflict)
+- [x] Offline message re-send on reconnect
+- [x] Clipboard image paste sending
+- [x] Delete offline users
+- [x] Clear chat history
+- [x] Android: status bar / navigation bar adaptation
+- [x] LANClaw streaming AI replies
+- [x] Model switching command (`/model`)
+- [x] New session command (`/new`)
+- [x] Manual discovery (IP / domain / hostname, cross-VLAN / WireGuard)
+- [x] UDP heartbeat auto-reply (cross-port / cross-subnet auto discovery)
+- [x] System notifications (desktop: PowerShell / notify-send, Web: Notification API, Android: native)
+- [x] Tray icon flash (unread notification, click to jump to latest)
+- [x] Notification toggle (tray right-click menu, desktop only)
+- [x] Manual file receive
+- [x] Android SAF persistable permissions + zero-copy FD cache dual-track
+- [x] Android SAF native file picker (`ACTION_OPEN_DOCUMENT` + `takePersistableUriPermission`)
+- [x] Real-time file transfer speed display
+- [x] Platform-standard config paths (Linux `~/.config/`, Windows `%APPDATA%`)
+- [x] i18n (auto-detect + manual switch + tray hot-reload)
 
-- [x] 自动生成随机用户名
-- [x] 点击用户名直接改名
-- [x] 局域网设备发现（UDP 广播/组播）
-- [x] 实时显示在线用户
-- [x] Web 端独立部署
-- [x] 桌面端和 Web 端共享数据库
-- [x] 设置页面（端口、数据库路径、下载路径）
-- [x] 消息历史记录查询
-- [x] 主题切换功能
-- [x] Android 端适配
-- [x] 文本消息传输
-- [x] 文件传输功能
-- [x] Windows 端适配
-- [x] 单实例锁定功能
-- [x] 文件流式传输
-- [x] 根据系统内存动态调整文件分块大小
-- [x] 支持广播和组播
-- [x] Android 热点随机网段暴力覆盖
-- [x] Web 端文件消息点击直接下载
-- [x] 桌面端文件消息点击打开所在路径
-- [x] Android 端接收其他应用分享的文件并发送
-- [x] Android 端文件消息点击分享到其他应用
-- [x] 桌面端、Web 端支持拖拽文件发送
-- [x] 桌面端支持粘贴文件发送（零拷贝，Wayland 优先）
-- [x] Web 端支持粘贴文件发送
-- [x] 图片消息自动预览
-- [x] 存在未读消息时红点标注
-- [x] 历史消息懒加载（滚动时触发加载历史消息）
-- [x] 删除指定聊天记录
-- [x] Android 端文件消息点击打开
-- [x] 重复文件智能去重（接收端存在文件相同且完整直接引用，文件不同自动重命名）
-- [x] 离线用户重新上线消息补发
-- [x] 剪切板图片粘贴发送
-- [x] 删除离线用户
-- [x] 清空聊天记录
-- [x] Android 端适配状态栏/三大金刚键
-- [x] LANClaw 流式 AI 回复
-- [x] 模型切换命令（`/model`）
-- [x] 新建会话命令（`/new`）
-- [x] 手动发现 IP / 域名 / 主机名（跨 VLAN / WireGuard）
-- [x] UDP 心跳自动回复（跨端口/跨网段自动发现）
-- [x] 系统通知（桌面: Windows PowerShell / Linux notify-send，Web: Notification API，Android: 原生通知）
-- [x] 托盘图标闪烁（未读消息时闪烁提示，点击后跳转最新未读）
-- [x] 通知开关（托盘右键菜单，仅桌面端）
-- [x] 手动接收文件
-- [x] Android SAF 持久化权限 + 零拷贝 FD 缓存双轨机制
-- [x] Android SAF 原生文件选择器（`ACTION_OPEN_DOCUMENT` + `takePersistableUriPermission`）
-- [x] 文件传输速度实时显示
-- [x] 端口配置迁移至 `config.json`（支持 CLI `--port` / `--db-path`）
-- [x] 配置文件路径按平台标准（Linux `~/.config/`、Windows `%APPDATA%`、macOS `~/Library/Application Support`）
-- [x] 中英文界面（自动检测系统语言 + 手动切换 + 托盘热更新）
+### 🚧 In Progress
 
-### 🚧 进行中
+- [ ] Group chat
+- [ ] Better default icon
 
-- [ ] 消息时间加上年月
-- [ ] 聊天室功能
-- [ ] 更换默认图标
-
-## 运行
-
-1. 启动服务（默认 `8888` 端口，可在设置中修改）：
-```bash
-lanchat-web --port 8888
-```
-
-CLI 参数 `--port` 和 `--db-path` 会覆盖配置文件中的对应设置，优先级最高。
-
-```bash
-# Web 端
-lanchat-web --port 8888
-
-# 桌面端
-lanchat --port 8889 --db-path /custom/path/lanchat.db
-```
-
-2. 配置防火墙示例:
-```bash
-# TCP：Web 页面和 WebSocket 通信
-sudo ufw allow 8888/tcp
-# UDP：设备发现（广播/组播/心跳）
-sudo ufw allow 8888/udp
-```
-
-> **注意**：如果使用非默认端口（如 `--port 9999`），需确保对应端口的 TCP 和 UDP 均已放行。
-
-## 跨 VLAN / WireGuard 场景
-
-当设备处于不同 VLAN 或通过 WireGuard 连接时，UDP 广播无法跨网段。两种解决方案：
-
-### 方案一：手动发现（推荐）
-
-在底部「添加」面板中填写对方的 IP 地址、域名或主机名，系统会定期发送单播心跳完成发现（支持 DNS 解析，60 秒缓存）。
-
-### 方案二：UDP 心跳自动回复
-
-只要一方手动添加了对方地址，收到心跳后会**自动回复**一条心跳，双方都能互相发现。无需两边都设置。
-
-> 心跳回复包含 `|1` 标记，不会产生无限循环。
-
-## 项目结构
+## Project Structure
 
 ```
 LANChat/
-├── src/                      # 前端代码
+├── src/                      # Frontend
 │   ├── css/
-│   │   ├── style.css        # 样式文件
-│   │   └── vscode.css       # VSCode 主题
+│   │   ├── style.css        # Main stylesheet
+│   │   └── vscode.css       # VSCode theme
 │   ├── js/
-│   │   ├── api.js           # API 封装（Tauri + HTTP 双端）
-│   │   ├── app.js           # 应用逻辑
-│   │   └── ui.js            # UI 交互
-│   └── index.html           # 主页面
-├── src-tauri/               # 后端代码（桌面端 + Web 端）
+│   │   ├── api.js           # API wrapper (Tauri + HTTP dual backend)
+│   │   ├── app.js           # App logic
+│   │   └── ui.js            # UI interactions
+│   └── index.html           # Main page
+├── src-tauri/               # Backend (desktop + Web)
 │   ├── src/
-│   │   ├── main.rs          # 桌面端 Tauri 入口
-│   │   ├── server_main.rs   # Web 端独立入口
-│   │   ├── lib.rs           # Android 入口
-│   │   ├── commands.rs      # Tauri 桌面命令
-│   │   ├── web_server.rs    # HTTP/WebSocket 服务器
-│   │   ├── db.rs            # SQLite 数据库逻辑
-│   │   ├── config_file.rs   # 配置文件读写（config.json）
-│   │   ├── peers.rs         # 在线用户管理器
-│   │   ├── models.rs        # 数据模型
-│   │   ├── utils.rs         # 工具函数
-│   │   └── network/         # 网络模块
-│   │       ├── discovery.rs # UDP 设备发现（广播/组播/单播回复）
-│   │       └── messaging.rs # WebSocket 消息收发
-│   ├── capabilities/        # Tauri 权限配置
-│   ├── permissions/         # 自定义命令权限
+│   │   ├── main.rs          # Desktop Tauri entry
+│   │   ├── server_main.rs   # Web standalone entry
+│   │   ├── lib.rs           # Android entry
+│   │   ├── commands.rs      # Tauri commands
+│   │   ├── web_server.rs    # HTTP/WebSocket server
+│   │   ├── db.rs            # SQLite database logic
+│   │   ├── config_file.rs   # Config file read/write
+│   │   ├── peers.rs         # Online user manager
+│   │   ├── models.rs        # Data models
+│   │   ├── utils.rs         # Utilities
+│   │   └── network/         # Network module
+│   │       ├── discovery.rs # UDP device discovery
+│   │       └── messaging.rs # WebSocket messaging
+│   ├── capabilities/        # Tauri capability config
+│   ├── permissions/         # Custom command permissions
 │   └── Cargo.toml
-├── Makefile                 # 一键构建脚本
-└── README.md                # 本文件
+├── Makefile                 # One-click build
+└── README.md                # This file
 ```
 
-## 文件状态表整理
+## File Status Reference
 
-| 角色       | 状态值                       | 显示文字 |
-|------------|------------------------------|----------|
-| **发送端** | `status: "pending"`          | 待上线   |
-| **发送端** | `file_status: "offering"`    | 待接收   |
-| **发送端** | `file_status: "uploading"`   | xx MB/s  |
-| **发送端** | `file_status: "sent"`        | 无文字   |
-| **接收端** | `file_status: "offered"`     | 未下载   |
-| **接收端** | `file_status: "invalid"`     | 已失效   |
-| **接收端** | `file_status: "downloading"` | xx MB/s  |
-| **接收端** | `file_status: "accepted"`    | 无文字   |
+| Role       | Status Value                | Display Text |
+|------------|-----------------------------|--------------|
+| **Sender** | `status: "pending"`         | Pending      |
+| **Sender** | `file_status: "offering"`   | Offering     |
+| **Sender** | `file_status: "uploading"`  | xx MB/s      |
+| **Sender** | `file_status: "sent"`       | (empty)      |
+| **Receiver** | `file_status: "offered"`  | Offered      |
+| **Receiver** | `file_status: "invalid"`  | Invalid      |
+| **Receiver** | `file_status: "downloading"` | xx MB/s   |
+| **Receiver** | `file_status: "accepted"` | (empty)      |
 
-## 疑难解答
+## Troubleshooting
 
-**Windows运行软件时提示找不到`VCRUNTIME140_1.dll`、`VCRUNTIME140_1.dll`：**（安装下面的软件）  
+**Windows: missing `VCRUNTIME140.dll` / `VCRUNTIME140_1.dll`:**  
 [https://aka.ms/vs/17/release/vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe)  
 [https://aka.ms/vs/17/release/vc_redist.x86.exe](https://aka.ms/vs/17/release/vc_redist.x86.exe)
 
-**Windows运行软件时提示未安装WebView2：**（安装WebView2）  
-[https://developer.microsoft.com/zh-cn/microsoft-edge/webview2](https://developer.microsoft.com/zh-cn/microsoft-edge/webview2)
+**Windows: WebView2 not installed:**  
+[https://developer.microsoft.com/en-us/microsoft-edge/webview2](https://developer.microsoft.com/en-us/microsoft-edge/webview2)
 
-## 许可证
+**Online user sends messages but they show as `Pending` on my side:**  
+Disable mobile data / VPN and reconnect to WiFi.
+
+**Cross-VLAN / WireGuard:**
+
+When devices are on different VLANs or connected via WireGuard, UDP broadcast won't cross subnets. Solution: use the **Add** panel to enter the peer's IP/domain/hostname with port. The system sends unicast heartbeats periodically (DNS resolution supported, 60s cache).
+
+> [!TIP]
+> Only one side needs to add the other. Upon receiving a heartbeat, the peer **auto-replies** with its own heartbeat, enabling mutual discovery without manual setup on both sides.
+> Reply heartbeats include a `|1` marker to prevent infinite loops.
+
+## Tech Stack
+
+- **Backend**: Rust + Tauri 2.0
+- **Frontend**: Vanilla HTML + CSS + JavaScript
+- **Database**: SQLite (sqlx)
+- **Network**: UDP broadcast/multicast + TCP/WebSocket + HTTP chunked upload
+- **Web Server**: Axum
+- **AI Bot**: LANClaw (separate process, driven by Pi RPC)
+
+## License
 
 MIT License
 
-## 致谢
+## Acknowledgements
 
-- [Tauri](https://tauri.app/) - 跨平台应用框架
-- [Axum](https://github.com/tokio-rs/axum) - Web 框架
-- [SQLx](https://github.com/launchbadge/sqlx) - 异步 SQL 工具包
+- [Tauri](https://tauri.app/) - Cross-platform app framework
+- [Axum](https://github.com/tokio-rs/axum) - Web framework
+- [SQLx](https://github.com/launchbadge/sqlx) - Async SQL toolkit
 
-## 赞助
+## Sponsor
 
-如果你觉得这个项目对你有帮助，可以请作者喝杯咖啡 ☕️
+If you find this project helpful, feel free to buy me a coffee ☕️
 
 <details>
-  <summary><b>点击展开赞赏码 (WeChat Pay)</b></summary>
+  <summary><b>Click to reveal QR code (WeChat Pay)</b></summary>
   <br />
   <p align="center">
     <img src=".github/wechat_sponsor.png" width="250" />
     <br />
   </p>
-  <p align="center">感谢您的支持！您的名字将被记录在 <a href="https://github.com/cap153/LANChat/blob/main/.github/SPONSOR.md#-%E6%84%9F%E8%B0%A2%E5%90%8D%E5%8D%95-backers">赞助者名单</a> 中。</p>
+  <p align="center">Your support is greatly appreciated!</p>
 </details>
