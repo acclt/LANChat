@@ -187,9 +187,9 @@ async fn get_settings_http(State(state): State<Arc<AppState>>) -> impl IntoRespo
                 .to_string()
         });
 
-    let port = crate::db::get_port(&state.pool)
-        .await
-        .unwrap_or_else(|_| "8888".to_string());
+    let port = crate::config_file::get_port_from_config()
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "8888".to_string());
 
     let cfg = crate::config_file::read_config();
     let db_path = cfg.db_path.unwrap_or_else(crate::config_file::get_default_db_path);
@@ -225,7 +225,13 @@ async fn update_settings_http(
         }
     }
     if let Some(ref p) = payload.port {
-        if let Err(e) = crate::db::update_port(&state.pool, p).await {
+        let port_num: u16 = match p.parse() {
+            Ok(n) if n > 0 => n,
+            _ => {
+                return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "端口格式无效".to_string() })).into_response();
+            }
+        };
+        if let Err(e) = crate::config_file::save_port_to_config(port_num) {
             return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response();
         }
     }

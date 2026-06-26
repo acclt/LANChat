@@ -124,40 +124,6 @@ pub async fn update_download_path(
     Ok(())
 }
 
-/// 获取端口配置，默认返回 "8888"
-pub async fn get_port(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<String, String> {
-    let res: Result<(String,), _> =
-        sqlx::query_as("SELECT value FROM settings WHERE key = 'port'")
-            .fetch_one(pool)
-            .await;
-
-    match res {
-        Ok((port,)) => Ok(port),
-        Err(_) => Ok("8888".to_string()),
-    }
-}
-
-/// 更新端口配置
-pub async fn update_port(
-    pool: &sqlx::Pool<sqlx::Sqlite>,
-    port: &str,
-) -> Result<(), String> {
-    // 验证端口格式
-    let port_num: u16 = port.parse().map_err(|_| "端口格式无效".to_string())?;
-    if port_num == 0 {
-        return Err("端口不能为 0".to_string());
-    }
-
-    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('port', ?)")
-        .bind(port.to_string())
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    println!("[DB] 端口配置已保存: {}", port);
-    Ok(())
-}
-
 // 为 Tauri 桌面端初始化数据库
 #[cfg(feature = "desktop")]
 pub async fn init_db(app_handle: &AppHandle) -> Result<Pool<Sqlite>, sqlx::Error> {

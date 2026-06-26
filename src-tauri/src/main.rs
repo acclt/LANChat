@@ -1,6 +1,7 @@
 // src/main.rs
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use clap::Parser;
 use lanchat::db;
 use lanchat::peers::PeerManager;
 use std::sync::Arc;
@@ -10,7 +11,20 @@ use tauri::{
     Emitter, Manager,
 };
 
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(short, long)]
+    port: Option<u16>,
+    #[arg(long)]
+    db_path: Option<String>,
+}
+
 fn main() {
+    let args = Args::parse();
+
+    let cli_port = args.port;
+    let cli_db_path = args.db_path;
+
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 当尝试启动第二个实例时，显示已存在的窗口
@@ -30,7 +44,6 @@ fn main() {
     let builder = builder.plugin(tauri_plugin_notification::init());
 
     builder
-        // --- 重点：添加下面这段代码 ---
         .invoke_handler(tauri::generate_handler![
             lanchat::commands::close_android_fd,
             lanchat::commands::get_my_name,
@@ -73,8 +86,7 @@ fn main() {
             lanchat::commands::start_tray_flash,
             lanchat::commands::stop_tray_flash,
         ])
-        // --------------------------
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
 
             // 获取主窗口并设置关闭事件处理
@@ -91,15 +103,16 @@ fn main() {
             }
 
             // 先初始化 DB，再创建托盘（托盘菜单需要读 DB）
-            let pool = tauri::async_runtime::block_on(async {
-                // Step 6: 读 config.json 取 db_path
+            let db_dir = cli_db_path.or_else(|| {
                 let cfg = lanchat::config_file::read_config();
-                let db_dir = cfg.db_path
+                cfg.db_path
                     .as_ref()
-                    .map(|p| lanchat::config_file::resolve_db_dir(p));
+                    .map(|p| lanchat::config_file::resolve_db_dir(p).to_string_lossy().to_string())
+            });
 
+            let pool = tauri::async_runtime::block_on(async {
                 if let Some(dir) = db_dir {
-                    lanchat::db::init_db_standalone(Some(dir)).await.expect("DB error")
+                    lanchat::db::init_db_standalone(Some(std::path::PathBuf::from(dir))).await.expect("DB error")
                 } else {
                     db::init_db(&handle).await.expect("DB error")
                 }
@@ -113,10 +126,7 @@ fn main() {
                 db::get_user_id(&pool).await.expect("无法获取或生成用户 ID")
             });
 
-            let port: u16 = tauri::async_runtime::block_on(async {
-                let port_str = db::get_port(&pool).await.unwrap_or_else(|_| "8888".to_string());
-                port_str.parse().unwrap_or(8888)
-            });
+            let port: u16 = cli_port.unwrap_or_else(|| lanchat::config_file::get_port_from_config().unwrap_or(8888));
 
             let notif_enabled = tauri::async_runtime::block_on(async {
                 lanchat::db::get_notifications_enabled(&pool).await
@@ -195,7 +205,7 @@ fn main() {
                 })
                 .build(app)?;
 
-                        // 创建 PeerManager 并启动服务（DB 已就绪，无需再次 block_on）
+            // 创建 PeerManager 并启动服务（DB 已就绪，无需再次 block_on）
             let peer_manager = Arc::new(PeerManager::new());
             let _ = tauri::async_runtime::block_on(async {
                 if let Err(e) = peer_manager.load_from_db(&pool).await {

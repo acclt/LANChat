@@ -46,13 +46,8 @@ async fn main() {
     println!("[Server Main] 我的用户名: {}", my_name);
     println!("[Server Main] 我的 ID: {}", my_id);
 
-    // Step 4: 若 --port 没传，读 DB 取 port
-    let port: u16 = if let Some(p) = args.port {
-        p
-    } else {
-        let port_str = lanchat::db::get_port(&pool).await.unwrap_or_else(|_| "8888".to_string());
-        port_str.parse().unwrap_or(8888)
-    };
+    // Step 4: 若 --port 没传，读配置文件取 port
+    let port: u16 = args.port.unwrap_or_else(|| lanchat::config_file::get_port_from_config().unwrap_or(8888));
 
     // 创建全局用户管理器
     let peer_manager = Arc::new(PeerManager::new());

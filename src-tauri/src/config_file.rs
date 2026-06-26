@@ -5,19 +5,24 @@ use std::path::PathBuf;
 pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub db_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { db_path: None }
+        Config { db_path: None, port: None }
     }
 }
 
-/// 配置文件路径 ~/.config/lanchat/config.json
+/// 配置文件路径（平台标准配置目录下）
+/// Linux:   ~/.config/lanchat/config.json
+/// macOS:   ~/Library/Application Support/lanchat/config.json
+/// Windows: %APPDATA%\lanchat\config.json
+/// Android: /data/data/com.lanchat.app/.config/lanchat/config.json
 fn config_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".config")
+    dirs::config_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".config"))
         .join("lanchat")
         .join("config.json")
 }
@@ -86,4 +91,21 @@ pub fn get_default_db_path() -> String {
         .join("lanchat.db")
         .to_string_lossy()
         .to_string()
+}
+
+/// 从配置读取端口，不存在返回 None
+pub fn get_port_from_config() -> Option<u16> {
+    read_config().port
+}
+
+/// 保存端口到配置
+pub fn save_port_to_config(port: u16) -> Result<(), String> {
+    if port == 0 {
+        return Err("端口不能为 0".to_string());
+    }
+    let mut cfg = read_config();
+    cfg.port = Some(port);
+    write_config(&cfg)?;
+    println!("[Config] 端口配置已保存: {}", port);
+    Ok(())
 }

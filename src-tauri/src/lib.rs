@@ -91,11 +91,8 @@ pub fn run() {
 
                 let my_id = db::get_user_id(&pool).await.expect("无法获取或生成用户 ID");
 
-                // 读 DB 取 port
-                let port: u16 = {
-                    let port_str = db::get_port(&pool).await.unwrap_or_else(|_| "8888".to_string());
-                    port_str.parse().unwrap_or(8888)
-                };
+                // 读配置文件取 port
+                let port: u16 = crate::config_file::get_port_from_config().unwrap_or(8888);
                 println!("[Lib] 服务端口: {}", port);
 
                 handle.manage(db::DbState { pool: pool.clone() });
