@@ -1400,11 +1400,35 @@ function createMessageElement(message, isSent) {
   const timeDiv = document.createElement("div");
   timeDiv.className = "message-time";
   const date = new Date(message.timestamp * 1000);
-  timeDiv.textContent = date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  messageDiv.dataset.timestamp = message.timestamp;
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  const locale = currentLang === "zh" ? "zh-CN" : "en-US";
+  if (sameDay) {
+    timeDiv.textContent = date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } else if (sameYear) {
+    timeDiv.textContent = date.toLocaleDateString(locale, {
+      month: "short",
+      day: "numeric",
+    }) + " " + date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } else {
+    timeDiv.textContent = date.toLocaleDateString(locale, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }) + " " + date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
 
   messageDiv.appendChild(contentDiv);
   messageDiv.appendChild(timeDiv);
@@ -2884,6 +2908,45 @@ function initDragAndDrop(chatContainer) {
     }, false);
   }
 }
+
+// 语言切换时更新所有可见消息的时间格式
+document.addEventListener("language-changed", () => {
+  document.querySelectorAll(".message-time").forEach((el) => {
+    const msgDiv = el.closest(".message");
+    if (!msgDiv) return;
+    const ts = msgDiv.dataset.timestamp;
+    if (!ts) return;
+    const date = new Date(parseInt(ts) * 1000);
+    const now = new Date();
+    const sameDay = date.toDateString() === now.toDateString();
+    const sameYear = date.getFullYear() === now.getFullYear();
+    const locale = currentLang === "zh" ? "zh-CN" : "en-US";
+    if (sameDay) {
+      el.textContent = date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    } else if (sameYear) {
+      el.textContent = date.toLocaleDateString(locale, {
+        month: "short",
+        day: "numeric",
+      }) + " " + date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } else {
+      el.textContent = date.toLocaleDateString(locale, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      }) + " " + date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+  });
+});
 
 // 初始化粘贴文件功能
 function initPasteFile() {
