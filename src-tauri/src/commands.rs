@@ -442,6 +442,7 @@ pub fn get_language() -> Result<String, String> {
 }
 
 #[tauri::command]
+#[allow(unused_variables)]
 pub fn set_language(lang: String, app: tauri::AppHandle) -> Result<(), String> {
     crate::config_file::save_lang_to_config(&lang)?;
 
