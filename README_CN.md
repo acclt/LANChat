@@ -125,9 +125,7 @@ sudo ufw allow 8888/udp
 
 可以参考内置的主题：[https://github.com/cap153/LANChat/tree/main/src/css](https://github.com/cap153/LANChat/tree/main/src/css) 
 
-## 配置
-
-### 配置文件 (`config.json`)
+## 配置文件
 
 端口和语言等设置存储在 `config.json` 中，CLI 参数 `--port` 和 `--db-path` 拥有最高优先级。
 

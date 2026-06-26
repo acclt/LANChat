@@ -125,9 +125,7 @@ Place custom `.css` files in the config directory (any filename):
 
 See built-in themes for reference: [https://github.com/cap153/LANChat/tree/main/src/css](https://github.com/cap153/LANChat/tree/main/src/css)
 
-## Configuration
-
-### Config File (`config.json`)
+## Config File
 
 Port, language, and other settings are stored in `config.json`. CLI arguments `--port` and `--db-path` take highest priority.
 
