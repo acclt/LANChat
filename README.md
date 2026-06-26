@@ -24,7 +24,7 @@
 - 🔔 **System Notifications** - Linux desktop, Windows desktop, Android App, Web
 - 💡 **Tray Icon Flash** - Click to jump to latest unread; right-click menu to toggle notifications
 - 🌍 **i18n** - Automatic system language detection, manual switch, tray menu hot-reload
-- 🤖 **LANClaw AI Bot** - Pi-powered AI chatbot with auto-reply, file analysis, and scheduled tasks
+- 🤖 **[LANClaw](https://github.com/cap153/LANClaw) AI Bot** - Pi-powered AI chatbot with auto-reply, file analysis, and scheduled tasks
 - 📱 **Android Dual-Track File Engine** — SAF persistable permissions + Share Intent FD cache zero-copy dual track
 - 📁 **SAF File Picker** — Android native `ACTION_OPEN_DOCUMENT`; selected files remain readable across process/reboot
 - 🔁 **Offline Re-send** — Offline messages auto-cached; auto-re-send on reconnect, including files
@@ -198,7 +198,7 @@ The database path can be changed in settings (requires restart). The path is sto
 - [x] Delete offline users
 - [x] Clear chat history
 - [x] Android: status bar / navigation bar adaptation
-- [x] LANClaw streaming AI replies
+- [x] [LANClaw](https://github.com/cap153/LANClaw) streaming AI replies
 - [x] Model switching command (`/model`)
 - [x] New session command (`/new`)
 - [x] Manual discovery (IP / domain / hostname, cross-VLAN / WireGuard)
@@ -293,7 +293,7 @@ When devices are on different VLANs or connected via WireGuard, UDP broadcast wo
 - **Database**: SQLite (sqlx)
 - **Network**: UDP broadcast/multicast + TCP/WebSocket + HTTP chunked upload
 - **Web Server**: Axum
-- **AI Bot**: LANClaw (separate process, driven by Pi RPC)
+- **AI Bot**: [LANClaw](https://github.com/cap153/LANClaw) (separate process, driven by Pi RPC)
 
 ## License
 

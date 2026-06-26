@@ -24,7 +24,7 @@
 - 🔔 **系统通知** - Linux 桌面端、Windows 桌面端、Android App、Web 端均支持
 - 💡 **托盘图标闪烁** - 点击后跳转最新未读，右键菜单开/关通知
 - 🌍 **中英文界面** - 自动检测系统语言，支持手动切换，托盘菜单即时热更新
-- 🤖 **LANClaw 智能机器人** - 由 Pi 驱动的 AI 聊天机器人，支持自动回复、文件分析和定时任务
+- 🤖 **[LANClaw](https://github.com/cap153/LANClaw) 智能机器人** - 由 Pi 驱动的 AI 聊天机器人，支持自动回复、文件分析和定时任务
 - 📱 **Android 双轨文件引擎** — SAF 持久化权限 + Share Intent FD 缓存零拷贝双轨并行
 - 📁 **SAF 文件选择器** — Android 原生 `ACTION_OPEN_DOCUMENT`，选中的文件跨进程/跨重启持久可读
 - 🔁 **离线补发** — 离线消息自动缓存，上线后自动补发，支持文件消息
@@ -198,7 +198,7 @@ sudo ufw allow 8888/udp
 - [x] 删除离线用户
 - [x] 清空聊天记录
 - [x] Android 端适配状态栏/三大金刚键
-- [x] LANClaw 流式 AI 回复
+- [x] [LANClaw](https://github.com/cap153/LANClaw) 流式 AI 回复
 - [x] 模型切换命令（`/model`）
 - [x] 新建会话命令（`/new`）
 - [x] 手动发现 IP / 域名 / 主机名（跨 VLAN / WireGuard）
@@ -293,7 +293,7 @@ LANChat/
 - **数据库**: SQLite (sqlx)
 - **网络**: UDP 广播/组播 + TCP/WebSocket 传输 + HTTP 分块上传
 - **Web 服务器**: Axum
-- **AI 机器人**: LANClaw（独立进程，通过 Pi RPC 驱动）
+- **AI 机器人**: [LANClaw](https://github.com/cap153/LANClaw)（独立进程，通过 Pi RPC 驱动）
 
 
 ## 许可证
