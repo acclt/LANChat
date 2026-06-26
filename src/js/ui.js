@@ -476,7 +476,7 @@ window.addEventListener("popstate", function (event) {
     }
 
     if (sendBtn) {
-      sendBtn.textContent = "发送";
+      sendBtn.textContent = t("send");
       sendBtn.style.backgroundColor = "";
       sendBtn.style.borderColor = "";
       sendBtn.style.color = "";
@@ -2379,7 +2379,7 @@ function initAddPeer() {
       errorMsg.textContent = "";
       renderCustomPeers();
       // 显示添加成功提示
-      successMsg.textContent = isIp(val) ? "✓ 已添加 IP" : "✓ 已添加域名";
+      successMsg.textContent = isIp(val) ? t("peer_added_ip") : t("peer_added_domain");
       successMsg.classList.add("show");
       setTimeout(() => {
         successMsg.classList.remove("show");
@@ -2405,6 +2405,7 @@ const i18n = {
     apply: "应用",
     cancel: "取消",
     send: "发送",
+    delete: "删除",
     settings: "设置",
     add: "添加",
     theme_btn: "主题",
@@ -2441,6 +2442,7 @@ const i18n = {
     apply: "Apply",
     cancel: "Cancel",
     send: "Send",
+    delete: "Delete",
     settings: "Settings",
     add: "Add",
     theme_btn: "Theme",
@@ -2456,8 +2458,8 @@ const i18n = {
     db_path_label: "Database Path:",
     choose: "Choose",
     auto_download_label: "Auto Download:",
-    settings_save_restart: "✓ Saved. Restart to apply.",
-    settings_saved: "✓ Saved.",
+    settings_save_restart: "✓ Saved, restart to apply.",
+    settings_saved: "✓ Saved",
     port_invalid: "Invalid port (1-65535)",
     peer_added_ip: "✓ IP added",
     peer_added_domain: "✓ Domain added",
@@ -3154,7 +3156,7 @@ function enterSelectMode(initialMessageId = null) {
   selectModeBtn.classList.add("active");
 
   // 发送按钮变为删除,改为红色警告色
-  sendBtn.textContent = "删除";
+  sendBtn.textContent = t("delete");
   sendBtn.style.backgroundColor = "#ff5555"; // Dracula Red
   sendBtn.style.borderColor = "#ff5555";
   sendBtn.style.color = "#fff";
@@ -3205,7 +3207,7 @@ function exitSelectMode() {
   selectModeBtn.classList.remove("active");
 
   // 恢复发送按钮
-  sendBtn.textContent = "发送";
+  sendBtn.textContent = t("send");
   sendBtn.style.backgroundColor = ""; // 恢复 CSS 中的默认值
   sendBtn.style.borderColor = "";
   sendBtn.style.color = "";
