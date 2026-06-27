@@ -1243,7 +1243,7 @@ function createMessageElement(message, isSent) {
 
     const titleEl = document.createElement("div");
     titleEl.className = "model-select-title";
-    titleEl.textContent = "📋 选择要切换的模型";
+    titleEl.textContent = "📋 Select the model to switch";
     modelContainer.appendChild(titleEl);
 
     // 解析 JSON
