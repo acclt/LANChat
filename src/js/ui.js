@@ -37,33 +37,41 @@ function initNameEditor() {
     const newName = nameInput.value.trim();
 
     if (!newName) {
-      errorMsg.textContent = "用户名不能为空";
+      errorMsg.textContent = t("name_empty");
       return;
     }
 
     if (newName.length > 50) {
-      errorMsg.textContent = "用户名过长(最多50个字符)";
+      errorMsg.textContent = t("name_too_long");
       return;
     }
 
     try {
       saveBtn.disabled = true;
-      saveBtn.textContent = "保存中...";
+      saveBtn.textContent = t("saving");
       errorMsg.textContent = "";
 
       const updatedName = await apiUpdateMyName(newName);
 
       // 更新显示
       nameDisplay.textContent = updatedName;
+
+      // 显示成功提示并等待 1.5 秒
+      errorMsg.style.color = "var(--success-color, #50fa7b)";
+      errorMsg.textContent = t("name_saved");
+      await new Promise(r => setTimeout(r, 1500));
+
       editPanel.style.display = "none";
+      errorMsg.textContent = "";
+      errorMsg.style.color = "";
 
       console.log("[UI] 用户名更新成功:", updatedName);
     } catch (e) {
-      errorMsg.textContent = e.message || "更新失败";
+      errorMsg.textContent = e.message || t("name_update_fail");
       console.error("[UI] 更新用户名失败:", e);
     } finally {
       saveBtn.disabled = false;
-      saveBtn.textContent = "保存";
+      saveBtn.textContent = t("save");
     }
   });
 
@@ -2413,6 +2421,10 @@ const i18n = {
     name_placeholder: "输入新名字",
     saving: "保存中...",
     save: "保存",
+    name_empty: "用户名不能为空",
+    name_too_long: "用户名过长（最多50个字符）",
+    name_saved: "✓ 用户名已更新",
+    name_update_fail: "更新失败",
     add_peer_title: "手动添加设备",
     peer_input_placeholder: "例: 192.168.1.100 或 myhost.local:8888",
     peer_input_label: "IP / 域名:端口",
@@ -2450,6 +2462,10 @@ const i18n = {
     name_placeholder: "Enter new name",
     saving: "Saving...",
     save: "Save",
+    name_empty: "Name cannot be empty",
+    name_too_long: "Name too long (max 50 characters)",
+    name_saved: "✓ Name updated",
+    name_update_fail: "Update failed",
     add_peer_title: "Add Peer",
     peer_input_placeholder: "e.g. 192.168.1.100 or myhost.local:8888",
     peer_input_label: "IP / Domain:Port",
