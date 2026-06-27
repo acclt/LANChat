@@ -388,6 +388,11 @@ pub async fn get_my_id(state: State<'_, DbState>) -> Result<String, String> {
 #[tauri::command]
 pub async fn get_settings(state: State<'_, DbState>) -> Result<serde_json::Value, String> {
     let download_path = crate::db::get_download_path(&state.pool).await?;
+    #[cfg(target_os = "android")]
+    let port = crate::db::get_port(&state.pool).await
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "8888".to_string());
+    #[cfg(not(target_os = "android"))]
     let port = crate::config_file::get_port_from_config()
         .map(|p| p.to_string())
         .unwrap_or_else(|| "8888".to_string());
@@ -415,8 +420,15 @@ pub async fn update_settings(
         crate::db::update_download_path(&state.pool, path).await?;
     }
     if let Some(ref p) = port {
-        let port_num: u16 = p.parse().map_err(|_| "端口格式无效".to_string())?;
-        crate::config_file::save_port_to_config(port_num)?;
+        let port_num: u16 = p.parse().map_err(|_| "Invalid port".to_string())?;
+        #[cfg(target_os = "android")]
+        {
+            crate::db::set_port(&state.pool, port_num).await?;
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            crate::config_file::save_port_to_config(port_num)?;
+        }
     }
     if let Some(path) = db_path {
         if !cfg!(target_os = "android") {

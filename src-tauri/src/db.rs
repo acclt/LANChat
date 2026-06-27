@@ -16,7 +16,7 @@ pub async fn get_username(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<String, Str
         .fetch_one(pool)
         .await
         .map_err(|e| {
-            eprintln!("[DB] 读取用户名失败: {}", e);
+            eprintln!("[DB] read username failed: {}", e);
             e.to_string()
         })?;
     Ok(res.0)
@@ -50,16 +50,16 @@ pub async fn update_username(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     new_name: String,
 ) -> Result<(), String> {
-    println!("[DB] 正在更新用户名为: {}", new_name);
+    println!("[DB] updating username to: {}", new_name);
 
     // 验证用户名不为空
     if new_name.trim().is_empty() {
-        return Err("用户名不能为空".to_string());
+        return Err("username cannot be empty".to_string());
     }
 
     // 验证用户名长度
     if new_name.len() > 50 {
-        return Err("用户名过长（最多50个字符）".to_string());
+        return Err("username too long (max 50 chars)".to_string());
     }
 
     sqlx::query("UPDATE settings SET value = ? WHERE key = 'username'")
@@ -67,11 +67,11 @@ pub async fn update_username(
         .execute(pool)
         .await
         .map_err(|e| {
-            println!("[DB] 更新失败: {}", e);
+            println!("[DB] update failed: {}", e);
             e.to_string()
         })?;
 
-    println!("[DB] 用户名更新成功");
+    println!("[DB] username updated successfully");
     Ok(())
 }
 
@@ -89,7 +89,7 @@ pub async fn get_download_path(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<String
             if cfg!(target_os = "android") {
                 Ok("/storage/emulated/0/Download/LANChat".to_string())
             } else {
-                let home_dir = dirs::home_dir().ok_or("无法获取用户主目录")?;
+                let home_dir = dirs::home_dir().ok_or("cannot get home directory")?;
                 let default_path = home_dir.join("Downloads").join("LANChat");
                 Ok(default_path.to_string_lossy().to_string())
             }
@@ -102,16 +102,16 @@ pub async fn update_download_path(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     new_path: String,
 ) -> Result<(), String> {
-    println!("[DB] 正在更新下载路径为: {}", new_path);
+    println!("[DB] updating download path to: {}", new_path);
 
     // 验证路径不为空
     if new_path.trim().is_empty() {
-        return Err("路径不能为空".to_string());
+        return Err("path cannot be empty".to_string());
     }
 
     // 尝试创建目录
     if let Err(e) = std::fs::create_dir_all(&new_path) {
-        return Err(format!("无法创建目录: {}", e));
+        return Err(format!("cannot create directory: {}", e));
     }
 
     sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('download_path', ?)")
@@ -120,7 +120,7 @@ pub async fn update_download_path(
         .await
         .map_err(|e| e.to_string())?;
 
-    println!("[DB] 下载路径更新成功");
+    println!("[DB] download path updated successfully");
     Ok(())
 }
 
@@ -1115,6 +1115,34 @@ pub async fn set_auto_download(
         .await
         .map_err(|e| format!("保存自动下载设置失败: {}", e))?;
     println!("[DB] 自动下载已设置为: {}", val);
+    Ok(())
+}
+
+/// 获取端口（仅 Android 端使用，其他平台走 config.json）
+pub async fn get_port(pool: &sqlx::Pool<sqlx::Sqlite>) -> Option<u16> {
+    let res = sqlx::query_as::<_, (String,)>( 
+        "SELECT value FROM settings WHERE key = 'port'"
+    )
+    .fetch_one(pool)
+    .await;
+
+    match res {
+        Ok((val,)) => val.parse::<u16>().ok(),
+        Err(_) => None,
+    }
+}
+
+/// 设置端口（仅 Android 端使用）
+pub async fn set_port(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    port: u16,
+) -> Result<(), String> {
+    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('port', ?)")
+        .bind(port.to_string())
+        .execute(pool)
+        .await
+        .map_err(|e| format!("保存端口设置失败: {}", e))?;
+    println!("[DB] 端口已设置为: {}", port);
     Ok(())
 }
 

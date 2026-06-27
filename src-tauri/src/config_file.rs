@@ -56,14 +56,14 @@ pub fn read_config() -> Config {
 pub fn write_config(config: &Config) -> Result<(), String> {
     let path = config_path();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("create config dir failed: {e}"))?;
     }
     let tmp_path = path.with_extension("json.tmp");
-    let file = std::fs::File::create(&tmp_path).map_err(|e| format!("创建临时文件失败: {e}"))?;
+    let file = std::fs::File::create(&tmp_path).map_err(|e| format!("create temp file failed: {e}"))?;
     serde_json::to_writer_pretty(&file, config)
-        .map_err(|e| format!("序列化配置失败: {e}"))?;
-    std::fs::rename(&tmp_path, &path).map_err(|e| format!("重命名配置文件失败: {e}"))?;
-    println!("[Config] 配置已写入: {:?}", path);
+        .map_err(|e| format!("serialize config failed: {e}"))?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| format!("rename config file failed: {e}"))?;
+    println!("[Config] config written: {:?}", path);
     Ok(())
 }
 
@@ -103,7 +103,7 @@ pub fn get_port_from_config() -> Option<u16> {
 /// 保存端口到配置
 pub fn save_port_to_config(port: u16) -> Result<(), String> {
     if port == 0 {
-        return Err("端口不能为 0".to_string());
+        return Err("Port cannot be 0".to_string());
     }
     let mut cfg = read_config();
     cfg.port = Some(port);
@@ -120,7 +120,7 @@ pub fn get_lang_from_config() -> Option<String> {
 /// 保存语言到配置
 pub fn save_lang_to_config(lang: &str) -> Result<(), String> {
     if lang != "zh" && lang != "en" {
-        return Err("不支持的语言: {lang}".to_string());
+        return Err(format!("unsupported language: {lang}"));
     }
     let mut cfg = read_config();
     cfg.lang = Some(lang.to_string());

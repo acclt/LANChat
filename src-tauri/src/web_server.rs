@@ -230,7 +230,7 @@ async fn update_settings_http(
         let port_num: u16 = match p.parse() {
             Ok(n) if n > 0 => n,
             _ => {
-                return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "端口格式无效".to_string() })).into_response();
+                return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "invalid port".to_string() })).into_response();
             }
         };
         if let Err(e) = crate::config_file::save_port_to_config(port_num) {

@@ -94,7 +94,10 @@ pub fn run() {
 
                 let my_id = db::get_user_id(&pool).await.expect("无法获取或生成用户 ID");
 
-                // 读配置文件取 port
+                // 读端口：Android 端走数据库，其他平台走配置文件
+                #[cfg(target_os = "android")]
+                let port: u16 = crate::db::get_port(&pool).await.unwrap_or(8888);
+                #[cfg(not(target_os = "android"))]
                 let port: u16 = crate::config_file::get_port_from_config().unwrap_or(8888);
                 println!("[Lib] 服务端口: {}", port);
 

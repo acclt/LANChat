@@ -57,13 +57,13 @@ function initNameEditor() {
       nameDisplay.textContent = updatedName;
 
       // 显示成功提示并等待 1.5 秒
-      errorMsg.style.color = "var(--success-color, #50fa7b)";
+      errorMsg.style.color = "var(--text)";
       errorMsg.textContent = t("name_saved");
       await new Promise(r => setTimeout(r, 1500));
 
       editPanel.style.display = "none";
-      errorMsg.textContent = "";
       errorMsg.style.color = "";
+      errorMsg.textContent = "";
 
       console.log("[UI] 用户名更新成功:", updatedName);
     } catch (e) {
@@ -2234,7 +2234,7 @@ function initSettings() {
 
       console.log("[UI] 设置保存成功");
     } catch (e) {
-      settingsErrorMsg.textContent = "保存失败: " + e.message;
+      settingsErrorMsg.textContent = t("settings_save_fail") + ": " + e.message;
     }
   });
 
@@ -2435,6 +2435,7 @@ const i18n = {
     auto_download_label: "自动下载:",
     settings_save_restart: "✓ 设置保存成功，需重启生效",
     settings_saved: "✓ 设置保存成功",
+    settings_save_fail: "保存失败",
     port_invalid: "端口格式无效（1-65535）",
     peer_added_ip: "✓ 已添加 IP",
     peer_added_domain: "✓ 已添加域名",
@@ -2474,8 +2475,9 @@ const i18n = {
     db_path_label: "Database Path:",
     choose: "Choose",
     auto_download_label: "Auto Download:",
-    settings_save_restart: "✓ Saved, restart to apply.",
+    settings_save_restart: "✓ Saved, restart to apply",
     settings_saved: "✓ Saved",
+    settings_save_fail: "Save failed",
     port_invalid: "Invalid port (1-65535)",
     peer_added_ip: "✓ IP added",
     peer_added_domain: "✓ Domain added",

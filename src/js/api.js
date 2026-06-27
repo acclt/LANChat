@@ -95,8 +95,8 @@ async function apiUpdateSettings(downloadPath, port, dbPath, autoDownload) {
         autoDownload,
       });
     } catch (e) {
-      console.error("[JS-API] 更新设置失败:", e);
-      throw new Error("更新设置失败: " + e);
+      console.error("[JS-API] Failed to update settings:", e);
+      throw new Error("Failed to update settings: " + e);
     }
   } else {
     // Web 端
@@ -118,8 +118,8 @@ async function apiUpdateSettings(downloadPath, port, dbPath, autoDownload) {
       }
       return data;
     } catch (e) {
-      console.error("[JS-API] 更新设置失败:", e);
-      throw new Error("更新设置失败: " + e);
+      console.error("[JS-API] Failed to update settings:", e);
+      throw new Error("Failed to update settings: " + e);
     }
   }
 }
