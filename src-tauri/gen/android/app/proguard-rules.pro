@@ -5,17 +5,13 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ── LANChat JNI & SAF Custom Picker ProGuard Rules ──
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# 保留 MainActivity 完整类结构（含 external fun 和 JNI 反射调用的方法）
+-keep class com.lanchat.app.MainActivity { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# 保留所有 native 方法声明（防止 JNI 外部函数被 R8 裁剪）
+-keepclasseswithmembernames class * { native <methods>; }
+
+# 保留 ndk-context 引导类（Tauri JNI 初始化需要）
+-keep class ndk_context.** { *; }
