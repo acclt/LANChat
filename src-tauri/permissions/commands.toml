@@ -174,3 +174,8 @@ commands.allow = ["get_language"]
 identifier = "allow-set-language"
 description = "Allows setting the language"
 commands.allow = ["set_language"]
+
+[[permission]]
+identifier = "allow-request-permission-on-android"
+description = "Allows requesting Android notification permission"
+commands.allow = ["request_permission_on_android"]

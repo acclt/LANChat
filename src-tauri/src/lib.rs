@@ -76,6 +76,7 @@ pub fn run() {
             commands::show_notification,
             commands::get_notifications_enabled,
             commands::set_notifications_enabled,
+            commands::request_permission_on_android,
             commands::start_tray_flash,
             commands::stop_tray_flash,
             commands::open_saf_picker,

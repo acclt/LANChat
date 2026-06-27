@@ -52,6 +52,7 @@
 		"allow-request-file",
 		"allow-get-language",
 		"allow-set-language",
+		"allow-request-permission-on-android",
     {
       "identifier": "fs:scope",
       "allow": [

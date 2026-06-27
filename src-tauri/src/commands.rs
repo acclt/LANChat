@@ -1644,6 +1644,21 @@ pub async fn set_notifications_enabled(state: tauri::State<'_, crate::db::DbStat
 }
 
 #[tauri::command]
+pub fn request_permission_on_android(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        let result = app.notification().request_permission().map_err(|e| e.to_string())?;
+        return Ok(format!("{:?}", result));
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Ok("granted".to_string())
+    }
+}
+
+#[tauri::command]
 pub fn show_notification(_app: tauri::AppHandle, title: String, body: String) {
     #[cfg(windows)]
     {

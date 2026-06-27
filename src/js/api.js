@@ -1036,6 +1036,18 @@ async function requestNotificationPermission() {
   }
 }
 
+/** Android 13+ 通知权限申请（Tauri 端使用插件原生 API） */
+window.requestAndroidNotificationPermission = async function() {
+  if (!window.__TAURI__) return;
+  if (window.__TAURI__.notification) {
+    try { await window.__TAURI__.notification.requestPermission(); }
+    catch (_) {}
+  } else {
+    try { await window.__TAURI__.core.invoke("request_permission_on_android"); }
+    catch (_) {}
+  }
+};
+
 /** 显示桌面通知。Tauri 端调平台命令，Web 端用 Web Notification API */
 async function showNotification(title, body, extra = {}) {
   // 存储 from_id 到 localStorage，供 Android 通知点击导航

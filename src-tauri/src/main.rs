@@ -87,6 +87,7 @@ fn main() {
             lanchat::commands::open_saf_picker,
             lanchat::commands::start_tray_flash,
             lanchat::commands::stop_tray_flash,
+            lanchat::commands::request_permission_on_android,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

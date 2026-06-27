@@ -20,6 +20,7 @@
     "sql:default",
     "log:default",
     "notification:default",
+    "allow-request-permission-on-android",
     "allow-show-notification",
     "allow-get-notifications-enabled",
     "allow-set-notifications-enabled",
