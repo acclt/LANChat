@@ -100,8 +100,8 @@ lanchat --port 8889 --db-path /custom/path/lanchat.db
 ```
 
 > [!TIP]
-> Run multiple instances by specifying different ports and database paths.
-> Use the **Add** panel with `<IP>:<port>` to discover across ports.
+> Run multiple instances by specifying different ports and database paths.  
+> Use the **Add** panel with `<IP>:<port>` to discover across ports.  
 > Once one side receives a heartbeat, the reply mechanism enables mutual discovery.
 
 2. Firewall configuration (ufw example):
