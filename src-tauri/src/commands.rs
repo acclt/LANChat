@@ -1682,8 +1682,21 @@ pub fn request_permission_on_android(app: tauri::AppHandle) -> Result<String, St
     }
 }
 
+/// 将 from_id 字符串哈希为固定的正数 i32（用作通知 ID）
+#[allow(dead_code)]
+fn get_notification_id(from_id: &str) -> i32 {
+    if from_id.is_empty() {
+        return 0;
+    }
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    from_id.hash(&mut hasher);
+    (hasher.finish() & 0x7FFFFFFF) as i32
+}
+
 #[tauri::command]
-pub fn show_notification(_app: tauri::AppHandle, title: String, body: String) {
+pub fn show_notification(_app: tauri::AppHandle, title: String, body: String, #[allow(unused_variables)] from_id: String) {
     #[cfg(windows)]
     {
         // Windows 使用 PowerShell（不依赖 Start Menu 注册）
@@ -1718,15 +1731,29 @@ pub fn show_notification(_app: tauri::AppHandle, title: String, body: String) {
 
     #[cfg(any(target_os = "macos", target_os = "android"))]
     {
-        // macOS / Android 通过 notification plugin
+        // macOS / Android 通过 notification plugin，按 from_id 折叠
         use tauri_plugin_notification::NotificationExt;
         let app = _app;
-        let _ = app.notification()
-            .builder()
-            .title(&title)
-            .body(&body)
-            .show();
+        let mut builder = app.notification().builder().title(&title).body(&body);
+        if !from_id.is_empty() {
+            let notif_id = get_notification_id(&from_id);
+            builder = builder.id(notif_id);
+        }
+        let _ = builder.show();
     }
+}
+
+/// 清除某个用户的所有通知（按 from_id）
+#[tauri::command]
+pub fn clear_notification(_app: tauri::AppHandle, #[allow(unused_variables)] from_id: String) {
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    {
+        if from_id.is_empty() { return; }
+        use tauri_plugin_notification::NotificationExt;
+        let notif_id = get_notification_id(&from_id);
+        let _ = _app.notification().cancel(vec![notif_id]);
+    }
+    // Windows/Linux 没有统一的系统通知栏管理，不做处理
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -18,6 +18,7 @@
     "log:default",
     "shell:default",
     "allow-show-notification",
+    "allow-clear-notification",
     "allow-get-notifications-enabled",
     "allow-set-notifications-enabled",
     "allow-start-tray-flash",

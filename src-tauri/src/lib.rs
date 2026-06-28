@@ -74,6 +74,7 @@ pub fn run() {
             commands::add_custom_peer,
             commands::remove_custom_peer,
             commands::show_notification,
+            commands::clear_notification,
             commands::get_notifications_enabled,
             commands::set_notifications_enabled,
             commands::request_permission_on_android,

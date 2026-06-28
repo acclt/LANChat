@@ -868,7 +868,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                             let file_size = val.get("file_size").and_then(|v| v.as_u64()).unwrap_or(0);
                             let from_id = val.get("from_id").and_then(|v| v.as_str()).unwrap_or("");
                             let sender_msg_id = val.get("sender_msg_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                            let from_name = val.get("from_name").and_then(|v| v.as_str()).unwrap_or("未知用户");
+                            let from_name = val.get("from_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
                             let auto_dl = crate::db::get_auto_download(&state.pool).await;
                             if auto_dl {
@@ -1445,10 +1445,16 @@ async fn upload_file_http(
                         existing_id
                     );
 
+                    let sender_name = state.peer_manager.get_all_peers().iter()
+                        .find(|p| p.id == sender_id)
+                        .map(|p| p.name.clone())
+                        .unwrap_or_default();
+
                     // 通知前端替换消息元素（完整 file 消息，触发图片渲染）
                     let full_msg = serde_json::json!({
                         "id": existing_id,
                         "from_id": sender_id,
+                        "from_name": sender_name,
                         "content": file_name,
                         "msg_type": "file",
                         "file_status": "accepted",
@@ -1488,10 +1494,15 @@ async fn upload_file_http(
                                 "[Web Server] ✓ 秒传记录已创建并标记为 accepted，ID: {}",
                                 msg_id
                             );
+                            let sender_name = state.peer_manager.get_all_peers().iter()
+                                .find(|p| p.id == sender_id)
+                                .map(|p| p.name.clone())
+                                .unwrap_or_default();
                             // 通知前端替换消息元素（完整 file 消息，触发图片渲染）
                             let full_msg = serde_json::json!({
                                 "id": msg_id,
                                 "from_id": sender_id,
+                                "from_name": sender_name,
                                 "content": file_name,
                                 "msg_type": "file",
                                 "file_status": "accepted",
@@ -1713,16 +1724,23 @@ async fn upload_file_http(
             }
         };
 
+        // 查询发送者名称
+        let sender_name = state.peer_manager.get_all_peers().iter()
+            .find(|p| p.id == sender_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+
         // 广播初始消息（使前端创建 DOM 元素，data-sender-msg-id 供进度查找）
         if record_id > 0 && !sender_msg_id.is_empty() {
             let init_msg = serde_json::json!({
                 "id": record_id,
                 "from_id": sender_id,
-                "from_name": "",
+                "from_name": sender_name,
                 "content": final_file_name,
                 "msg_type": "file",
                 "file_status": "downloading",
                 "file_size": file_size,
+                "file_name": final_file_name,
                 "sender_msg_id": sender_msg_id,
                 "timestamp": timestamp,
             });
@@ -1783,9 +1801,14 @@ async fn upload_file_http(
                             .and_then(|s| s.to_str())
                             .unwrap_or(&final_file_name)
                             .to_string();
+                        let sender_name = state.peer_manager.get_all_peers().iter()
+                            .find(|p| p.id == sender_id)
+                            .map(|p| p.name.clone())
+                            .unwrap_or_default();
                         let full_msg = serde_json::json!({
                             "id": msg_id,
                             "from_id": sender_id,
+                            "from_name": sender_name,
                             "content": final_file_name,
                             "msg_type": "file",
                             "file_status": "accepted",
@@ -1808,16 +1831,22 @@ async fn upload_file_http(
                             .await;
                             #[cfg(feature = "desktop")]
                             use tauri::Emitter;
+                        let sender_name = state.peer_manager.get_all_peers().iter()
+                            .find(|p| p.id == sender_id)
+                            .map(|p| p.name.clone())
+                            .unwrap_or_default();
                             let _ = app.emit(
                             "new-message",
                             serde_json::json!({
                                 "id": msg_id,
                                 "from_id": sender_id,
+                                "from_name": sender_name,
                                 "msg_type": "file",
                                 "file_status": "accepted",
                                 "file_path": final_path.to_str().unwrap_or(""),
                                 "file_size": file_size,
                                 "content": final_file_name,
+                                "file_name": final_file_name,
                                 "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
                             }),
                         );

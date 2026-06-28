@@ -136,6 +136,11 @@ description = "Allows showing desktop notifications"
 commands.allow = ["show_notification"]
 
 [[permission]]
+identifier = "allow-clear-notification"
+description = "Allows clearing notifications by user"
+commands.allow = ["clear_notification"]
+
+[[permission]]
 identifier = "allow-get-notifications-enabled"
 description = "Allows reading notification enabled state"
 commands.allow = ["get_notifications_enabled"]

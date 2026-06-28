@@ -415,7 +415,13 @@ function openChat(peer) {
     console.error("[UI] 加载历史失败:", e);
   });
 
-  // 6. 切换到新聊天时隐藏回到底部按钮和红点
+  // 6. 清除系统通知栏中该用户的未读通知（按 from_id 按组清除）
+  if (window.__TAURI__) {
+    window.__TAURI__.core.invoke("clear_notification", { fromId: peer.id })
+      .catch(e => console.error("[UI] 清除通知失败:", e));
+  }
+
+  // 7. 切换到新聊天时隐藏回到底部按钮和红点
   const scrollBtn = document.getElementById("scroll-to-bottom-btn");
   if (scrollBtn) scrollBtn.classList.remove("show");
   const unreadDot = document.getElementById("unread-dot");
@@ -1596,17 +1602,22 @@ function onReceiveMessage(message) {
         }
         // 触发桌面通知（流式结束帧触发一次）
         if (message.from_id && message.from_id !== window.myId) {
-          const fromName = message.from_name || "未知用户";
-          let body = message.content || "";
-          try {
-            const parsed = JSON.parse(body);
-            if (parsed?.segments) {
-              const texts = parsed.segments.filter(s => s.type === "text").map(s => s.content).join(" ");
-              body = texts || "[流式回复完成]";
-            }
-          } catch (_) {}
-          if (body.length > 100) body = body.substring(0, 100) + "...";
-          showNotification(fromName, body, { from_id: message.from_id });
+          // 跳过文件消息的过渡状态
+          if (message.msg_type === "file" && ["downloading", "uploading", "invalid"].includes(message.file_status)) {
+            // skip
+          } else {
+            const fromName = message.from_name || "未知用户";
+            let body = message.content || "";
+            try {
+              const parsed = JSON.parse(body);
+              if (parsed?.segments) {
+                const texts = parsed.segments.filter(s => s.type === "text").map(s => s.content).join(" ");
+                body = texts || "[流式回复完成]";
+              }
+            } catch (_) {}
+            if (body.length > 100) body = body.substring(0, 100) + "...";
+            showNotification(fromName, body, { from_id: message.from_id });
+          }
         }
       }
       return;
@@ -1643,13 +1654,20 @@ function onReceiveMessage(message) {
           const fromName = message.from_name || "未知用户";
           let body = message.content || "";
           if (message.msg_type === "file") {
-            body = `[文件] ${message.file_name || "未知文件"}`;
+            // 跳过过渡状态（downloading/uploading），只对终端状态弹通知
+            if (["downloading", "uploading", "invalid"].includes(message.file_status)) {
+              // skip transitional file status notifications
+            } else {
+              body = `[文件] ${message.file_name || "未知文件"}`;
+            }
           } else if (message.msg_type === "image") {
             body = "[图片]";
           } else if (body.length > 100) {
             body = body.substring(0, 100) + "...";
           }
-          showNotification(fromName, body, { from_id: message.from_id });
+          if (body) {
+            showNotification(fromName, body, { from_id: message.from_id });
+          }
         }
       }
   } else {
@@ -1677,12 +1695,19 @@ function onReceiveMessage(message) {
           }
         } catch (_) {}
       } else if (message.msg_type === "file") {
-        body = `[文件] ${message.file_name || "未知文件"}`;
+        // 跳过过渡状态，只对终端状态弹通知
+        if (["downloading", "uploading", "invalid"].includes(message.file_status)) {
+          body = "";
+        } else {
+          body = `[文件] ${message.file_name || "未知文件"}`;
+        }
       } else if (message.msg_type === "image") {
         body = "[图片]";
       }
-      if (body.length > 100) body = body.substring(0, 100) + "...";
-      showNotification(fromName, body, { from_id: message.from_id });
+      if (body) {
+        if (body.length > 100) body = body.substring(0, 100) + "...";
+        showNotification(fromName, body, { from_id: message.from_id });
+      }
     }
     console.log("[UI]   - message.from_id:", message.from_id);
     console.log(

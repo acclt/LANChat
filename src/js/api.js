@@ -1064,7 +1064,7 @@ async function showNotification(title, body, extra = {}) {
     if (!window._notificationsEnabled) return;
     // 通过 Rust 命令（Windows→PowerShell, Linux→notify-send, macOS/Android→plugin）
     try {
-      await window.__TAURI__.core.invoke("show_notification", { title, body });
+      await window.__TAURI__.core.invoke("show_notification", { title, body, fromId: extra.from_id || "" });
     } catch (e) {
       console.error("[JS-API] 通知命令失败:", e);
     }
