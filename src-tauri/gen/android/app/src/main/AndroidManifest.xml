@@ -72,5 +72,12 @@
             android:name="android.support.FILE_PROVIDER_PATHS"
             android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- FdContentProvider: 零拷贝跨进程分享 FD 缓存中的文件到第三方 App -->
+        <provider
+          android:name=".FdContentProvider"
+          android:authorities="${applicationId}.fdprovider"
+          android:exported="false"
+          android:grantUriPermissions="true" />
     </application>
 </manifest>

@@ -26,3 +26,9 @@
 
 # 额外确保通知插件本身不被混淆
 -keep class app.tauri.plugin.notification.** { *; }
+
+# ── FdContentProvider 保护（零拷贝跨进程分享 JNI）──
+-keep class com.lanchat.app.FdContentProvider { *; }
+-keepclassmembers class com.lanchat.app.FdContentProvider {
+    native <methods>;
+}

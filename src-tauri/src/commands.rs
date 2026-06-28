@@ -1326,7 +1326,19 @@ pub async fn send_file_from_fd(
 pub async fn share_file_to_other_app(
     #[allow(non_snake_case)] filePath: String,
 ) -> Result<(), String> {
-    println!("[Command] 准备分享文件到其他应用: {}", filePath);
+    // 🌟 fd: 路径 → 转为自定义 FdContentProvider 的 URI，零拷贝分享
+    let final_path = if filePath.starts_with("fd:") {
+        let msg_id = &filePath[3..];
+        let msg_id_i64: i64 = msg_id.parse().unwrap_or(0);
+        // 从 FD 缓存中获取文件名，让第三方 App 能识别文件类型
+        let file_name = crate::android_fd::get_cached_file_name(msg_id_i64)
+            .unwrap_or_else(|| "file".to_string());
+        format!("content://com.lanchat.app.fdprovider/{msg_id}/{file_name}")
+    } else {
+        filePath.clone()
+    };
+
+    println!("[Command] 准备分享文件到其他应用: {}", final_path);
 
     use jni::objects::JValue;
 
@@ -1341,7 +1353,7 @@ pub async fn share_file_to_other_app(
     let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
 
     let file_path_jstring = env
-        .new_string(&filePath)
+        .new_string(&final_path)
         .map_err(|e| format!("创建字符串失败: {}", e))?;
 
     env.call_method(

@@ -107,7 +107,74 @@ pub fn cached_fd_count() -> usize {
     fd_cache().lock().unwrap().len()
 }
 
-/// 清理全部缓存 FD（应用退出或全局重置时使用）。
+/// 从 FD 缓存中克隆一个原始 FD（用于跨进程分享）。
+/// 通过 try_clone (fcntl F_DUPFD_CLOEXEC) 纯内存复制。
+/// 返回的 RawFd 所有权转移给调用者，调用者负责关闭。
+#[cfg(target_os = "android")]
+pub fn clone_fd_for_ipc(msg_id: i64) -> Option<RawFd> {
+    use std::io::Seek;
+    use std::mem::ManuallyDrop;
+    use std::os::unix::io::{FromRawFd, IntoRawFd};
+
+    let cache = fd_cache().lock().unwrap();
+    if let Some((raw_fd, _, _)) = cache.get(&msg_id) {
+        let mut original = ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(*raw_fd) });
+        if let Err(e) = original.seek(std::io::SeekFrom::Start(0)) {
+            eprintln!("[AndroidFD] 警告: seek(0) 失败: {}", e);
+        }
+        match original.try_clone() {
+            Ok(cloned) => {
+                let fd = cloned.into_raw_fd();
+                println!("[AndroidFD] 跨进程分享 FD 克隆成功: msg_id={}, fd={}", msg_id, fd);
+                Some(fd)
+            }
+            Err(e) => {
+                eprintln!("[AndroidFD] 跨进程分享 FD try_clone 失败: msg_id={}, err={}", msg_id, e);
+                None
+            }
+        }
+    } else {
+        eprintln!("[AndroidFD] 跨进程分享 FD 缓存未命中: msg_id={}", msg_id);
+        None
+    }
+}
+
+/// 从 FD 缓存中获取文件名（用于构造带文件名的分享 URI）。
+#[cfg(target_os = "android")]
+pub fn get_cached_file_name(msg_id: i64) -> Option<String> {
+    let cache = fd_cache().lock().unwrap();
+    cache.get(&msg_id).map(|(_, name, _)| name.clone())
+}
+
+/// JNI 导出：供 FdContentProvider 调用，获取克隆的 FD
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_lanchat_app_FdContentProvider_nativeGetClonedFd(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    msg_id: jni::sys::jlong,
+) -> jni::sys::jint {
+    println!("[AndroidFD] FdContentProvider 请求克隆 FD: msg_id={}", msg_id);
+    match clone_fd_for_ipc(msg_id as i64) {
+        Some(fd) => fd as jni::sys::jint,
+        None => -1,
+    }
+}
+/// 供 Kotlin 端 ContentProvider 查询文件大小
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_lanchat_app_FdContentProvider_nativeGetFileSize(
+    mut _env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    msg_id: jni::sys::jlong,
+) -> jni::sys::jlong {
+    let cache = fd_cache().lock().unwrap();
+    if let Some((_, _, size)) = cache.get(&(msg_id as i64)) {
+        *size as jni::sys::jlong
+    } else {
+        -1
+    }
+}
 #[cfg(target_os = "android")]
 pub fn clear_all_cached_fds() {
     let mut cache = fd_cache().lock().unwrap();
