@@ -292,25 +292,25 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
             return Err(format!("上传分块失败: {}", error_text));
         }
 
-        // 检查是否秒传命中（接收端已有完整文件）
-        if chunk_index == 0 {
-            let resp_text = response.text().await.unwrap_or_default();
-            if let Ok(resp_json) = serde_json::from_str::<serde_json::Value>(&resp_text) {
-                if resp_json.get("status").and_then(|s| s.as_str()) == Some("already_exists") {
-                    println!("[Command] ✓ 秒传命中，接收端已有完整文件，停止上传");
-                    // 更新本地数据库状态为 sent
-                    if let Some(id) = message_id {
-                        let _ = crate::db::update_file_status_by_id(&state.pool, id, "sent").await;
-                    }
-                    return Ok(serde_json::json!({
-                        "success": true,
-                        "file_name": file_name,
-                        "file_size": file_size,
-                        "instant_transfer": true,
-                    }));
+        // 检查是否秒传命中（接收端已有完整文件，所有分块都检查）
+        let resp_text = response.text().await.unwrap_or_default();
+        if let Ok(resp_json) = serde_json::from_str::<serde_json::Value>(&resp_text) {
+            if resp_json.get("status").and_then(|s| s.as_str()) == Some("already_exists") {
+                println!("[Command] ✓ 秒传命中，接收端已有完整文件，停止上传");
+                if let Some(id) = message_id {
+                    let _ = crate::db::update_file_status_by_id(&state.pool, id, "sent").await;
                 }
+                return Ok(serde_json::json!({
+                    "success": true,
+                    "file_name": file_name,
+                    "file_size": file_size,
+                    "instant_transfer": true,
+                }));
             }
         }
+
+        // 如果 body 已在 already_exists 检查中被消耗，后续需要时补充
+        // 非秒传情况不需要响应 body
 
         offset += n;
         chunk_index += 1;

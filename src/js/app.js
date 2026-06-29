@@ -603,6 +603,22 @@ async function handleStartUpload(data) {
         const respData = await resp.json();
         if (respData.status === "already_exists") {
           console.log("[JS-App] ✓ 秒传命中");
+          // 标记本地记录为 accepted
+          fetch("/api/mark_upload_complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ msg_id: data.sender_msg_id, status: "accepted" }),
+          }).catch(e => console.warn("[JS-App] 标记秒传完成失败:", e));
+          // 清除 UI 上传中状态
+          const chatMessages = document.getElementById("chat-messages");
+          const msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${data.sender_msg_id}"]`);
+          if (msgEl) {
+            const statusDiv = msgEl.querySelector(".file-uploading");
+            if (statusDiv) {
+              statusDiv.className = "";
+              statusDiv.textContent = "";
+            }
+          }
           delete window.__pendingUploads[data.sender_msg_id];
           return;
         }

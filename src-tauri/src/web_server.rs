@@ -120,6 +120,7 @@ pub async fn start_server(
         .route("/api/download/:file_id", get(download_file_http))
         .route("/api/create_upload_record", post(create_upload_record_http))
         .route("/api/update_upload_status", post(update_upload_status_http))
+        .route("/api/mark_upload_complete", post(mark_upload_complete_http))
         .route("/api/delete_upload_record", post(delete_upload_record_http))
         .route("/api/clear_chat_history", post(clear_chat_history_http))
         .route("/api/delete_user", post(delete_user_http))
@@ -1601,9 +1602,14 @@ async fn upload_file_http(
 
         final_file_name = resolved_name;
     } else {
-        // 后续块：从数据库查询正在下载的文件名（已经是 resolved 后的名字）
+        // 后续块：从数据库按 sender_msg_id 查询正在下载的文件名（多文件并发隔离）
+        let target = if !sender_msg_id.is_empty() {
+            crate::db::get_downloading_file_by_sender_msg_id(&state.pool, &sender_msg_id).await
+        } else {
+            crate::db::get_downloading_file(&state.pool, &sender_id).await
+        };
         if file_name.is_empty() {
-            match crate::db::get_downloading_file(&state.pool, &sender_id).await {
+            match target {
                 Ok(Some(name)) => {
                     final_file_name = name;
                     println!(
@@ -1612,17 +1618,18 @@ async fn upload_file_http(
                     );
                 }
                 Ok(None) => {
-                    eprintln!(
-                        "[Web Server] ✗ 无法确定后续块文件名 (sender_id={})",
-                        sender_id
+                    // DB 中没有 downloading 记录 → 文件可能已秒传完成
+                    // 返回 success 让发送端停止上传
+                    println!(
+                        "[Web Server] 后续块无可下载记录 (sender_msg_id={})，假定已完成，通知发送端停止",
+                        sender_msg_id
                     );
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(ErrorResponse {
-                            error: "无法确定文件名".to_string(),
-                        }),
-                    )
-                        .into_response();
+                    return Json(serde_json::json!({
+                        "status": "already_exists",
+                        "file_name": file_name,
+                        "file_size": file_size,
+                    }))
+                    .into_response();
                 }
                 Err(e) => {
                     eprintln!("[Web Server] ✗ 数据库查询失败: {}", e);
@@ -1637,8 +1644,17 @@ async fn upload_file_http(
             }
         } else {
             // 发送端传来了 file_name，但后续块应以数据库中的 resolved 名为准
-            match crate::db::get_downloading_file(&state.pool, &sender_id).await {
+            match target {
                 Ok(Some(name)) => final_file_name = name,
+                Ok(None) => {
+                    // 无可下载记录 → 文件已秒传完成，通知发送端停止
+                    return Json(serde_json::json!({
+                        "status": "already_exists",
+                        "file_name": file_name,
+                        "file_size": file_size,
+                    }))
+                    .into_response();
+                }
                 _ => final_file_name = file_name.clone(),
             }
         }
@@ -2236,6 +2252,39 @@ async fn update_upload_status_http(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: format!("更新状态失败: {}", e),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+// 秒传完成标记（web 端发送者收到 already_exists 后更新本地状态）
+#[derive(Deserialize)]
+struct MarkUploadCompleteRequest {
+    msg_id: i64,
+    status: String,
+}
+
+async fn mark_upload_complete_http(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<MarkUploadCompleteRequest>,
+) -> impl IntoResponse {
+    println!(
+        "[Web Server] 标记上传完成: msg_id={}, status={}",
+        payload.msg_id, payload.status
+    );
+
+    match crate::db::update_file_status_by_id(&state.pool, payload.msg_id, &payload.status).await {
+        Ok(_) => {
+            Json(serde_json::json!({"success": true})).into_response()
+        }
+        Err(e) => {
+            eprintln!("[Web Server] ✗ 标记上传完成失败: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("标记失败: {}", e),
                 }),
             )
                 .into_response()

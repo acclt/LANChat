@@ -365,6 +365,26 @@ pub async fn get_downloading_file(
     }
 }
 
+/// 按 sender_msg_id 查询当前正在下载的文件名（多文件并发隔离）
+pub async fn get_downloading_file_by_sender_msg_id(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    sender_msg_id: &str,
+) -> Result<Option<String>, String> {
+    let row = sqlx::query("SELECT content FROM messages WHERE sender_msg_id = ? AND msg_type = 'file' AND file_status = 'downloading' ORDER BY id DESC LIMIT 1")
+        .bind(sender_msg_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("查询文件失败: {}", e))?;
+
+    if let Some(row) = row {
+        use sqlx::Row;
+        let file_name: String = row.get("content");
+        Ok(Some(file_name))
+    } else {
+        Ok(None)
+    }
+}
+
 /// 更新文件状态（从 downloading 到 accepted）
 pub async fn update_file_status(
     pool: &sqlx::Pool<sqlx::Sqlite>,

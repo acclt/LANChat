@@ -579,6 +579,12 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
           const respData = await resp.json();
           if (respData.status === "already_exists") {
             console.log("[JS-API] ✓ 秒传命中，接收端已有完整文件，停止上传");
+            // 标记发送端本地记录为 accepted（await 确保 loadChatHistory 前已更新）
+            await fetch("/api/mark_upload_complete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ msg_id: createData.msg_id, status: "accepted" }),
+            }).catch(e => console.warn("[JS-API] 标记秒传完成失败:", e));
             return {
               success: true,
               file_name: fileName,
