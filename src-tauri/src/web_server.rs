@@ -377,6 +377,18 @@ async fn start_send_http(
                         use tauri::Emitter;
                         let _ = app.emit("new-message", start_evt);
                     }
+                    // 通知发送端前端显示上传中
+                    let upload_notice = serde_json::json!({
+                        "msg_type": "file_status_update",
+                        "sender_msg_id": payload.sender_msg_id,
+                        "file_status": "uploading",
+                    });
+                    let _ = state.ws_broadcast.send(upload_notice.to_string());
+                    #[cfg(feature = "desktop")]
+                    if let Some(ref app) = state.app_handle {
+                        use tauri::Emitter;
+                        let _ = app.emit("new-message", upload_notice);
+                    }
                     return (StatusCode::OK, Json(serde_json::json!({
                         "success": true, "status": "notifying_browser"
                     }))).into_response();
@@ -405,6 +417,19 @@ async fn start_send_http(
                     }))).into_response();
                 }
             };
+
+            // 通知发送端前端显示上传中
+            let upload_notice = serde_json::json!({
+                "msg_type": "file_status_update",
+                "sender_msg_id": payload.sender_msg_id,
+                "file_status": "uploading",
+            });
+            let _ = state.ws_broadcast.send(upload_notice.to_string());
+            #[cfg(feature = "desktop")]
+            if let Some(ref app) = state.app_handle {
+                use tauri::Emitter;
+                let _ = app.emit("new-message", upload_notice);
+            }
 
             // 调用同步的上传函数
             let _ = state.pool.clone();
@@ -535,6 +560,7 @@ async fn upload_to_receiver(
                 let _ = app_ref.emit("upload_progress", serde_json::json!({
                     "file_name": _file_name,
                     "speed_mb_s": speed,
+                    "sender_msg_id": _sender_msg_id,
                 }));
             }
         }
@@ -2128,9 +2154,10 @@ async fn get_download_dir(pool: &Pool<Sqlite>) -> std::path::PathBuf {
 #[derive(Deserialize)]
 struct CreateUploadRecordRequest {
     file_name: String,
-    file_size: u64, // 新增
+    file_size: u64,
     timestamp: i64,
     receiver_id: String,
+    auto_download: Option<bool>,
 }
 
 async fn create_upload_record_http(
@@ -2143,8 +2170,13 @@ async fn create_upload_record_http(
         .iter()
         .any(|p| p.id == payload.receiver_id);
 
+    let auto_dl = payload.auto_download.unwrap_or(true);
     let (file_status, overall_status) = if is_online {
-        ("uploading".to_string(), "sent".to_string())
+        if auto_dl {
+            ("uploading".to_string(), "sent".to_string())
+        } else {
+            ("offering".to_string(), "sent".to_string())
+        }
     } else {
         ("accepted".to_string(), "pending".to_string())
     };

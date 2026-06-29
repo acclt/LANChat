@@ -1386,6 +1386,7 @@ function createMessageElement(message, isSent) {
   if (message.status === "pending") {
     statusDiv.className = "file-pending";
     statusDiv.textContent = t("file_pending");
+    statusDiv.dataset.fileStatus = "pending";
   } // 优先级 2: 如果不是 pending 且是文件,展示上传/下载进度
   else if (message.msg_type === "file") {
     if (message.file_status === "downloading") {
@@ -1397,12 +1398,15 @@ function createMessageElement(message, isSent) {
     } else if (message.file_status === "offered") {
       statusDiv.className = "file-pending";
       statusDiv.textContent = t("file_offered");
+      statusDiv.dataset.fileStatus = "offered";
     } else if (message.file_status === "offering") {
       statusDiv.className = "file-pending";
       statusDiv.textContent = isSent ? t("file_offering") : t("file_offered");
+      statusDiv.dataset.fileStatus = "offering";
     } else if (message.file_status === "invalid") {
       statusDiv.className = "file-pending";
       statusDiv.textContent = t("file_invalid");
+      statusDiv.dataset.fileStatus = "invalid";
     }
     // 成功状态(sent/accepted/accepted)不再塞入任何多余的文本,保持极简
   }
@@ -1479,12 +1483,17 @@ function onReceiveMessage(message) {
       if (msgEl) {
         const statusDiv = msgEl.querySelector(".file-pending, .file-downloading, .file-uploading");
         if (newStatus === "invalid") {
-          if (statusDiv) statusDiv.textContent = "已失效";
+          if (statusDiv) {
+            statusDiv.className = "file-pending";
+            statusDiv.textContent = t("file_invalid");
+            statusDiv.dataset.fileStatus = "invalid";
+          }
         } else if (newStatus === "sent") {
           // 发送完成 → 清空所有状态类
           if (statusDiv) {
             statusDiv.className = "";
             statusDiv.textContent = "";
+            delete statusDiv.dataset.fileStatus;
           }
         } else if (newStatus === "downloading") {
           if (statusDiv) {
@@ -1495,6 +1504,7 @@ function onReceiveMessage(message) {
           if (statusDiv) {
             statusDiv.className = "file-pending";
             statusDiv.textContent = t("file_offering");
+            statusDiv.dataset.fileStatus = "offering";
           }
         } else if (newStatus === "uploading") {
           if (statusDiv) {
@@ -1519,7 +1529,7 @@ function onReceiveMessage(message) {
       const chatMessages = document.getElementById("chat-messages");
       const msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${senderMsgId}"]`);
       if (!msgEl) return;
-      const statusDiv = msgEl.querySelector(".file-downloading");
+      const statusDiv = msgEl.querySelector(".file-downloading, .file-uploading");
       if (statusDiv) {
         const speedMbps = parseFloat(message.speed_mb_s);
         statusDiv.textContent = speedMbps >= 1
@@ -1546,8 +1556,8 @@ function onReceiveMessage(message) {
     if (msgEl) {
       const statusDiv = msgEl.querySelector(".file-pending");
       if (statusDiv) {
-        statusDiv.textContent = t("file_offering");
-        statusDiv.className = "file-pending";
+        statusDiv.textContent = "0 MB/s";
+        statusDiv.className = "file-uploading";
       }
     }
     return;
@@ -1960,10 +1970,12 @@ async function downloadFile(fileId, fileName) {
       const elapsed = (Date.now() - startTime) / 1000;
       if (elapsed > 0) {
         const speed = receivedLength / (1024 * 1024) / elapsed;
-        const statusDivs = document.querySelectorAll(".file-downloading");
-        statusDivs.forEach((div) => {
-          div.textContent = Math.round(speed) + " MB/s";
-        });
+        const chatMessages = document.getElementById("chat-messages");
+        const msgEl = chatMessages?.querySelector(`[data-msg-id="${fileId}"], [data-sender-msg-id="${fileId}"]`);
+        const statusDiv = msgEl?.querySelector(".file-downloading");
+        if (statusDiv) {
+          statusDiv.textContent = Math.round(speed) + " MB/s";
+        }
       }
     };
 
@@ -2894,9 +2906,14 @@ function initDragAndDrop(chatContainer) {
     // 持久监听上传进度（覆盖 file_request 手动下载场景）
     tauri.event.listen("upload_progress", (event) => {
       const speed = event.payload.speed_mb_s;
-      document.querySelectorAll(".file-uploading").forEach((div) => {
-        div.textContent = Math.round(speed) + " MB/s";
-      });
+      const senderMsgId = event.payload.sender_msg_id;
+      if (!senderMsgId) return;
+      const chatMessages = document.getElementById("chat-messages");
+      const msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${senderMsgId}"]`);
+      const statusDiv = msgEl?.querySelector(".file-uploading");
+      if (statusDiv) {
+        statusDiv.textContent = Math.round(speed) + " MB/s";
+      }
     });
   } else {
     // Web 端:使用传统的 HTML5 拖拽 API(需要读取文件内容)
@@ -2954,8 +2971,23 @@ function initDragAndDrop(chatContainer) {
   }
 }
 
-// 语言切换时更新所有可见消息的时间格式
+// 语言切换时更新所有可见消息的时间格式和文件状态文字
 document.addEventListener("language-changed", () => {
+  // 更新文件状态文字
+  document.querySelectorAll("[data-file-status]").forEach((el) => {
+    const status = el.dataset.fileStatus;
+    if (status === "pending") {
+      el.textContent = t("file_pending");
+    } else if (status === "offered") {
+      el.textContent = t("file_offered");
+    } else if (status === "offering") {
+      el.textContent = t("file_offering");
+    } else if (status === "invalid") {
+      el.textContent = t("file_invalid");
+    }
+  });
+
+  // 更新时间格式
   document.querySelectorAll(".message-time").forEach((el) => {
     const msgDiv = el.closest(".message");
     if (!msgDiv) return;

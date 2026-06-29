@@ -328,7 +328,8 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
                 "upload_progress",
                 serde_json::json!({
                     "file_name": file_name.clone(),
-                    "speed_mb_s": speed
+                    "speed_mb_s": speed,
+                    "sender_msg_id": message_id,
                 }),
             );
         }

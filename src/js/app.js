@@ -550,6 +550,19 @@ async function handleStartUpload(data) {
     return;
   }
   console.log("[JS-App] 开始上传:", upload.fileName, "->", data.receiver_addr);
+  // 先更新 UI 为上传中状态
+  const chatMessages = document.getElementById("chat-messages");
+  let msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${data.sender_msg_id}"]`);
+  if (!msgEl) {
+    msgEl = chatMessages?.querySelector(`[data-msg-id="${data.sender_msg_id}"]`);
+  }
+  if (msgEl) {
+    const statusDiv = msgEl.querySelector(".file-pending");
+    if (statusDiv) {
+      statusDiv.textContent = "0 MB/s";
+      statusDiv.className = "file-uploading";
+    }
+  }
   try {
     // 重新调用上传逻辑（直接上传到接收端）
     const peerAddr = data.receiver_addr;
@@ -604,10 +617,13 @@ async function handleStartUpload(data) {
         const elapsed = (now - startTime) / 1000;
         const speed = offset / (1024 * 1024) / elapsed;
         console.log("[JS-App] 手动上传: ", Math.round(offset / 1024 / 1024), "MB, 速度:", Math.round(speed), "MB/s");
-        const statusDivs = document.querySelectorAll(".file-uploading");
-        statusDivs.forEach((div) => {
-          div.textContent = Math.round(speed) + " MB/s";
-        });
+        const msgId = data.sender_msg_id;
+        const chatMessages = document.getElementById("chat-messages");
+        const msgEl = chatMessages?.querySelector(`[data-sender-msg-id="${msgId}"]`);
+        const statusDiv = msgEl?.querySelector(".file-uploading");
+        if (statusDiv) {
+          statusDiv.textContent = Math.round(speed) + " MB/s";
+        }
         lastLogTime = now;
       }
     }

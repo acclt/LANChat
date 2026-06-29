@@ -410,11 +410,13 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
           "upload_progress",
           (event) => {
             const speed = event.payload.speed_mb_s;
-            // 更新 DOM 显示速度
-            const statusDivs = document.querySelectorAll(".file-uploading");
-            statusDivs.forEach((div) => {
-              div.textContent = Math.round(speed) + " MB/s";
-            });
+            const senderMsgId = event.payload.sender_msg_id;
+            if (!senderMsgId) return;
+            const msgEl = document.querySelector(`[data-sender-msg-id="${senderMsgId}"]`);
+            const statusDiv = msgEl?.querySelector(".file-uploading");
+            if (statusDiv) {
+              statusDiv.textContent = Math.round(speed) + " MB/s";
+            }
           },
         );
       }
@@ -427,13 +429,6 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
           filePath: selectedPath,
         });
         console.log("[JS-API] 文件发送成功:", result);
-
-        // 修改 DOM 取消上传中状态
-        const statusDivs = document.querySelectorAll(".file-uploading");
-        statusDivs.forEach((div) => {
-          div.textContent = "已发送";
-          div.classList.remove("file-uploading");
-        });
 
         return result;
       } finally {
@@ -466,6 +461,7 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
             file_size: fileSize,
             timestamp: Math.floor(Date.now() / 1000),
             receiver_id: peerId,
+            auto_download: false,
           }),
         });
         const createData = await createResp.json();
@@ -609,10 +605,12 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
           );
 
           // 更新 UI 中的速度显示
-          const statusDivs = document.querySelectorAll(".file-uploading");
-          statusDivs.forEach((div) => {
-            div.textContent = Math.round(speed) + " MB/s";
-          });
+          const msgId = createData.msg_id;
+          const msgEl = document.querySelector(`[data-sender-msg-id="${msgId}"]`);
+          const statusDiv = msgEl?.querySelector(".file-uploading");
+          if (statusDiv) {
+            statusDiv.textContent = Math.round(speed) + " MB/s";
+          }
 
           lastLogTime = now;
         }
