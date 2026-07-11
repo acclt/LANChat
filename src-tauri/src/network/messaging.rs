@@ -664,12 +664,59 @@ pub async fn resend_pending_messages(
                             }
                         }
                         _ => {
-                            // 如果文件路径为空（Web端发送）或信息不全
-                            // 我们不能让它一直卡在 pending 状态不停报错
-                            eprintln!("[UDP] ⚠ 跳过无法补发的文件消息 {}: 路径缺失(Web端记录或数据异常)。将其移出挂起队列。", msg_id);
-                            // 把它加入“待标记”列表，让数据库把它状态改成 sent，
-                            // 这样它就再也不会进入补发循环了。
-                            msg_ids_to_mark.push(msg_id);
+                            if let Some(size) = file_size {
+                                // 有文件大小但无路径 → Web端发送的离线文件，浏览器持有 File 引用
+                                // 尝试发送 file_offer 给接收端，后续 file_request → start_upload 由 WS handler 处理
+                                let my_name = crate::db::get_username(pool)
+                                    .await
+                                    .unwrap_or_default();
+                                let offer = serde_json::json!({
+                                    "msg_type": "file_offer",
+                                    "from_id": my_id,
+                                    "from_name": my_name,
+                                    "file_name": content,
+                                    "file_size": size,
+                                    "sender_msg_id": msg_id,
+                                });
+                                let ws_url = format!("ws://{}/ws", peer_addr);
+                                if let Ok((mut ws_stream, _)) =
+                                    tokio_tungstenite::connect_async(&ws_url).await
+                                {
+                                    use futures_util::SinkExt;
+                                    use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
+                                    let _ = ws_stream
+                                        .send(WsMessage::Text(offer.to_string()))
+                                        .await;
+                                    let _ = ws_stream.close(None).await;
+                                    // 更新发送端 status 为 offering，前端显示「等待对方接收」
+                                    let _ = crate::db::update_file_status_by_id(
+                                        pool, msg_id, "offering",
+                                    ).await;
+                                    #[cfg(feature = "desktop")]
+                                    if let Some(ref app_handle) = app {
+                                        let update = serde_json::json!({
+                                            "msg_type": "file_status_update",
+                                            "sender_msg_id": msg_id,
+                                            "file_status": "offering",
+                                        });
+                                        let _ = app_handle.emit("new-message", update);
+                                    }
+                                    println!(
+                                        "[UDP] ✓ Web端文件消息 {} 已发出 file_offer，等待手动接收",
+                                        msg_id
+                                    );
+                                    msg_ids_to_mark.push(msg_id);
+                                } else {
+                                    eprintln!(
+                                        "[UDP] ✗ Web端文件消息 {} file_offer 发送失败（无法连接 WS），保留挂起状态",
+                                        msg_id
+                                    );
+                                }
+                            } else {
+                                // 既无路径也无大小 → 数据异常，移出挂起队列避免死循环
+                                eprintln!("[UDP] ⚠ 跳过无法补发的文件消息 {}: 路径缺失且无文件大小(数据异常)。将其移出挂起队列。", msg_id);
+                                msg_ids_to_mark.push(msg_id);
+                            }
                         }
                     }
                 }

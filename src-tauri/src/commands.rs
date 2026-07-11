@@ -600,6 +600,7 @@ pub async fn get_chat_history_with_offset(
 pub async fn send_file(
     app: tauri::AppHandle,
     state: State<'_, DbState>,
+    peer_state: State<'_, PeerState>,
     peer_id: String,
     mut peer_addr: String,
     file_path: String,
@@ -654,6 +655,35 @@ pub async fn send_file(
     };
 
     println!("[Command] 文件: {}, 大小: {} 字节", file_name, file_size);
+
+    // ── 检查接收端是否离线 ──
+    let is_offline_now = {
+        let peers = peer_state.manager.get_all_peers();
+        peers.iter().find(|p| p.id == peer_id).map(|p| p.is_offline).unwrap_or(true)
+    };
+
+    if is_offline_now {
+        println!(
+            "[Command] 用户 {} 处于离线记录中，直接保存文件消息为挂起状态",
+            peer_id
+        );
+        crate::db::save_file_message(
+            &state.pool,
+            peer_id.clone(),
+            file_name.clone(),
+            file_size,
+            actual_path,
+            "pending".to_string(),
+            "pending".to_string(),
+        )
+        .await
+        .map_err(|e| format!("保存文件消息失败: {}", e))?;
+        return Ok(serde_json::json!({
+            "success": true,
+            "status": "pending",
+            "file_name": file_name,
+        }));
+    }
 
     // ── 检查接收端的 auto_download 设置 ──
     let auto_enabled = {
@@ -1152,9 +1182,11 @@ pub async fn open_saf_picker() -> Result<(), String> {
 }
 
 #[tauri::command]
+#[allow(unused_variables)]
 pub async fn send_file_from_fd(
     app: tauri::AppHandle,
     state: State<'_, DbState>,
+    peer_state: State<'_, PeerState>,
     #[allow(non_snake_case)] peerId: String,
     #[allow(non_snake_case)] peerAddr: String,
     #[allow(non_snake_case)] fileName: String,
@@ -1171,6 +1203,33 @@ pub async fn send_file_from_fd(
     {
         use crate::android_fd::AndroidFile;
         use std::os::unix::io::IntoRawFd;
+
+        // ── 检查接收端是否离线 ──
+        let is_offline_now = {
+            let peers = peer_state.manager.get_all_peers();
+            peers.iter().find(|p| p.id == peerId).map(|p| p.is_offline).unwrap_or(true)
+        };
+
+        if is_offline_now {
+            println!(
+                "[Command] 用户 {} 处于离线记录中，直接保存文件消息为挂起状态",
+                peerId
+            );
+            let _ = crate::db::save_file_message(
+                &state.pool,
+                peerId.clone(),
+                fileName.clone(),
+                fileSize,
+                format!("fd:{}", fd),
+                "pending".to_string(),
+                "pending".to_string(),
+            ).await;
+            return Ok(serde_json::json!({
+                "success": true,
+                "status": "pending",
+                "file_name": fileName,
+            }));
+        }
 
         // ── 1. 检查接收端的 auto_download 设置 ──
         let auto_enabled = {

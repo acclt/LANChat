@@ -443,81 +443,72 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
     }
   } else {
     // Web 端 - 通过 HTTP 上传（使用分块协议）
-    try {
-      // 先检查对方的自动下载设置
-      const autoEnabled = await apiCheckAutoDownload(peerAddr);
-      if (!autoEnabled) {
-        // 自动下载关闭 → 通过本地服务器发送 file_offer
-        const myId = await apiGetMyId();
-        const fileName = file.name;
-        const fileSize = file.size;
-        // 先创建上传记录
-        // 先创建上传记录（获得真实 msg_id）
-        const createResp = await fetch("/api/create_upload_record", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            file_name: fileName,
-            file_size: fileSize,
-            timestamp: Math.floor(Date.now() / 1000),
-            receiver_id: peerId,
-            auto_download: false,
-          }),
-        });
-        const createData = await createResp.json();
-        if (!createData.success) throw new Error("创建记录失败");
+    const fileName = file.name;
+    const fileSize = file.size;
 
-        const senderMsgId = createData.msg_id;
+    // 统一创建上传记录，后端返回 is_online 和 file_status
+    const createResp = await fetch("/api/create_upload_record", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file_name: fileName,
+        file_size: fileSize,
+        timestamp: Math.floor(Date.now() / 1000),
+        receiver_id: peerId,
+      }),
+    });
+    const createData = await createResp.json();
+    if (!createData.success) throw new Error("创建记录失败");
 
-        // 存储 File 引用供后续上传
-        if (!window.__pendingUploads) window.__pendingUploads = {};
-        window.__pendingUploads[senderMsgId] = {
-          file,
-          peerId,
-          peerAddr,
-          fileName,
-          fileSize,
-        };
+    const msgId = createData.msg_id;
 
-        // 通过本地服务器发送 file_offer（它会通过 WS 发给对方）
-        const offerResp = await fetch("/api/offer_file", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            peer_addr: peerAddr,
-            file_name: fileName,
-            file_size: fileSize,
-            sender_msg_id: senderMsgId,
-          }),
-        });
-        if (!offerResp.ok) throw new Error("发送 file_offer 失败");
+    // 保存 File 引用（供重试 / 离线补发 / 手动下载）
+    if (!window.__pendingUploads) window.__pendingUploads = {};
+    window.__pendingUploads[msgId] = {
+      file,
+      peerId,
+      peerAddr,
+      fileName,
+      fileSize,
+    };
 
-        return {
-          success: true,
-          status: "offered",
-          msg_id: senderMsgId,
-          file_name: fileName,
-        };
-      }
+    // 后端根据 peer_manager 判断在线状态，返回 is_online 和对应的 file_status
+    if (!createData.is_online) {
+      // 离线：记录已保存为 pending，等待上线后 resend_pending_messages 补发
+      return {
+        success: true,
+        status: "pending",
+        msg_id: msgId,
+        file_name: fileName,
+      };
+    }
 
-      // 获取自己的 ID（发送者 ID）
+    if (createData.file_status === "offering") {
+      // 在线但 auto_download OFF → 发 file_offer
       const myId = await apiGetMyId();
-
-      const fileName = file.name;
-      const fileSize = file.size;
-
-      // 创建上传记录（用于在发送端消息列表中显示）
-      const createResp = await fetch("/api/create_upload_record", {
+      const offerResp = await fetch("/api/offer_file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          peer_addr: peerAddr,
           file_name: fileName,
           file_size: fileSize,
-          timestamp: Math.floor(Date.now() / 1000),
-          receiver_id: peerId,
+          sender_msg_id: msgId,
         }),
       });
-      const createData = await createResp.json();
+      if (!offerResp.ok) throw new Error("发送 file_offer 失败");
+
+      return {
+        success: true,
+        status: "offered",
+        msg_id: msgId,
+        file_name: fileName,
+      };
+    }
+
+    // 在线 + auto_download ON → 直接分块上传
+    try {
+      const myId = await apiGetMyId();
 
       console.log("[JS-API] Web 端分块上传");
       console.log("[JS-API] 文件信息:", fileName, fileSize, "字节");
@@ -553,7 +544,7 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
         formData.append("file_size", fileSize.toString());
         formData.append("chunk_index", chunkIndex.toString());
         formData.append("chunk_total", totalChunks.toString());
-        formData.append("sender_msg_id", createData.msg_id.toString());
+        formData.append("sender_msg_id", msgId.toString());
         const elapsed = (Date.now() - startTime) / 1000;
         const speed = chunkIndex > 0 && elapsed > 0 ? offset / (1024 * 1024) / elapsed : 0;
         formData.append("speed_mb_s", speed.toFixed(1));

@@ -2194,7 +2194,7 @@ async fn create_upload_record_http(
             ("offering".to_string(), "sent".to_string())
         }
     } else {
-        ("accepted".to_string(), "pending".to_string())
+        ("pending".to_string(), "pending".to_string())
     };
 
     match crate::db::create_upload_record(
@@ -2203,13 +2203,20 @@ async fn create_upload_record_http(
         payload.file_name.clone(),
         payload.file_size,
         payload.timestamp,
-        file_status,
-        overall_status,
+        file_status.clone(),
+        overall_status.clone(),
     )
     .await
     {
         Ok(msg_id) => {
-            Json(serde_json::json!({ "success": true, "msg_id": msg_id })).into_response()
+            Json(serde_json::json!({
+                "success": true,
+                "msg_id": msg_id,
+                "is_online": is_online,
+                "file_status": file_status,
+                "status": overall_status,
+            }))
+            .into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
