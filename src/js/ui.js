@@ -1068,7 +1068,8 @@ function createMessageElement(message, isSent) {
     if (
       isImage && message.file_path &&
       (message.file_status === "sent" || message.file_status === "accepted" ||
-       message.file_status === "offering" || message.file_status === "uploading")
+       message.file_status === "offering" || message.file_status === "uploading" ||
+       message.file_status === "pending")
     ) {
       const imgPreview = document.createElement("div");
       imgPreview.className = "image-preview";
@@ -1159,7 +1160,7 @@ function createMessageElement(message, isSent) {
           console.error("[UI] 请求文件失败:", e.message);
         }
       });
-    } else if (message.file_status === "sent" || message.file_status === "accepted" || message.file_status === "offering" || message.file_status === "uploading") {
+    } else if (message.file_status === "sent" || message.file_status === "accepted" || message.file_status === "offering" || message.file_status === "uploading" || message.file_status === "pending") {
       fileContainer.style.cursor = "pointer";
       const tauri = window.__TAURI__;
       if (tauri) {
