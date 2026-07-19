@@ -1215,18 +1215,44 @@ pub async fn send_file_from_fd(
                 "[Command] 用户 {} 处于离线记录中，直接保存文件消息为挂起状态",
                 peerId
             );
-            let _ = crate::db::save_file_message(
+            // 接管 FD 所有权，克隆一份用于缓存
+            let android_file = AndroidFile::from_fd(fd)?;
+            let std_file = android_file.into_file();
+            let dup = std_file.try_clone()
+                .map_err(|e| format!("FD 克隆失败: {}", e))?;
+            let cached_fd = dup.into_raw_fd();
+            // 原始 std_file 在此 drop 关闭原始 FD，cached_fd 是独立的新 FD
+            drop(std_file);
+
+            // 先保存消息获取 msg_id
+            let msg_id = crate::db::save_file_message(
                 &state.pool,
                 peerId.clone(),
                 fileName.clone(),
                 fileSize,
-                format!("fd:{}", fd),
+                "fd:temp".to_string(),
                 "pending".to_string(),
                 "pending".to_string(),
-            ).await;
+            ).await.map_err(|e| format!("创建记录失败: {}", e))?;
+
+            // 缓存克隆的 FD（用 msg_id 作为 key）
+            crate::android_fd::cache_fd_for_msg(
+                msg_id,
+                cached_fd,
+                fileName.clone(),
+                fileSize as u64,
+            );
+
+            // 更新 DB 路径为 fd:{msg_id}
+            let fd_path = format!("fd:{}", msg_id);
+            if let Err(e) = crate::db::update_file_path_by_id(&state.pool, msg_id, &fd_path).await {
+                eprintln!("[Command] 更新 FD 文件路径失败: {}", e);
+            }
+
             return Ok(serde_json::json!({
                 "success": true,
                 "status": "pending",
+                "msg_id": msg_id,
                 "file_name": fileName,
             }));
         }
