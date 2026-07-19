@@ -20,6 +20,12 @@ struct Args {
 }
 
 fn main() {
+    // Workaround: WebKitGTK DMABUF renderer + NVIDIA + Wayland 导致
+    // Gdk-Message: Error 71 (protocol error) dispatching to Wayland display.
+    // 见 https://v2.tauri.app/develop/debug/linux-graphics/
+    #[cfg(target_os = "linux")]
+    std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+
     let args = Args::parse();
 
     let cli_port = args.port;
