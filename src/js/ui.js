@@ -2378,7 +2378,7 @@ function initAddPeer() {
       empty.className = "custom-peer-item";
       empty.style.color = "var(--text-muted)";
       empty.style.fontStyle = "italic";
-      empty.textContent = "暂无自定义设备";
+      empty.textContent = t("no_custom_devices");
       customPeerList.appendChild(empty);
       return;
     }
@@ -2485,6 +2485,7 @@ const i18n = {
     file_offering: "待接收",
     file_offered: "未下载",
     file_invalid: "已失效",
+    no_custom_devices: "暂无自定义设备",
   },
   en: {
     language: "Language",
@@ -2527,6 +2528,7 @@ const i18n = {
     file_offering: "offering",
     file_offered: "offered",
     file_invalid: "expired",
+    no_custom_devices: "No custom devices",
   },
 };
 
