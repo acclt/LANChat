@@ -278,8 +278,10 @@ LANChat/
 **在线用户发送消息失败，发送出去的消息显示`待上线`：**  
 关闭流量，重新连接wifi等网络
 
-**跨 VLAN / WireGuard 场景：**
+**NVIDIA显卡linux桌面端未正常渲染：**  
+desktop文件加上`Exec=env __NV_DISABLE_EXPLICIT_SYNC=1 lanchat`环境变量
 
+**跨 VLAN / WireGuard 场景：**  
 当设备处于不同 VLAN 或通过 WireGuard 连接时，UDP 广播无法跨网段。解决方案：在底部「添加」面板中填写对方的 IP 地址、域名或主机名加端口，系统会定期发送单播心跳完成发现（支持 DNS 解析，60 秒缓存）。
 
 > [!TIP]

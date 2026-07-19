@@ -278,8 +278,11 @@ LANChat/
 **Online user sends messages but they show as `Pending` on my side:**  
 Disable mobile data / VPN and reconnect to WiFi.
 
-**Cross-VLAN / WireGuard:**
 
+**NVIDIA graphics card not rendering correctly on Linux desktop:**  
+Add the environment variable `Exec=env __NV_DISABLE_EXPLICIT_SYNC=1 lanchat` to the desktop file.
+
+**Cross-VLAN / WireGuard:**  
 When devices are on different VLANs or connected via WireGuard, UDP broadcast won't cross subnets. Solution: use the **Add** panel to enter the peer's IP/domain/hostname with port. The system sends unicast heartbeats periodically (DNS resolution supported, 60s cache).
 
 > [!TIP]
