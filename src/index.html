@@ -47,6 +47,35 @@
                         </label>
                     </div>
                 </div>
+                <div class="setting-item">
+                    <div class="setting-label-row">
+                        <label for="notification-toggle">系统通知:</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="notification-toggle" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div id="notification-permission-hint" class="setting-hint"></div>
+                </div>
+                <div class="setting-item" id="close-to-tray-setting">
+                    <div class="setting-label-row">
+                        <label for="close-to-tray-toggle" data-i18n="close_to_tray_label">点击 X 时最小化到托盘:</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="close-to-tray-toggle" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="setting-item" id="autostart-setting">
+                    <div class="setting-label-row">
+                        <label for="autostart-toggle" data-i18n="autostart_label">开机自动启动 LANChat:</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="autostart-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-hint" data-i18n="autostart_hint">自动启动时隐藏到托盘</div>
+                </div>
                 <div class="button-group">
                     <button id="save-settings-btn" data-i18n="save">保存</button>
                     <button id="cancel-settings-btn" data-i18n="cancel">取消</button>
@@ -135,8 +164,37 @@
         <div class="container">
             <div class="main-content">
                 <div class="user-list-container">
+                    <section id="android-home" class="android-home" aria-label="本机与设备">
+                        <div class="android-brand-row">
+                            <div class="android-brand-mark">L</div>
+                            <div class="android-brand-copy">
+                                <strong>LANChat</strong>
+                                <span>局域网聊天</span>
+                            </div>
+                            <button id="android-settings-btn" class="android-icon-btn" type="button" aria-label="设置" title="设置">⚙</button>
+                        </div>
+                        <div class="android-device-card">
+                            <div class="android-card-title"><span>本机设备</span><span class="android-online-pill">● 在线</span></div>
+                            <button id="android-edit-name-btn" class="android-info-row" type="button">
+                                <span>设备名称</span><strong id="android-device-name">正在加载...</strong><em>修改</em>
+                            </button>
+                            <div class="android-info-row android-ip-row">
+                                <span>设备 IP</span><strong id="android-device-ip">检测中...</strong>
+                            </div>
+                        </div>
+                        <button id="android-add-peer-btn" class="android-add-device" type="button">
+                            <span class="android-add-icon">♙+</span>
+                            <span><strong>添加设备</strong><small>输入 IP、域名或端口</small></span>
+                            <b>›</b>
+                        </button>
+                        <div class="android-device-section">
+                            <div><strong>设备</strong><span id="android-peer-summary">正在检测局域网设备</span></div>
+                            <span class="android-refresh-icon">⟳</span>
+                        </div>
+                    </section>
                     <ul id="user-list">
                     </ul>
+                    <div id="android-listening" class="android-listening">⌁&nbsp; 正在监听同一局域网中的设备</div>
                 </div>
                 <div class="chat-container" id="chat-container" style="display: none;">
                     <div class="chat-header">
@@ -168,11 +226,29 @@
                     </div>
                     <div class="chat-messages" id="chat-messages"></div>
                     <div class="chat-input-container">
-                        <input type="file" id="file-input" style="display: none;" />
+                        <input type="file" id="file-input" style="display: none;" multiple />
                         <button id="attach-file-btn" title="发送文件">📎</button>
-                        <textarea id="chat-input" placeholder="输入消息..." rows="1"></textarea>
-                        <button id="send-btn">发送</button>
+                        <div class="android-composer-main">
+                            <textarea id="chat-input" placeholder="输入消息..." rows="1"></textarea>
+                            <button id="send-btn">发送</button>
+                        </div>
+                        <div id="android-attachment-actions" class="android-attachment-actions">
+                            <button id="android-image-btn" type="button"><span>▧</span>图片</button>
+                            <button id="android-file-btn" type="button"><span>▤</span>文件</button>
+                            <button id="android-app-btn" type="button"><span>◈</span>App</button>
+                        </div>
                     </div>
+                    <section id="android-attachment-panel" class="android-attachment-panel" aria-live="polite">
+                        <div class="android-attachment-head">
+                            <div><strong id="android-attachment-title">图片</strong><span id="android-attachment-count">已选 0 项</span></div>
+                            <button id="android-attachment-close" type="button" aria-label="关闭">×</button>
+                        </div>
+                        <div id="android-attachment-body" class="android-attachment-body"></div>
+                        <div class="android-attachment-footer">
+                            <button id="android-continue-add" type="button">＋ 继续添加</button>
+                            <button id="android-send-attachments" type="button">发送 (0)</button>
+                        </div>
+                    </section>
                 </div>
             </div>
             <div class="header">

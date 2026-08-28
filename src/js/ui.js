@@ -55,6 +55,8 @@ function initNameEditor() {
 
       // 更新显示
       nameDisplay.textContent = updatedName;
+      const androidName = document.getElementById("android-device-name");
+      if (androidName) androidName.textContent = updatedName;
 
       // 显示成功提示并等待 1.5 秒
       errorMsg.style.color = "var(--text)";
@@ -258,6 +260,11 @@ function initChat() {
 
   // 关闭聊天窗口
   closeChatBtn.addEventListener("click", () => {
+    if (document.getElementById("android-attachment-panel")?.classList.contains("open")) {
+      if (location.hash === "#chat-attachment") history.back();
+      else setAndroidAttachmentPanel(false);
+      return;
+    }
     // 如果在多选模式,先退出
     if (window.selectMode && window.selectMode.active) {
       exitSelectMode();
@@ -269,6 +276,8 @@ function initChat() {
   sendBtn.addEventListener("click", () => {
     if (window.selectMode && window.selectMode.active) {
       deleteSelectedMessages();
+    } else if (isAndroidApp() && ["image", "file", "app"].some((kind) => androidAttachmentState.selected[kind].size > 0)) {
+      sendAndroidAttachmentQueue();
     } else {
       sendMessage();
     }
@@ -282,7 +291,10 @@ function initChat() {
   }
 
   // 输入时调整高度
-  chatInput.addEventListener("input", adjustTextareaHeight);
+  chatInput.addEventListener("input", () => {
+    adjustTextareaHeight();
+    updateAndroidComposerState();
+  });
 
   // 回车发送(Shift+Enter 换行)
   chatInput.addEventListener("keypress", (e) => {
@@ -316,11 +328,11 @@ function initChat() {
 
   // 文件选择后发送(仅 Web 端)
   fileInput.addEventListener("change", async (e) => {
-    const file = e.target.files[0];
-    if (file) {
+    const files = Array.from(e.target.files || []);
+    for (const file of files) {
       await sendFile(file);
-      fileInput.value = ""; // 清空选择
     }
+    fileInput.value = ""; // 清空选择
   });
 
   // Android SAF 文件选择器回调（持久化权限 URI）
@@ -357,6 +369,9 @@ function initChat() {
     }
   })();
 
+  initAndroidAttachmentPicker();
+  updateAndroidComposerState();
+
   // 拖拽文件功能
   initDragAndDrop(chatContainer);
 
@@ -368,6 +383,289 @@ function initChat() {
 
   // 初始化回到底部按钮
   initScrollToBottomBtn();
+}
+
+const androidAttachmentState = {
+  kind: "image",
+  mode: "picker",
+  images: [],
+  apps: [],
+  album: "全部图片",
+  selected: { image: new Map(), file: new Map(), app: new Map() },
+};
+
+function isAndroidApp() {
+  return document.body.classList.contains("android-app");
+}
+
+function normalizeAndroidAttachment(item, kind) {
+  const uri = item.uri || item.path || item.sourceDir || "";
+  return {
+    ...item,
+    uri,
+    name: item.name || item.fileName || item.label || uri.split("/").pop() || "未命名附件",
+    size: Number(item.size ?? item.fileSize ?? 0),
+    kind,
+    status: item.status || "ready",
+  };
+}
+
+function mergeAndroidAttachments(kind, items) {
+  const selected = androidAttachmentState.selected[kind];
+  for (const raw of items || []) {
+    const item = normalizeAndroidAttachment(raw, kind);
+    if (item.uri && !selected.has(item.uri)) selected.set(item.uri, item);
+  }
+}
+
+function setAndroidAttachmentPanel(open) {
+  const panel = document.getElementById("android-attachment-panel");
+  const wasOpen = panel?.classList.contains("open");
+  panel?.classList.toggle("open", open);
+  if (open && !wasOpen && window.innerWidth <= 768 && location.hash !== "#chat-attachment") {
+    history.pushState({ attachmentOpen: true }, "", "#chat-attachment");
+  }
+}
+
+function updateAndroidAttachmentMeta() {
+  const kind = androidAttachmentState.kind;
+  const labels = { image: "图片", file: "文件", app: "App" };
+  const count = androidAttachmentState.selected[kind].size;
+  document.getElementById("android-attachment-title").textContent =
+    androidAttachmentState.mode === "queue" ? `${labels[kind]}队列` : labels[kind];
+  document.getElementById("android-attachment-count").textContent = `已选 ${count} 项`;
+  const send = document.getElementById("android-send-attachments");
+  send.textContent = `发送 (${count})`;
+  send.disabled = count === 0;
+  updateAndroidComposerState();
+}
+
+function updateAndroidComposerState() {
+  if (!isAndroidApp()) return;
+  const hasText = !!document.getElementById("chat-input")?.value.trim();
+  const hasAttachments = ["image", "file", "app"].some((kind) => androidAttachmentState.selected[kind].size > 0);
+  const send = document.getElementById("send-btn");
+  if (send) send.disabled = !hasText && !hasAttachments;
+}
+
+function renderAndroidAttachmentPanel() {
+  const body = document.getElementById("android-attachment-body");
+  if (!body) return;
+  const kind = androidAttachmentState.kind;
+  const selected = androidAttachmentState.selected[kind];
+  updateAndroidAttachmentMeta();
+
+  if (androidAttachmentState.mode === "queue" || kind === "file") {
+    body.innerHTML = `<div class="android-queue"></div>`;
+    const queue = body.firstElementChild;
+    for (const item of selected.values()) {
+      const row = document.createElement("div");
+      row.className = "android-queue-item";
+      const preview = item.thumbnail
+        ? `<img class="android-queue-preview" src="${item.thumbnail}" alt="">`
+        : `<span class="android-queue-preview">${kind === "app" ? "A" : kind === "image" ? "▧" : "▤"}</span>`;
+      const detail = kind === "app" ? (item.packageName || item.label || "APK") : `${(item.name.split(".").pop() || "文件").toUpperCase()} · ${formatFileSize(item.size)}`;
+      const statusText = { ready: detail, sending: "发送中…", sent: "已发送", error: `发送失败`, pending: "等待设备上线后自动发送" }[item.status] || detail;
+      row.innerHTML = `${preview}<span class="android-queue-copy"><strong></strong><small></small></span><span class="android-queue-actions"></span>`;
+      row.querySelector("strong").textContent = item.name;
+      row.querySelector("small").textContent = statusText;
+      const actions = row.querySelector(".android-queue-actions");
+      if (item.status === "error") {
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "android-queue-retry";
+        retry.textContent = "重试";
+        retry.addEventListener("click", () => {
+          item.status = "ready";
+          sendAndroidAttachmentQueue();
+        });
+        actions.appendChild(retry);
+      }
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "android-queue-remove";
+      remove.setAttribute("aria-label", "移除");
+      remove.textContent = "×";
+      remove.addEventListener("click", () => {
+        if (item.msgId && item.status === "pending") {
+          apiDeleteMessages([item.msgId]).catch((e) => console.error("[UI] 取消离线附件失败:", e));
+        }
+        selected.delete(item.uri);
+        renderAndroidAttachmentPanel();
+      });
+      actions.appendChild(remove);
+      queue.appendChild(row);
+    }
+    if (!selected.size) body.innerHTML = `<div class="android-empty-state">尚未添加${kind === "file" ? "文件" : kind === "app" ? "App" : "图片"}</div>`;
+    return;
+  }
+
+  const source = kind === "image"
+    ? androidAttachmentState.images.filter((item) => androidAttachmentState.album === "全部图片" || item.album === androidAttachmentState.album)
+    : androidAttachmentState.apps;
+  if (!source.length) {
+    body.innerHTML = `<div class="android-empty-state">正在读取${kind === "image" ? "相册" : "已安装 App"}…</div>`;
+    return;
+  }
+  const grid = document.createElement("div");
+  grid.className = "android-gallery-grid";
+  if (kind === "app") grid.classList.add("android-app-gallery-grid");
+  if (kind === "image") {
+    const albums = ["全部图片", ...new Set(androidAttachmentState.images.map((item) => item.album || "其他"))];
+    const selector = document.createElement("select");
+    selector.className = "android-album-select";
+    albums.forEach((album) => {
+      const option = document.createElement("option");
+      option.value = album;
+      option.textContent = album;
+      option.selected = album === androidAttachmentState.album;
+      selector.appendChild(option);
+    });
+    selector.addEventListener("change", () => {
+      androidAttachmentState.album = selector.value;
+      renderAndroidAttachmentPanel();
+    });
+    body.replaceChildren(selector, grid);
+  }
+  source.forEach((raw) => {
+    const item = normalizeAndroidAttachment(raw, kind);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `android-gallery-item${selected.has(item.uri) ? " selected" : ""}`;
+    const thumb = item.thumbnail || item.icon;
+    if (kind === "app") {
+      button.classList.add("android-app-gallery-item");
+      const icon = document.createElement("span");
+      icon.className = "android-app-icon";
+      icon.innerHTML = thumb
+        ? `<img src="${thumb}" alt=""><i></i>`
+        : `<span class="android-queue-preview">A</span><i></i>`;
+      const name = document.createElement("span");
+      name.className = "android-app-name";
+      name.textContent = item.label || item.name.replace(/\.apk$/i, "");
+      button.append(icon, name);
+    } else {
+      button.innerHTML = thumb ? `<img src="${thumb}" alt=""><i></i>` : `<span class="android-queue-preview">▧</span><i></i>`;
+    }
+    const badge = button.querySelector("i");
+    const refreshBadge = () => {
+      const index = Array.from(selected.keys()).indexOf(item.uri);
+      badge.textContent = index >= 0 ? String(index + 1) : "";
+      button.classList.toggle("selected", index >= 0);
+    };
+    refreshBadge();
+    button.title = kind === "app" ? (item.label || item.name.replace(/\.apk$/i, "")) : item.name;
+    const toggleSelection = () => {
+      if (selected.has(item.uri)) selected.delete(item.uri);
+      else selected.set(item.uri, item);
+      renderAndroidAttachmentPanel();
+    };
+    if (kind === "image") {
+      badge.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleSelection();
+      });
+      button.addEventListener("click", () => openAndroidImagePreview(item));
+    } else {
+      button.addEventListener("click", toggleSelection);
+    }
+    grid.appendChild(button);
+  });
+  if (kind !== "image") body.replaceChildren(grid);
+}
+
+function openAndroidImagePreview(item) {
+  if (!item.thumbnail) return;
+  const overlay = document.createElement("div");
+  overlay.className = "android-image-preview";
+  overlay.innerHTML = `<button type="button" aria-label="关闭预览">×</button><img alt="图片预览">`;
+  overlay.querySelector("img").src = item.thumbnail;
+  overlay.addEventListener("click", () => overlay.remove());
+  document.body.appendChild(overlay);
+}
+
+async function openAndroidAttachment(kind, continueAdding = false) {
+  if (!window.currentChatPeer) return;
+  androidAttachmentState.kind = kind;
+  androidAttachmentState.mode = kind === "file" ? "queue" : "picker";
+  setAndroidAttachmentPanel(true);
+  renderAndroidAttachmentPanel();
+  const tauri = window.__TAURI__;
+  if (!tauri) return;
+  if (kind === "file") {
+    await tauri.core.invoke("open_saf_multi_picker").catch((e) => console.error("[UI] 多文件选择器调用失败:", e));
+  } else if (kind === "image" && (!androidAttachmentState.images.length || !continueAdding)) {
+    await tauri.core.invoke("load_android_media_images").catch((e) => console.error("[UI] 相册读取失败:", e));
+  } else if (kind === "app" && (!androidAttachmentState.apps.length || !continueAdding)) {
+    await tauri.core.invoke("load_android_apps").catch((e) => console.error("[UI] App 列表读取失败:", e));
+  }
+}
+
+async function sendAndroidAttachmentQueue() {
+  const kind = androidAttachmentState.kind;
+  const selected = androidAttachmentState.selected[kind];
+  if (!window.currentChatPeer || !selected.size) return;
+  androidAttachmentState.mode = "queue";
+  renderAndroidAttachmentPanel();
+  if (document.getElementById("chat-input")?.value.trim()) {
+    await sendMessage();
+  }
+  for (const item of selected.values()) {
+    if (item.status === "sent" || item.status === "pending") continue;
+    item.status = "sending";
+    renderAndroidAttachmentPanel();
+    try {
+      const result = await apiSendFile(window.currentChatPeer.id, window.currentChatPeer.addr, null, item.uri);
+      item.msgId = result?.msg_id || item.msgId;
+      item.status = result?.status === "pending" ? "pending" : "sent";
+    } catch (e) {
+      item.status = "error";
+      item.error = e.message;
+    }
+    renderAndroidAttachmentPanel();
+    await loadChatHistory(window.currentChatPeer.id, true);
+  }
+  await scrollToBottom();
+}
+
+function showIncomingSystemNotification(message) {
+  if (!message.from_id || message.from_id === window.myId) return;
+  if (message.msg_type === "file" && ["downloading", "uploading", "invalid"].includes(message.file_status)) return;
+  const fromName = message.from_name || "未知用户";
+  let body = message.content || "";
+  if (message.msg_type === "file") body = `[文件] ${message.file_name || message.content || "未知文件"}`;
+  else if (message.msg_type === "image") body = "[图片]";
+  if (body.length > 100) body = body.substring(0, 100) + "...";
+  if (body) showNotification(fromName, body, { from_id: message.from_id });
+}
+
+function initAndroidAttachmentPicker() {
+  if (!isAndroidApp()) return;
+  document.getElementById("android-image-btn")?.addEventListener("click", () => openAndroidAttachment("image"));
+  document.getElementById("android-file-btn")?.addEventListener("click", () => openAndroidAttachment("file"));
+  document.getElementById("android-app-btn")?.addEventListener("click", () => openAndroidAttachment("app"));
+  document.getElementById("android-attachment-close")?.addEventListener("click", () => {
+    if (location.hash === "#chat-attachment") history.back();
+    else setAndroidAttachmentPanel(false);
+  });
+  document.getElementById("android-send-attachments")?.addEventListener("click", sendAndroidAttachmentQueue);
+  document.getElementById("android-continue-add")?.addEventListener("click", () => openAndroidAttachment(androidAttachmentState.kind, true));
+
+  window.addEventListener("android-files-selected", (event) => {
+    mergeAndroidAttachments("file", event.detail || []);
+    androidAttachmentState.kind = "file";
+    androidAttachmentState.mode = "queue";
+    setAndroidAttachmentPanel(true);
+    renderAndroidAttachmentPanel();
+  });
+  window.addEventListener("android-media-images", (event) => {
+    androidAttachmentState.images = event.detail || [];
+    if (androidAttachmentState.kind === "image") renderAndroidAttachmentPanel();
+  });
+  window.addEventListener("android-apps-loaded", (event) => {
+    androidAttachmentState.apps = event.detail || [];
+    if (androidAttachmentState.kind === "app") renderAndroidAttachmentPanel();
+  });
 }
 
 // 打开聊天
@@ -393,6 +691,7 @@ function openChat(peer) {
   window.currentChatPeer = peer;
 
   // 3. 立即显示界面(提升响应感)
+  document.body.classList.add("chat-open");
   chatContainer.style.display = "flex";
 
   const chatWithName = document.getElementById("chat-with-name");
@@ -449,6 +748,7 @@ function performCloseChatUI() {
 
   const chatContainer = document.getElementById("chat-container");
   if (chatContainer) chatContainer.style.display = "none";
+  document.body.classList.remove("chat-open");
   window.currentChatPeer = null;
   updateListHighlight(null); // 清除高亮
 }
@@ -468,6 +768,15 @@ function updateListHighlight(activeId) {
 // 5. 全局监听器:处理物理返回键和手动后退
 window.addEventListener("popstate", function (event) {
   const chatContainer = document.getElementById("chat-container");
+
+  const attachmentPanel = document.getElementById("android-attachment-panel");
+  if (attachmentPanel?.classList.contains("open")) {
+    attachmentPanel.classList.remove("open");
+    if (window.innerWidth <= 768 && window.location.hash !== "#chat") {
+      window.history.replaceState({ chatOpen: true }, "", "#chat");
+    }
+    return;
+  }
 
   // 【场景 A】如果当前处于多选模式
   if (window.selectMode && window.selectMode.active) {
@@ -540,6 +849,7 @@ async function sendMessage() {
 
   chatInput.value = "";
   chatInput.style.height = "auto";
+  updateAndroidComposerState();
 
   try {
     // 1. 发送 API
@@ -1653,6 +1963,9 @@ function onReceiveMessage(message) {
         setTimeout(async () => {
           await scrollToBottom();
         }, 10);
+        if (document.hidden || !document.hasFocus()) {
+          showIncomingSystemNotification(message);
+        }
       } else {
         const unreadDot = document.getElementById("unread-dot");
         if (scrollBtn) scrollBtn.classList.add("show");
@@ -2067,12 +2380,28 @@ function initSettings() {
   let initialDbPath = "";
   let initialDlPath = "";
   let initialAutoDl = true;
+  let initialNotifications = true;
+  let initialCloseToTray = true;
+  let initialAutostart = false;
   const autoDownloadToggle = document.getElementById("auto-download-toggle");
+  const notificationToggle = document.getElementById("notification-toggle");
+  const notificationHint = document.getElementById("notification-permission-hint");
+  const closeToTraySetting = document.getElementById("close-to-tray-setting");
+  const closeToTrayToggle = document.getElementById("close-to-tray-toggle");
+  const autostartSetting = document.getElementById("autostart-setting");
+  const autostartToggle = document.getElementById("autostart-toggle");
 
   // Android 端隐藏数据库路径配置
   const isAndroid = window.__TAURI__ && navigator.userAgent.includes("Android");
+  const isWindowsDesktop = !!window.__TAURI__ && !isAndroid && navigator.userAgent.includes("Windows");
   if (isAndroid && dbPathSetting) {
     dbPathSetting.style.display = "none";
+  }
+  if (closeToTraySetting && !isWindowsDesktop) {
+    closeToTraySetting.style.display = "none";
+  }
+  if (autostartSetting && !isWindowsDesktop) {
+    autostartSetting.style.display = "none";
   }
 
   // 获取默认下载路径
@@ -2116,6 +2445,21 @@ function initSettings() {
         initialDlPath = downloadPathInput.value;
         autoDownloadToggle.checked = settings.auto_download !== false;
         initialAutoDl = autoDownloadToggle.checked;
+        if (isWindowsDesktop) {
+          closeToTrayToggle.checked = settings.close_to_tray !== false;
+          initialCloseToTray = closeToTrayToggle.checked;
+          initialAutostart = await window.__TAURI__.core.invoke("get_autostart_enabled").catch(() => false);
+          autostartToggle.checked = initialAutostart;
+        }
+        if (window.__TAURI__) {
+          initialNotifications = await window.__TAURI__.core.invoke("get_notifications_enabled").catch(() => true);
+          notificationToggle.checked = initialNotifications;
+          if (isAndroid && typeof Notification !== "undefined" && Notification.permission === "denied") {
+            notificationHint.textContent = "系统通知权限已关闭，请在系统设置中允许 LANChat 通知。";
+          } else {
+            notificationHint.textContent = "";
+          }
+        }
       } catch (e) {
         settingsErrorMsg.textContent = "加载设置失败: " + e.message;
       }
@@ -2244,16 +2588,30 @@ function initSettings() {
       const myPort = portInput.value || "8888";
       const myDbPath = dbPathInput.value.trim() || "";
       const autoDl = autoDownloadToggle.checked;
+      const notificationsEnabled = notificationToggle.checked;
+      const closeToTray = isWindowsDesktop ? closeToTrayToggle.checked : undefined;
+      const autostartEnabled = isWindowsDesktop ? autostartToggle.checked : false;
 
-      await apiUpdateSettings(dlPath, myPort, myDbPath, autoDl);
+      await apiUpdateSettings(dlPath, myPort, myDbPath, autoDl, closeToTray);
+      if (window.__TAURI__) {
+        await window.__TAURI__.core.invoke("set_notifications_enabled", { enabled: notificationsEnabled });
+        window._notificationsEnabled = notificationsEnabled;
+        if (notificationsEnabled && isAndroid) await requestAndroidNotificationPermission();
+        if (isWindowsDesktop && autostartEnabled !== initialAutostart) {
+          await window.__TAURI__.core.invoke("set_autostart_enabled", { enabled: autostartEnabled });
+        }
+      }
 
       // 检测是否有实际改动
       const portChanged = myPort !== initialPort;
       const dbPathChanged = myDbPath !== initialDbPath;
       const dlPathChanged = dlPath !== initialDlPath;
       const autoDlChanged = autoDl !== initialAutoDl;
+      const notificationsChanged = notificationsEnabled !== initialNotifications;
+      const closeToTrayChanged = isWindowsDesktop && closeToTray !== initialCloseToTray;
+      const autostartChanged = isWindowsDesktop && autostartEnabled !== initialAutostart;
 
-      if (!portChanged && !dbPathChanged && !dlPathChanged && !autoDlChanged) {
+      if (!portChanged && !dbPathChanged && !dlPathChanged && !autoDlChanged && !notificationsChanged && !closeToTrayChanged && !autostartChanged) {
         // 没有任何改动，直接关闭
         settingsPanel.style.display = "none";
         return;
@@ -2471,6 +2829,9 @@ const i18n = {
     db_path_label: "数据库路径:",
     choose: "选择",
     auto_download_label: "自动下载:",
+    close_to_tray_label: "点击 X 时最小化到托盘:",
+    autostart_label: "开机自动启动 LANChat:",
+    autostart_hint: "自动启动时隐藏到托盘",
     settings_save_restart: "✓ 设置保存成功，需重启生效",
     settings_saved: "✓ 设置保存成功",
     settings_save_fail: "保存失败",
@@ -2514,6 +2875,9 @@ const i18n = {
     db_path_label: "Database Path:",
     choose: "Choose",
     auto_download_label: "Auto Download:",
+    close_to_tray_label: "Minimize to tray when clicking X:",
+    autostart_label: "Start LANChat when Windows starts:",
+    autostart_hint: "Starts hidden in the system tray",
     settings_save_restart: "✓ Saved, restart to apply",
     settings_saved: "✓ Saved",
     settings_save_fail: "Save failed",
@@ -3235,6 +3599,7 @@ function enterSelectMode(initialMessageId = null) {
 
   // 发送按钮变为删除,改为红色警告色
   sendBtn.textContent = t("delete");
+  sendBtn.disabled = false;
   sendBtn.style.backgroundColor = "#ff5555"; // Dracula Red
   sendBtn.style.borderColor = "#ff5555";
   sendBtn.style.color = "#fff";
@@ -3260,6 +3625,7 @@ function enterSelectMode(initialMessageId = null) {
       window.selectMode.selectedMessages.add(parseInt(initialMessageId));
     }
   });
+  sendBtn.disabled = window.selectMode.selectedMessages.size === 0;
 }
 
 // 退出多选模式
@@ -3289,6 +3655,7 @@ function exitSelectMode() {
   sendBtn.style.backgroundColor = ""; // 恢复 CSS 中的默认值
   sendBtn.style.borderColor = "";
   sendBtn.style.color = "";
+  updateAndroidComposerState();
 
   chatInput.disabled = false;
   attachFileBtn.disabled = false;
@@ -3379,6 +3746,7 @@ function toggleMessageSelection(messageElement) {
     "[UI] 已选中消息:",
     Array.from(window.selectMode.selectedMessages),
   );
+  document.getElementById("send-btn").disabled = window.selectMode.selectedMessages.size === 0;
 }
 
 // 删除选中的消息

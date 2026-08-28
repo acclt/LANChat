@@ -619,6 +619,34 @@ impl AndroidFile {
         println!("[AndroidFD] JNI 已触发 launchSafFilePicker");
         Ok(())
     }
+
+    fn trigger_activity_method(method: &str) -> Result<(), String> {
+        use jni::objects::JObject;
+        use jni::JavaVM;
+
+        let ctx = ndk_context::android_context();
+        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+            .map_err(|e| format!("获取 JavaVM 失败: {}", e))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("附加线程失败: {}", e))?;
+        let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+        env.call_method(&activity, method, "()V", &[])
+            .map_err(|e| format!("JNI 调用 {} 失败: {}", method, e))?;
+        Ok(())
+    }
+
+    pub fn trigger_saf_multi_picker_jni() -> Result<(), String> {
+        Self::trigger_activity_method("launchSafMultiFilePicker")
+    }
+
+    pub fn trigger_media_images_jni() -> Result<(), String> {
+        Self::trigger_activity_method("loadMediaImages")
+    }
+
+    pub fn trigger_installed_apps_jni() -> Result<(), String> {
+        Self::trigger_activity_method("loadInstalledApps")
+    }
 }
 
 /// JNI 导出：供 Kotlin 在选完文件并提取持久化权限后回调

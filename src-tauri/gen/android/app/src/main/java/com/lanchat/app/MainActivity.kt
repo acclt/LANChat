@@ -5,8 +5,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.Base64
+import android.util.Size
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
@@ -16,6 +23,7 @@ import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.ByteArrayOutputStream
 
 // 通知 Intent 的 Key 常量（来自 tauri-plugin-notification）
 private const val NOTIFICATION_INTENT_KEY = "NotificationId"
@@ -38,6 +46,28 @@ class MainActivity : TauriActivity() {
         if (uri != null) {
             handleSafSelectedFile(uri)
         }
+    }
+
+    private val safMultiPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        val result = JSONArray()
+        uris.forEach { uri ->
+            try {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {
+                // 部分文档提供方不支持持久化；Rust 发送端会复制到持久队列作为兜底。
+            }
+            result.put(queryAttachment(uri))
+        }
+        dispatchJsonEvent("android-files-selected", result)
+    }
+
+    private val mediaPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions.values.any { it }) queryAndDispatchImages()
+        else dispatchJsonEvent("android-media-images", JSONArray())
     }
 
     data class SharedFileInfo(
@@ -67,6 +97,149 @@ class MainActivity : TauriActivity() {
     fun launchSafFilePicker() {
         runOnUiThread {
             safPickerLauncher.launch(arrayOf("*/*"))
+        }
+    }
+
+    @Keep
+    fun launchSafMultiFilePicker() {
+        runOnUiThread { safMultiPickerLauncher.launch(arrayOf("*/*")) }
+    }
+
+    @Keep
+    fun loadMediaImages() {
+        runOnUiThread {
+            val permission = if (Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_IMAGES
+                else android.Manifest.permission.READ_EXTERNAL_STORAGE
+            if (checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                queryAndDispatchImages()
+            } else {
+                mediaPermissionLauncher.launch(arrayOf(permission))
+            }
+        }
+    }
+
+    @Keep
+    fun loadInstalledApps() {
+        Thread {
+            val result = JSONArray()
+            try {
+                packageManager.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
+                    .asSequence()
+                    .filter { info ->
+                        info.packageName != packageName &&
+                            (info.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 &&
+                            !info.sourceDir.isNullOrBlank() && File(info.sourceDir).canRead()
+                    }
+                    .sortedBy { packageManager.getApplicationLabel(it).toString().lowercase() }
+                    .forEach { info ->
+                        val source = File(info.sourceDir)
+                        result.put(JSONObject().apply {
+                            put("name", "${packageManager.getApplicationLabel(info)}.apk")
+                            put("label", packageManager.getApplicationLabel(info).toString())
+                            put("packageName", info.packageName)
+                            put("path", info.sourceDir)
+                            put("size", source.length())
+                            put("icon", drawableToDataUrl(packageManager.getApplicationIcon(info)))
+                        })
+                    }
+            } catch (e: Exception) {
+                println("[MainActivity] 读取 App 列表失败: ${e.message}")
+            }
+            dispatchJsonEvent("android-apps-loaded", result)
+        }.start()
+    }
+
+    private fun queryAttachment(uri: Uri): JSONObject {
+        var fileName = "unknown_file"
+        var fileSize = 0L
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (nameIndex >= 0) fileName = cursor.getString(nameIndex) ?: fileName
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) fileSize = cursor.getLong(sizeIndex)
+            }
+        }
+        return JSONObject().apply {
+            put("uri", uri.toString())
+            put("name", fileName)
+            put("size", fileSize)
+        }
+    }
+
+    private fun queryAndDispatchImages() {
+        Thread {
+            val result = JSONArray()
+            val projection = arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.SIZE,
+                MediaStore.Images.Media.DATE_MODIFIED,
+                MediaStore.Images.Media.BUCKET_DISPLAY_NAME
+            )
+            try {
+                contentResolver.query(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    projection,
+                    null,
+                    null,
+                    "${MediaStore.Images.Media.DATE_MODIFIED} DESC"
+                )?.use { cursor ->
+                    val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                    val nameIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                    val bucketIndex = cursor.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                    var count = 0
+                    while (cursor.moveToNext() && count < 120) {
+                        val uri = Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cursor.getLong(idIndex).toString())
+                        val thumbnail = try {
+                            if (Build.VERSION.SDK_INT >= 29) bitmapToDataUrl(contentResolver.loadThumbnail(uri, Size(240, 240), null)) else ""
+                        } catch (_: Exception) { "" }
+                        result.put(JSONObject().apply {
+                            put("uri", uri.toString())
+                            put("name", cursor.getString(nameIndex) ?: "image_$count.jpg")
+                            put("size", cursor.getLong(sizeIndex))
+                            put("album", if (bucketIndex >= 0) cursor.getString(bucketIndex) ?: "其他" else "其他")
+                            put("thumbnail", thumbnail)
+                        })
+                        count++
+                    }
+                }
+            } catch (e: Exception) {
+                println("[MainActivity] 读取相册失败: ${e.message}")
+            }
+            dispatchJsonEvent("android-media-images", result)
+        }.start()
+    }
+
+    private fun bitmapToDataUrl(bitmap: Bitmap): String {
+        val output = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 72, output)
+        return "data:image/jpeg;base64," + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+    }
+
+    private fun drawableToDataUrl(drawable: android.graphics.drawable.Drawable): String {
+        val bitmap = if (drawable is BitmapDrawable) drawable.bitmap else {
+            val width = drawable.intrinsicWidth.coerceAtLeast(1).coerceAtMost(128)
+            val height = drawable.intrinsicHeight.coerceAtLeast(1).coerceAtMost(128)
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+                val canvas = Canvas(it)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+            }
+        }
+        val output = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.PNG, 90, output)
+        return "data:image/png;base64," + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+    }
+
+    private fun dispatchJsonEvent(name: String, payload: JSONArray) {
+        if (webView == null) webView = findWebView(window.decorView)
+        runOnUiThread {
+            webView?.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent(${JSONObject.quote(name)}, {detail: $payload}));",
+                null
+            )
         }
     }
 

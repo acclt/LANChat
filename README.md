@@ -7,6 +7,19 @@
 
 <img width="1923" height="2104" alt="LANChat screenshot" src="https://github.com/user-attachments/assets/454c170a-272a-4997-b096-569fc7c4dc53" />
 
+## About This Version
+
+This repository continues the work of [cap153/LANChat](https://github.com/cap153/LANChat), with a focus on the everyday Windows and Android experience:
+
+- A redesigned Android chat composer with an in-chat half-screen gallery.
+- Multi-select images, files, and installed apps on Android; app tiles show both the icon and app name.
+- A unified attachment queue with continue-adding, removal, retry, and offline re-send support.
+- Background system notifications on Windows and Android, with notification-to-chat navigation.
+- Close-to-tray and silent launch at Windows sign-in.
+- A shared light purple visual style across Windows and Android while retaining the desktop chat layout.
+
+Local build artifacts are not committed to the source repository. Build from source using the instructions below, or obtain packaged versions from [Releases](https://github.com/acclt/LANChat/releases).
+
 ## Features
 
 - 🚀 **No Registration** - Auto-generates random usernames; click to change anytime
@@ -40,7 +53,7 @@ paru -S lanchat-bin
 
 ### Releases
 
-[https://github.com/cap153/LANChat/releases](https://github.com/cap153/LANChat/releases)
+[https://github.com/acclt/LANChat/releases](https://github.com/acclt/LANChat/releases)
 
 ### Build from Source
 
@@ -123,7 +136,7 @@ Place custom `.css` files in the config directory (any filename):
 - **Linux**: `~/.config/lanchat/`
 - **Windows**: `%APPDATA%\.config\lanchat`
 
-See built-in themes for reference: [https://github.com/cap153/LANChat/tree/main/src/css](https://github.com/cap153/LANChat/tree/main/src/css)
+See built-in themes for reference: [https://github.com/acclt/LANChat/tree/main/src/css](https://github.com/acclt/LANChat/tree/main/src/css)
 
 ## Config File
 

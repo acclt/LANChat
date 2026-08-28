@@ -33,7 +33,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_sql::Builder::default().build());
 
-    #[cfg(any(target_os = "macos", target_os = "android"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_notification::init());
 
     builder
@@ -78,9 +78,15 @@ pub fn run() {
             commands::get_notifications_enabled,
             commands::set_notifications_enabled,
             commands::request_permission_on_android,
+            commands::get_autostart_enabled,
+            commands::set_autostart_enabled,
             commands::start_tray_flash,
             commands::stop_tray_flash,
             commands::open_saf_picker,
+            commands::open_saf_multi_picker,
+            commands::load_android_media_images,
+            commands::load_android_apps,
+            commands::get_local_device_info,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

@@ -184,3 +184,33 @@ commands.allow = ["set_language"]
 identifier = "allow-request-permission-on-android"
 description = "Allows requesting Android notification permission"
 commands.allow = ["request_permission_on_android"]
+
+[[permission]]
+identifier = "allow-open-saf-multi-picker"
+description = "Allows opening the Android multi-file picker"
+commands.allow = ["open_saf_multi_picker"]
+
+[[permission]]
+identifier = "allow-load-android-media-images"
+description = "Allows loading Android MediaStore images"
+commands.allow = ["load_android_media_images"]
+
+[[permission]]
+identifier = "allow-load-android-apps"
+description = "Allows loading installed Android applications"
+commands.allow = ["load_android_apps"]
+
+[[permission]]
+identifier = "allow-get-local-device-info"
+description = "Allows reading the local device IP and LANChat port"
+commands.allow = ["get_local_device_info"]
+
+[[permission]]
+identifier = "allow-get-autostart-enabled"
+description = "Allows reading the Windows autostart state"
+commands.allow = ["get_autostart_enabled"]
+
+[[permission]]
+identifier = "allow-set-autostart-enabled"
+description = "Allows changing the Windows autostart state"
+commands.allow = ["set_autostart_enabled"]

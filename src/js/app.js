@@ -2,11 +2,19 @@
 async function renderPage() {
   console.log("[JS-App] 页面初始化开始...");
 
+  const androidPreview = new URLSearchParams(location.search).get("android-preview") === "1";
+  const desktopPreview = new URLSearchParams(location.search).get("desktop-preview") === "1";
+  const previewMode = androidPreview || desktopPreview;
+  const androidApp = (navigator.userAgent.includes("Android") && !!window.__TAURI__) || androidPreview;
+  document.body.classList.toggle("android-app", androidApp);
+
   const myName = await apiGetMyName();
   const nameElement = document.getElementById("my-name");
   if (nameElement) {
     nameElement.innerText = myName;
   }
+  const androidName = document.getElementById("android-device-name");
+  if (androidName) androidName.innerText = myName;
 
   // 初始化改名功能
   initNameEditor();
@@ -17,6 +25,20 @@ async function renderPage() {
   // 初始化手动添加设备功能
   initAddPeer();
 
+  document.getElementById("android-settings-btn")?.addEventListener("click", () => document.getElementById("settings-btn")?.click());
+  document.getElementById("android-add-peer-btn")?.addEventListener("click", () => document.getElementById("add-peer-btn")?.click());
+  document.getElementById("android-edit-name-btn")?.addEventListener("click", () => document.getElementById("my-name")?.click());
+  try {
+    if (!window.__TAURI__) throw new Error("preview");
+    const info = await window.__TAURI__.core.invoke("get_local_device_info");
+    const ip = document.getElementById("android-device-ip");
+    if (ip) ip.textContent = `${info.ip}:${info.port}`;
+  } catch (e) {
+    console.warn("[JS-App] 获取本机 IP 失败:", e);
+    const ip = document.getElementById("android-device-ip");
+    if (ip) ip.textContent = "暂未连接局域网";
+  }
+
   // 初始化语言功能（放在主题前面，确保翻译尽早应用）
   await initLanguage();
 
@@ -25,6 +47,12 @@ async function renderPage() {
 
   // 初始化聊天功能
   initChat();
+
+  if (previewMode) {
+    const summary = document.getElementById("android-peer-summary");
+    if (summary) summary.textContent = "自动检测到 1 台局域网设备";
+    void addUserToList("preview-peer", "林然的电脑", "192.168.5.8:8888", false);
+  }
 
   // 请求 Android 通知权限（Android 13+ 需要运行时权限）
   requestAndroidNotificationPermission();
@@ -57,8 +85,10 @@ async function renderPage() {
   });
 
   // 启动用户列表轮询（桌面端和 Web 端都需要）
-  console.log("[JS-App] 启动用户列表轮询");
-  startPeerPolling();
+  if (!previewMode) {
+    console.log("[JS-App] 启动用户列表轮询");
+    startPeerPolling();
+  }
 
   // 请求通知权限不再在初始化时调用（WebKit 在非用户手势下调用会抛警告），
   // 改由 showNotification 按需请求
@@ -68,7 +98,10 @@ async function renderPage() {
     apiListen("actionPerformed", async (event) => {
       const notification = event?.payload?.notification;
       if (!notification) return;
-      const from_id = notification.extra?.from_id;
+      const from_id = notification.extra?.from_id || (() => {
+        try { return localStorage.getItem("pendingNotificationFromId"); }
+        catch (_) { return null; }
+      })();
       if (!from_id) return;
       const userLi = document.querySelector(`#user-list li[data-id="${from_id}"]`);
       if (userLi) {
@@ -118,11 +151,13 @@ async function renderPage() {
 
   // 启动消息轮询（桌面端和 Web 端都需要，用于检测状态变化）
   const tauri = window.__TAURI__;
-  console.log("[JS-App] 启动消息轮询");
-  startMessagePolling();
+  if (!previewMode) {
+    console.log("[JS-App] 启动消息轮询");
+    startMessagePolling();
+  }
 
   // Web 端需要额外启动未读消息检查（桌面端通过事件处理）
-  if (!tauri) {
+  if (!tauri && !previewMode) {
     console.log("[JS-App] 启动未读消息检查（Web 端）");
     startUnreadMessageCheck();
     // Web 端：连接 WebSocket 接收流式事件
@@ -133,7 +168,7 @@ async function renderPage() {
   // 冷启动分享数据补偿机制
   // ==========================================
   // 留给 Tauri 和后端 1.5 秒的初始化时间，然后主动查一次数据
-  setTimeout(async () => {
+  if (!previewMode) setTimeout(async () => {
     // 如果页面已经存在分享弹窗，说明原生广播事件已经正常触发过了，直接跳过，防止重复弹窗！
     if (document.querySelector(".share-dialog")) {
       console.log("[JS-App] 分享弹窗已存在，跳过冷启动补偿检测");
@@ -184,6 +219,14 @@ async function startPeerPolling() {
           if (chatWithName) chatWithName.textContent = peer.name;
         }
       }
+    }
+
+    const summary = document.getElementById("android-peer-summary");
+    if (summary) {
+      const onlineCount = peers.filter((peer) => !peer.is_offline).length;
+      summary.textContent = onlineCount > 0
+        ? `自动检测到 ${onlineCount} 台局域网设备`
+        : "暂未检测到局域网设备";
     }
 
     // 处理“自动移除”：如果 DOM 中的用户 ID 不在 API 列表中，说明该用户被删除了

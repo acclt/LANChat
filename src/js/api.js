@@ -81,7 +81,7 @@ async function apiGetSettings() {
 }
 
 // 更新设置
-async function apiUpdateSettings(downloadPath, port, dbPath, autoDownload) {
+async function apiUpdateSettings(downloadPath, port, dbPath, autoDownload, closeToTray) {
   const tauri = getTauri();
 
   if (tauri) {
@@ -93,6 +93,7 @@ async function apiUpdateSettings(downloadPath, port, dbPath, autoDownload) {
         port,
         dbPath,
         autoDownload,
+        closeToTray,
       });
     } catch (e) {
       console.error("[JS-API] Failed to update settings:", e);
@@ -110,6 +111,7 @@ async function apiUpdateSettings(downloadPath, port, dbPath, autoDownload) {
           port: port,
           db_path: dbPath,
           auto_download: autoDownload,
+          close_to_tray: closeToTray,
         }),
       });
       const data = await resp.json();
@@ -390,7 +392,7 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
       // 如果没有提供文件路径，使用对话框选择
       if (!selectedPath) {
         const selected = await tauri.dialog.open({
-          multiple: false,
+          multiple: true,
           title: "选择要发送的文件",
         });
 
@@ -398,7 +400,19 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
           throw new Error("未选择文件");
         }
 
-        selectedPath = Array.isArray(selected) ? selected[0] : selected;
+        const selectedPaths = Array.isArray(selected) ? selected : [selected];
+        if (selectedPaths.length > 1) {
+          const results = [];
+          for (const path of selectedPaths) {
+            try {
+              results.push({ path, ok: true, result: await apiSendFile(peerId, peerAddr, null, path) });
+            } catch (error) {
+              results.push({ path, ok: false, error: error.message || String(error) });
+            }
+          }
+          return { success: true, results };
+        }
+        selectedPath = selectedPaths[0];
       }
 
       console.log("[JS-API] 文件路径:", selectedPath);

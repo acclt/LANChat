@@ -7,6 +7,19 @@
 
 <img width="1923" height="2104" alt="image" src="https://github.com/user-attachments/assets/454c170a-272a-4997-b096-569fc7c4dc53" />
 
+## 本仓库版本
+
+本仓库基于 [cap153/LANChat](https://github.com/cap153/LANChat) 继续开发，重点增强 Windows 与 Android 的日常使用体验：
+
+- Android 聊天页采用双层输入栏，并提供内嵌半屏相册。
+- Android 支持多选图片、文件和已安装 App；App 选择网格同步显示图标与应用名称。
+- 图片、文件和 App 使用统一发送队列，支持继续添加、移除、失败重试及离线补发。
+- Windows 与 Android 均支持后台系统通知和通知点击返回聊天。
+- Windows 支持关闭到托盘与开机静默自启。
+- Windows 首页与 Android 统一为浅色紫色视觉，同时保留桌面聊天布局。
+
+源码仓库不提交本地构建产物。请按下方步骤自行构建，或前往 [Releases](https://github.com/acclt/LANChat/releases) 获取发布版本。
+
 ## 特性
 
 - 🚀 **无需注册** - 自动生成随机用户名，点击用户名即可修改
@@ -40,7 +53,7 @@ paru -S lanchat-bin
 
 ### Releases
 
-[https://github.com/cap153/LANChat/releases](https://github.com/cap153/LANChat/releases) 
+[https://github.com/acclt/LANChat/releases](https://github.com/acclt/LANChat/releases)
 
 ### 编译
 
@@ -123,7 +136,7 @@ sudo ufw allow 8888/udp
 - **Linux**: `~/.config/lanchat/`
 - **Windows**: `%APPDATA%\.config\lanchat`
 
-可以参考内置的主题：[https://github.com/cap153/LANChat/tree/main/src/css](https://github.com/cap153/LANChat/tree/main/src/css) 
+可以参考内置的主题：[https://github.com/acclt/LANChat/tree/main/src/css](https://github.com/acclt/LANChat/tree/main/src/css)
 
 ## 配置文件
 

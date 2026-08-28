@@ -9,11 +9,13 @@ pub struct Config {
     pub port: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lang: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub close_to_tray: Option<bool>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { db_path: None, port: None, lang: None }
+        Config { db_path: None, port: None, lang: None, close_to_tray: None }
     }
 }
 
@@ -124,5 +126,17 @@ pub fn save_lang_to_config(lang: &str) -> Result<(), String> {
     }
     let mut cfg = read_config();
     cfg.lang = Some(lang.to_string());
+    write_config(&cfg)
+}
+
+/// 点击主窗口关闭按钮时是否隐藏到托盘。未配置时默认开启，保持历史行为。
+pub fn get_close_to_tray_from_config() -> bool {
+    read_config().close_to_tray.unwrap_or(true)
+}
+
+/// 保存主窗口关闭按钮行为。
+pub fn save_close_to_tray_to_config(enabled: bool) -> Result<(), String> {
+    let mut cfg = read_config();
+    cfg.close_to_tray = Some(enabled);
     write_config(&cfg)
 }

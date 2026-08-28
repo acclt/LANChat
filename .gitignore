@@ -30,6 +30,7 @@ Thumbs.db
 *.db-wal
 
 # Build artifacts
+dist-custom/
 *.exe
 *.dll
 *.so

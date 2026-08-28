@@ -17,6 +17,8 @@ struct Args {
     port: Option<u16>,
     #[arg(long)]
     db_path: Option<String>,
+    #[arg(long, hide = true)]
+    autostart: bool,
 }
 
 fn main() {
@@ -30,9 +32,13 @@ fn main() {
 
     let cli_port = args.port;
     let cli_db_path = args.db_path;
+    let launched_from_autostart = args.autostart;
 
     let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args.iter().any(|arg| arg == "--autostart") {
+                return;
+            }
             // 当尝试启动第二个实例时，显示已存在的窗口
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -46,7 +52,13 @@ fn main() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_opener::init());
 
-    #[cfg(any(target_os = "macos", target_os = "android"))]
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        Some(vec!["--autostart"]),
+    ));
+
+    #[cfg(any(windows, target_os = "macos", target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_notification::init());
 
     builder
@@ -92,22 +104,42 @@ fn main() {
             lanchat::commands::get_notifications_enabled,
             lanchat::commands::set_notifications_enabled,
             lanchat::commands::open_saf_picker,
+            lanchat::commands::open_saf_multi_picker,
+            lanchat::commands::load_android_media_images,
+            lanchat::commands::load_android_apps,
+            lanchat::commands::get_local_device_info,
             lanchat::commands::start_tray_flash,
             lanchat::commands::stop_tray_flash,
             lanchat::commands::request_permission_on_android,
+            lanchat::commands::get_autostart_enabled,
+            lanchat::commands::set_autostart_enabled,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
 
             // 获取主窗口并设置关闭事件处理
             if let Some(window) = app.get_webview_window("main") {
+                if launched_from_autostart {
+                    let _ = window.hide();
+                }
                 let window_clone = window.clone();
                 window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // 阻止默认关闭行为
-                        api.prevent_close();
-                        // 隐藏窗口而不是关闭
-                        let _ = window_clone.hide();
+                    match event {
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            if lanchat::config_file::get_close_to_tray_from_config() {
+                                // 开关开启：阻止默认关闭并隐藏到托盘。
+                                api.prevent_close();
+                                let _ = window_clone.hide();
+                            } else {
+                                // 开关关闭：结束窗口、托盘和后台服务。
+                                window_clone.app_handle().exit(0);
+                            }
+                        }
+                        tauri::WindowEvent::Focused(true) => {
+                            // Windows 原生通知被点击并聚焦窗口时，跳到最近未读会话。
+                            let _ = window_clone.emit("open-latest-unread", ());
+                        }
+                        _ => {}
                     }
                 });
             }

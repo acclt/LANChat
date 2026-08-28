@@ -398,6 +398,7 @@ pub async fn get_settings(state: State<'_, DbState>) -> Result<serde_json::Value
         .map(|p| p.to_string())
         .unwrap_or_else(|| "8888".to_string());
     let cfg = crate::config_file::read_config();
+    let close_to_tray = cfg.close_to_tray.unwrap_or(true);
     let db_path = cfg.db_path.unwrap_or_else(crate::config_file::get_default_db_path);
     let auto_download = crate::db::get_auto_download(&state.pool).await;
 
@@ -406,6 +407,7 @@ pub async fn get_settings(state: State<'_, DbState>) -> Result<serde_json::Value
         "port": port,
         "db_path": db_path,
         "auto_download": auto_download,
+        "close_to_tray": close_to_tray,
     }))
 }
 
@@ -416,6 +418,7 @@ pub async fn update_settings(
     port: Option<String>,
     db_path: Option<String>,
     auto_download: Option<bool>,
+    close_to_tray: Option<bool>,
 ) -> Result<(), String> {
     if let Some(path) = download_path {
         crate::db::update_download_path(&state.pool, path).await?;
@@ -444,6 +447,10 @@ pub async fn update_settings(
     }
     if let Some(enabled) = auto_download {
         crate::db::set_auto_download(&state.pool, enabled).await?;
+    }
+    if let Some(enabled) = close_to_tray {
+        #[cfg(not(target_os = "android"))]
+        crate::config_file::save_close_to_tray_to_config(enabled)?;
     }
 
     Ok(())
@@ -1182,6 +1189,86 @@ pub async fn open_saf_picker() -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn open_saf_multi_picker() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android_fd::AndroidFile::trigger_saf_multi_picker_jni()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("该功能仅在 Android 端可用".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn load_android_media_images() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android_fd::AndroidFile::trigger_media_images_jni()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("该功能仅在 Android 端可用".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn load_android_apps() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android_fd::AndroidFile::trigger_installed_apps_jni()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("该功能仅在 Android 端可用".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn get_local_device_info() -> serde_json::Value {
+    let ip = std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|socket| {
+            socket.connect("8.8.8.8:80")?;
+            socket.local_addr()
+        })
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = crate::config_file::get_port_from_config().unwrap_or(8888);
+    serde_json::json!({ "ip": ip, "port": port })
+}
+
+#[cfg(target_os = "android")]
+async fn persist_android_fd(
+    app: &tauri::AppHandle,
+    fd: i32,
+    file_name: &str,
+) -> Result<String, String> {
+    use crate::android_fd::AndroidFile;
+    let safe_name: String = file_name
+        .chars()
+        .map(|ch| if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { ch })
+        .collect();
+    let outbox = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位应用数据目录: {}", e))?
+        .join("outbox");
+    tokio::fs::create_dir_all(&outbox)
+        .await
+        .map_err(|e| format!("创建离线附件目录失败: {}", e))?;
+    let target = outbox.join(format!("{}_{}", uuid::Uuid::new_v4(), safe_name));
+    let source = AndroidFile::from_fd(fd)?.into_file();
+    let mut source = tokio::fs::File::from_std(source);
+    let mut destination = tokio::fs::File::create(&target)
+        .await
+        .map_err(|e| format!("创建离线附件副本失败: {}", e))?;
+    tokio::io::copy(&mut source, &mut destination)
+        .await
+        .map_err(|e| format!("保存离线附件失败: {}", e))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 #[allow(unused_variables)]
 pub async fn send_file_from_fd(
     app: tauri::AppHandle,
@@ -1215,39 +1302,17 @@ pub async fn send_file_from_fd(
                 "[Command] 用户 {} 处于离线记录中，直接保存文件消息为挂起状态",
                 peerId
             );
-            // 接管 FD 所有权，克隆一份用于缓存
-            let android_file = AndroidFile::from_fd(fd)?;
-            let std_file = android_file.into_file();
-            let dup = std_file.try_clone()
-                .map_err(|e| format!("FD 克隆失败: {}", e))?;
-            let cached_fd = dup.into_raw_fd();
-            // 原始 std_file 在此 drop 关闭原始 FD，cached_fd 是独立的新 FD
-            drop(std_file);
-
-            // 先保存消息获取 msg_id
+            // 将分享 FD 复制进应用私有 outbox，确保进程重启后仍可补发。
+            let persisted_path = persist_android_fd(&app, fd, &fileName).await?;
             let msg_id = crate::db::save_file_message(
                 &state.pool,
                 peerId.clone(),
                 fileName.clone(),
                 fileSize,
-                "fd:temp".to_string(),
+                persisted_path,
                 "pending".to_string(),
                 "pending".to_string(),
             ).await.map_err(|e| format!("创建记录失败: {}", e))?;
-
-            // 缓存克隆的 FD（用 msg_id 作为 key）
-            crate::android_fd::cache_fd_for_msg(
-                msg_id,
-                cached_fd,
-                fileName.clone(),
-                fileSize as u64,
-            );
-
-            // 更新 DB 路径为 fd:{msg_id}
-            let fd_path = format!("fd:{}", msg_id);
-            if let Err(e) = crate::db::update_file_path_by_id(&state.pool, msg_id, &fd_path).await {
-                eprintln!("[Command] 更新 FD 文件路径失败: {}", e);
-            }
 
             return Ok(serde_json::json!({
                 "success": true,
@@ -1271,30 +1336,17 @@ pub async fn send_file_from_fd(
         };
 
         if !auto_enabled {
-            // ── 自动下载关闭：发 file_offer，FD 入缓存 ──
+            // ── 自动下载关闭：先持久化，再发 file_offer ──
+            let persisted_path = persist_android_fd(&app, fd, &fileName).await?;
             let sender_msg_id = crate::db::save_file_message(
                 &state.pool,
                 peerId.clone(),
                 fileName.clone(),
                 fileSize,
-                "fd:share".to_string(),  // 标记为 FD 缓存文件
+                persisted_path,
                 "offering".to_string(),
                 "sent".to_string(),
             ).await.map_err(|e| format!("创建发送记录失败: {}", e))?;
-
-            // 更新 DB 路径为 fd:{msg_id}，使媒体服务器能按 msg_id 查到 FD
-            let fd_path = format!("fd:{}", sender_msg_id);
-            if let Err(e) = crate::db::update_file_path_by_id(&state.pool, sender_msg_id, &fd_path).await {
-                eprintln!("[Command] 更新 FD 文件路径失败: {}", e);
-            }
-
-            // 缓存 FD（用 msg_id 作为 key，供后续 file_request 查找）
-            crate::android_fd::cache_fd_for_msg(
-                sender_msg_id,
-                fd,
-                fileName.clone(),
-                fileSize as u64,
-            );
 
             let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
             let my_name = crate::db::get_username(&state.pool).await.unwrap_or_default();
@@ -1660,6 +1712,8 @@ impl AndroidShareState {
 // 批量删除消息
 #[tauri::command]
 pub async fn delete_messages(
+    #[allow(unused_variables)]
+    app: tauri::AppHandle,
     state: tauri::State<'_, crate::db::DbState>,
     msg_ids: Vec<i64>,
 ) -> Result<(), String> {
@@ -1669,6 +1723,7 @@ pub async fn delete_messages(
     #[cfg(target_os = "android")]
     {
         use crate::android_fd::AndroidFile;
+        let outbox = app.path().app_data_dir().ok().map(|path| path.join("outbox"));
         for &msg_id in &msg_ids {
             // 释放持久化 URI 权限
             if let Ok(Some(uri)) = crate::db::get_uri_by_msg_id(&state.pool, msg_id).await {
@@ -1678,6 +1733,16 @@ pub async fn delete_messages(
             }
             // 清理 FD 缓存
             crate::android_fd::remove_cached_fd(msg_id);
+
+            // 仅删除由 LANChat 自己复制到私有 outbox 的附件副本。
+            if let (Some(outbox_dir), Ok((file_path, _, _))) =
+                (outbox.as_ref(), crate::db::get_sender_file_by_msg_id(&state.pool, msg_id).await)
+            {
+                let candidate = std::path::PathBuf::from(file_path);
+                if candidate.starts_with(outbox_dir) && candidate.is_file() {
+                    let _ = tokio::fs::remove_file(candidate).await;
+                }
+            }
         }
     }
 
@@ -1754,6 +1819,39 @@ pub async fn set_notifications_enabled(state: tauri::State<'_, crate::db::DbStat
 }
 
 #[tauri::command]
+pub fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        return app.autolaunch().is_enabled().map_err(|e| e.to_string());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+pub fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let manager = app.autolaunch();
+        if enabled {
+            manager.enable().map_err(|e| e.to_string())
+        } else {
+            manager.disable().map_err(|e| e.to_string())
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, enabled);
+        Err("Autostart is only available on Windows".to_string())
+    }
+}
+
+#[tauri::command]
 pub fn request_permission_on_android(app: tauri::AppHandle) -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
@@ -1783,29 +1881,6 @@ fn get_notification_id(from_id: &str) -> i32 {
 
 #[tauri::command]
 pub fn show_notification(_app: tauri::AppHandle, title: String, body: String, #[allow(unused_variables)] from_id: String) {
-    #[cfg(windows)]
-    {
-        // Windows 使用 PowerShell（不依赖 Start Menu 注册）
-        let safe_title = title.replace('\'', "''");
-        let safe_body = body.replace('\'', "''");
-        let script = format!(
-            "Add-Type -AssemblyName System.Windows.Forms; \
-             $n = New-Object System.Windows.Forms.NotifyIcon; \
-             $n.Icon = [System.Drawing.SystemIcons]::Information; \
-             $n.Visible = $true; \
-             $n.ShowBalloonTip(5000, '{safe_title}', '{safe_body}', [System.Windows.Forms.ToolTipIcon]::None)"
-        );
-        let _ = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                &script,
-            ])
-            .spawn();
-    }
-
     #[cfg(target_os = "linux")]
     {
         // Linux 用 notify-send
@@ -1815,9 +1890,9 @@ pub fn show_notification(_app: tauri::AppHandle, title: String, body: String, #[
             .spawn();
     }
 
-    #[cfg(any(target_os = "macos", target_os = "android"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "android"))]
     {
-        // macOS / Android 通过 notification plugin，按 from_id 折叠
+        // Windows / macOS / Android 均使用系统原生通知中心。
         use tauri_plugin_notification::NotificationExt;
         let app = _app;
         let mut builder = app.notification().builder().title(&title).body(&body);
@@ -1839,7 +1914,7 @@ pub fn clear_notification(_app: tauri::AppHandle, #[allow(unused_variables)] fro
         let notif_id = get_notification_id(&from_id);
         let _ = _app.notification().cancel(vec![notif_id]);
     }
-    // Windows/Linux 没有统一的系统通知栏管理，不做处理
+    // Linux 的 notify-send 没有统一的按会话撤销接口。
 }
 
 // ═══════════════════════════════════════════════════════════════

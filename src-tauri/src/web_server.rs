@@ -195,6 +195,7 @@ async fn get_settings_http(State(state): State<Arc<AppState>>) -> impl IntoRespo
         .unwrap_or_else(|| "8888".to_string());
 
     let cfg = crate::config_file::read_config();
+    let close_to_tray = cfg.close_to_tray.unwrap_or(true);
     let db_path = cfg.db_path.unwrap_or_else(crate::config_file::get_default_db_path);
 
     let auto_download = crate::db::get_auto_download(&state.pool).await;
@@ -204,6 +205,7 @@ async fn get_settings_http(State(state): State<Arc<AppState>>) -> impl IntoRespo
         "port": port,
         "db_path": db_path,
         "auto_download": auto_download,
+        "close_to_tray": close_to_tray,
     }))
     .into_response()
 }
@@ -214,6 +216,7 @@ struct UpdateSettingsRequest {
     port: Option<String>,
     db_path: Option<String>,
     auto_download: Option<bool>,
+    close_to_tray: Option<bool>,
 }
 
 async fn update_settings_http(
@@ -253,6 +256,13 @@ async fn update_settings_http(
     }
     if let Some(enabled) = payload.auto_download {
         let _ = crate::db::set_auto_download(&state.pool, enabled).await;
+    }
+    if let Some(enabled) = payload.close_to_tray {
+        if !cfg!(target_os = "android") {
+            if let Err(e) = crate::config_file::save_close_to_tray_to_config(enabled) {
+                return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response();
+            }
+        }
     }
 
     Json(serde_json::json!({ "success": true })).into_response()
