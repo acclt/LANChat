@@ -9,6 +9,11 @@ description = "允许用对应应用打开文件"
 commands.allow = ["open_file_in_android"]
 
 [[permission]]
+identifier = "allow-get-android-file-state"
+description = "允许检查 Android 文件是否仍可访问"
+commands.allow = ["get_android_file_state"]
+
+[[permission]]
 identifier = "allow-get-media-token"
 description = "允许获取媒体代理 Token"
 commands.allow = ["get_media_token"]

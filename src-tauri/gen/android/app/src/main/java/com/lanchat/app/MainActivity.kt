@@ -31,6 +31,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.ByteArrayOutputStream
+import java.io.FileNotFoundException
 
 // 通知 Intent 的 Key 常量（来自 tauri-plugin-notification）
 private const val NOTIFICATION_INTENT_KEY = "NotificationId"
@@ -590,13 +591,26 @@ class MainActivity : TauriActivity() {
 
     private data class ExternalFile(val uri: Uri, val mimeType: String)
 
+    private fun storedReceivedFileUri(file: File): Uri? {
+        val receivedRoot = File(applicationInfo.dataDir, "received_files").canonicalFile
+        val canonicalFile = file.canonicalFile
+        if (canonicalFile.parentFile != receivedRoot) return null
+        return Uri.Builder()
+            .scheme("content")
+            .authority("$packageName.fdprovider")
+            .appendPath("stored")
+            .appendPath(canonicalFile.name)
+            .build()
+    }
+
     private fun resolveExternalFile(filePath: String): ExternalFile {
         val uri = if (filePath.startsWith("content://")) {
             Uri.parse(filePath)
         } else {
-            val file = File(filePath)
+            val file = File(filePath).canonicalFile
             require(file.isFile) { "文件不存在或不可读取: $filePath" }
-            FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            storedReceivedFileUri(file)
+                ?: FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
         }
 
         val extension = (uri.lastPathSegment ?: filePath)
@@ -612,9 +626,16 @@ class MainActivity : TauriActivity() {
         return ExternalFile(uri, mimeType)
     }
 
+    private fun ensureExternalFileReadable(target: ExternalFile) {
+        val descriptor = contentResolver.openAssetFileDescriptor(target.uri, "r")
+            ?: throw FileNotFoundException("文件已删除或无法读取")
+        descriptor.use { /* 只做存在性和权限预检，实际读取由目标应用完成。 */ }
+    }
+
     private fun errorResult(action: String, error: Exception): String {
         val message = when (error) {
             is ActivityNotFoundException -> "没有找到可处理此文件的应用"
+            is FileNotFoundException -> "文件已删除或无法读取"
             is SecurityException -> "文件访问权限已失效，请重新接收或选择该文件"
             else -> error.message ?: error.javaClass.simpleName
         }
@@ -628,6 +649,7 @@ class MainActivity : TauriActivity() {
     fun openFile(filePath: String): String {
         return try {
             val target = resolveExternalFile(filePath)
+            ensureExternalFileReadable(target)
             val viewIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(target.uri, target.mimeType)
                 clipData = ClipData.newUri(contentResolver, "open_file", target.uri)
@@ -647,6 +669,7 @@ class MainActivity : TauriActivity() {
     fun shareFile(filePath: String): String {
         return try {
             val target = resolveExternalFile(filePath)
+            ensureExternalFileReadable(target)
             val sendIntent = Intent(Intent.ACTION_SEND).apply {
                 type = target.mimeType
                 putExtra(Intent.EXTRA_STREAM, target.uri)
@@ -660,6 +683,28 @@ class MainActivity : TauriActivity() {
             "OK"
         } catch (error: Exception) {
             errorResult("分享文件", error)
+        }
+    }
+
+    @Keep
+    fun getFileState(filePath: String): String {
+        return try {
+            val target = resolveExternalFile(filePath)
+            ensureExternalFileReadable(target)
+            "AVAILABLE"
+        } catch (_: FileNotFoundException) {
+            "DELETED"
+        } catch (error: IllegalArgumentException) {
+            val localFileExists = !filePath.startsWith("content://") && File(filePath).isFile
+            if (localFileExists) {
+                "PROVIDER_ERROR:${error.message ?: "文件共享配置错误"}"
+            } else {
+                "DELETED"
+            }
+        } catch (_: SecurityException) {
+            "INACCESSIBLE"
+        } catch (error: Exception) {
+            "ERROR:${error.message ?: error.javaClass.simpleName}"
         }
     }
 }

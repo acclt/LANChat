@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
+import java.io.File
 import java.io.FileNotFoundException
 
 class FdContentProvider : ContentProvider() {
@@ -23,12 +24,34 @@ class FdContentProvider : ContentProvider() {
     override fun onCreate(): Boolean = true
 
     /**
+     * 兼容早期版本保存在 app data/received_files 下的接收文件。
+     * URI 只携带文件名，且 canonical path 必须直属于 received_files，避免路径穿越。
+     */
+    private fun resolveStoredFile(uri: Uri): File {
+        val fileName = uri.pathSegments.getOrNull(1)
+            ?: throw FileNotFoundException("Stored file name is missing")
+        val appContext = context ?: throw FileNotFoundException("Provider context is unavailable")
+        val root = File(appContext.applicationInfo.dataDir, "received_files").canonicalFile
+        val file = File(root, fileName).canonicalFile
+        if (file.parentFile != root || !file.isFile) {
+            throw FileNotFoundException("Stored file does not exist: $fileName")
+        }
+        return file
+    }
+
+    /**
      * 第三方 App 读取文件时触发。
      * URI 格式: content://com.lanchat.app.fdprovider/{msg_id}/{file_name}
      */
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
         val msgIdStr = uri.pathSegments.firstOrNull()
             ?: throw FileNotFoundException("URI path is empty")
+        if (msgIdStr == "stored") {
+            if (mode != "r") throw FileNotFoundException("Stored files are read-only")
+            val file = resolveStoredFile(uri)
+            println("[FdContentProvider] open stored file: ${file.name}")
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        }
         val msgId = msgIdStr.toLongOrNull()
             ?: throw FileNotFoundException("Invalid msgId: $msgIdStr")
 
@@ -56,11 +79,19 @@ class FdContentProvider : ContentProvider() {
         sortOrder: String?
     ): Cursor? {
         val msgIdStr = uri.pathSegments.firstOrNull() ?: return null
-        val msgId = msgIdStr.toLongOrNull() ?: return null
         val fileName = uri.lastPathSegment ?: "shared_file"
-
-        val fileSize = nativeGetFileSize(msgId)
-        if (fileSize < 0) return null // 缓存已失效
+        val fileSize = if (msgIdStr == "stored") {
+            try {
+                resolveStoredFile(uri).length()
+            } catch (_: FileNotFoundException) {
+                return null
+            }
+        } else {
+            val msgId = msgIdStr.toLongOrNull() ?: return null
+            nativeGetFileSize(msgId).also {
+                if (it < 0) return null // 缓存已失效
+            }
+        }
 
         val proj = projection ?: arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
         val cursor = MatrixCursor(proj)

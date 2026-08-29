@@ -150,6 +150,7 @@ pub fn run() {
             commands::send_file_from_fd,
             commands::share_file_to_other_app,
             commands::open_file_in_android,
+            commands::get_android_file_state,
             commands::get_media_token,
             commands::delete_messages,
             commands::clear_chat_history,

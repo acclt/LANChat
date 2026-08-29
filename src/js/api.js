@@ -896,6 +896,21 @@ async function apiOpenFileInAndroid(filePath) {
   }
 }
 
+// 检查 Android 文件是否仍可读取（系统目录 URI、应用目录和 FD 路径均支持）
+async function apiGetAndroidFileState(filePath) {
+  const tauri = getTauri();
+  if (!tauri || !navigator.userAgent.includes("Android")) {
+    return "NOT_APPLICABLE";
+  }
+
+  try {
+    return await tauri.core.invoke("get_android_file_state", { filePath });
+  } catch (e) {
+    console.error("[JS-API] 检查 Android 文件状态失败:", e);
+    return "ERROR";
+  }
+}
+
 // 批量删除消息
 async function apiDeleteMessages(msgIds) {
   const tauri = getTauri();

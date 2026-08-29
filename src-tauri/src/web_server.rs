@@ -1625,18 +1625,10 @@ async fn upload_file_http(
                     candidate, file_size
                 );
 
-                if let Err(error) =
-                    export_to_configured_android_directory(&state.pool, &candidate, &file_name)
-                        .await
-                {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            error: format!("文件已接收，但写入所选安卓文件夹失败: {error}"),
-                        }),
-                    )
-                        .into_response();
-                }
+                // 秒传也必须提交真实的最终保存地址，不能丢弃 SAF 导出返回的
+                // content URI。导出失败时保留 staging 文件并明确标记 save_failed。
+                let (stored_path, stored_status, save_error) =
+                    resolve_received_file_destination(&state.pool, &candidate, &file_name).await;
 
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1644,21 +1636,23 @@ async fn upload_file_http(
                     .as_secs() as i64;
 
                 // 秒传路径：先检查 offered 记录
-                let instant_path = candidate.to_str().unwrap_or("").to_string();
                 let updated_offered = crate::db::find_and_update_offered_record(
                     &state.pool,
                     &sender_id,
                     &file_name,
-                    &instant_path,
+                    &stored_path,
                 )
                 .await
                 .unwrap_or(None);
 
                 if let Some((existing_id, _)) = updated_offered {
                     // 立即标记为 accepted（文件已完整）
-                    if let Err(error) =
-                        crate::db::update_file_status_by_id(&state.pool, existing_id, "accepted")
-                            .await
+                    if let Err(error) = crate::db::update_file_status_by_id(
+                        &state.pool,
+                        existing_id,
+                        &stored_status,
+                    )
+                    .await
                     {
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1669,8 +1663,8 @@ async fn upload_file_http(
                             .into_response();
                     }
                     println!(
-                        "[Web Server] ✓ 秒传: 已更新 offered 记录(ID={}) 为 accepted",
-                        existing_id
+                        "[Web Server] ✓ 秒传: 已更新 offered 记录(ID={}) 为 {}，路径={}",
+                        existing_id, stored_status, stored_path
                     );
 
                     let sender_name = state
@@ -1688,10 +1682,11 @@ async fn upload_file_http(
                         "from_name": sender_name,
                         "content": file_name,
                         "msg_type": "file",
-                        "file_status": "accepted",
-                        "file_path": instant_path,
+                        "file_status": stored_status,
+                        "file_path": stored_path,
+                        "file_save_error": save_error,
                         "file_size": file_size,
-                        "file_id": instant_path.split('/').last().unwrap_or(&file_name),
+                        "file_id": file_name,
                         "file_name": file_name,
                         "sender_msg_id": sender_msg_id,
                         "timestamp": std::time::SystemTime::now()
@@ -1704,7 +1699,7 @@ async fn upload_file_http(
                         &state.pool,
                         sender_id.clone(),
                         file_name.clone(),
-                        instant_path.clone(),
+                        stored_path.clone(),
                         file_size,
                         timestamp,
                         &sender_msg_id,
@@ -1713,9 +1708,12 @@ async fn upload_file_http(
                     {
                         Ok(msg_id) => {
                             // 立即标记为 accepted（文件已完整）
-                            if let Err(error) =
-                                crate::db::update_file_status_by_id(&state.pool, msg_id, "accepted")
-                                    .await
+                            if let Err(error) = crate::db::update_file_status_by_id(
+                                &state.pool,
+                                msg_id,
+                                &stored_status,
+                            )
+                            .await
                             {
                                 return (
                                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -1726,8 +1724,8 @@ async fn upload_file_http(
                                     .into_response();
                             }
                             println!(
-                                "[Web Server] ✓ 秒传记录已创建并标记为 accepted，ID: {}",
-                                msg_id
+                                "[Web Server] ✓ 秒传记录已创建并标记为 {}，ID: {}，路径={}",
+                                stored_status, msg_id, stored_path
                             );
                             let sender_name = state
                                 .peer_manager
@@ -1743,10 +1741,11 @@ async fn upload_file_http(
                                 "from_name": sender_name,
                                 "content": file_name,
                                 "msg_type": "file",
-                                "file_status": "accepted",
-                                "file_path": instant_path,
+                                "file_status": stored_status,
+                                "file_path": stored_path,
+                                "file_save_error": save_error,
                                 "file_size": file_size,
-                                "file_id": instant_path.split('/').last().unwrap_or(&file_name),
+                                "file_id": file_name,
                                 "file_name": file_name,
                                 "sender_msg_id": sender_msg_id,
                                 "timestamp": std::time::SystemTime::now()
@@ -2027,26 +2026,28 @@ async fn upload_file_http(
                     final_path
                 );
 
-                if let Err(error) = export_to_configured_android_directory(
+                let (stored_path, stored_status, save_error) =
+                    resolve_received_file_destination(
+                        &state.pool,
+                        &final_path,
+                        &final_file_name,
+                    )
+                    .await;
+                let final_path_string = final_path.to_string_lossy().into_owned();
+
+                match crate::db::update_file_status_by_path(
                     &state.pool,
-                    &final_path,
-                    &final_file_name,
+                    &final_path_string,
+                    &stored_path,
+                    &stored_status,
                 )
                 .await
                 {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            error: format!("文件已接收，但写入所选安卓文件夹失败: {error}"),
-                        }),
-                    )
-                        .into_response();
-                }
-
-                match crate::db::update_file_status(&state.pool, &final_file_name, "accepted").await
-                {
                     Ok(_) => {
-                        println!("[Web Server] ✓ 文件状态已更新为 accepted");
+                        println!(
+                            "[Web Server] ✓ 文件状态已更新为 {}, 路径={}",
+                            stored_status, stored_path
+                        );
 
                         // 通知前端刷新（广播完整消息对象，让前端重新渲染）
                         let msg_id = crate::db::get_latest_msg_id_by_file(
@@ -2081,8 +2082,9 @@ async fn upload_file_http(
                             "from_name": sender_name,
                             "content": final_file_name,
                             "msg_type": "file",
-                            "file_status": "accepted",
-                            "file_path": final_path.to_str().unwrap_or(""),
+                            "file_status": stored_status,
+                            "file_path": stored_path,
+                            "file_save_error": save_error,
                             "file_size": file_size,
                             "file_id": file_id,
                             "file_name": final_file_name,
@@ -2246,24 +2248,15 @@ async fn accept_file_http(
         println!("[Web Server] ✓ 文件已移动到目标位置");
     }
 
-    if let Err(error) =
-        export_to_configured_android_directory(&state.pool, &final_path, &file_name).await
-    {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("文件已接收，但写入所选安卓文件夹失败: {error}"),
-            }),
-        )
-            .into_response();
-    }
+    let (stored_path, stored_status, save_error) =
+        resolve_received_file_destination(&state.pool, &final_path, &file_name).await;
 
     // 更新数据库状态
     if let Err(e) = crate::db::update_file_status_by_path(
         &state.pool,
         &temp_path,
-        final_path.to_str().unwrap(),
-        "accepted",
+        &stored_path,
+        &stored_status,
     )
     .await
     {
@@ -2277,10 +2270,15 @@ async fn accept_file_http(
             .into_response();
     }
 
-    println!("[Web Server] ✓ 文件已接受并保存到: {:?}", final_path);
+    println!(
+        "[Web Server] ✓ 文件已接受，状态={}, 保存位置={}",
+        stored_status, stored_path
+    );
     Json(serde_json::json!({
         "success": true,
-        "path": final_path.to_str().unwrap()
+        "path": stored_path,
+        "file_status": stored_status,
+        "file_save_error": save_error,
     }))
     .into_response()
 }
@@ -2402,6 +2400,28 @@ async fn export_to_configured_android_directory(
     {
         let _ = (pool, source_path, file_name);
         Ok(None)
+    }
+}
+
+/// 将接收完成的 staging 文件映射到聊天记录最终应保存的地址。
+/// Android SAF 导出成功时必须持久化系统返回的 content URI；导出失败时保留
+/// staging 文件作为可打开/可分享的兜底，避免传输成功却丢失访问入口。
+async fn resolve_received_file_destination(
+    pool: &Pool<Sqlite>,
+    staging_path: &std::path::Path,
+    file_name: &str,
+) -> (String, String, Option<String>) {
+    let staging_path_string = staging_path.to_string_lossy().into_owned();
+    match export_to_configured_android_directory(pool, staging_path, file_name).await {
+        Ok(Some(exported_uri)) => (exported_uri, "accepted".to_string(), None),
+        Ok(None) => (staging_path_string, "accepted".to_string(), None),
+        Err(error) => {
+            eprintln!(
+                "[Web Server] 文件已接收，但导出到配置目录失败；保留 staging 文件: {}",
+                error
+            );
+            (staging_path_string, "save_failed".to_string(), Some(error))
+        }
     }
 }
 

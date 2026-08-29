@@ -1600,7 +1600,7 @@ fn normalize_android_external_file_path(file_path: &str) -> String {
 }
 
 #[cfg(target_os = "android")]
-fn call_android_file_action(method: &str, file_path: &str) -> Result<(), String> {
+fn call_android_file_method(method: &str, file_path: &str) -> Result<String, String> {
     use jni::objects::JValue;
 
     let context = ndk_context::android_context();
@@ -1634,13 +1634,19 @@ fn call_android_file_action(method: &str, file_path: &str) -> Result<(), String>
         .to_string_lossy()
         .into_owned();
 
+    Ok(result)
+}
+
+#[cfg(target_os = "android")]
+fn call_android_file_action(method: &str, file_path: &str) -> Result<(), String> {
+    let result = call_android_file_method(method, file_path)?;
     if let Some(error) = result.strip_prefix("ERROR:") {
-        return Err(error.to_string());
+        Err(error.to_string())
+    } else if result == "OK" {
+        Ok(())
+    } else {
+        Err(format!("{method} 返回未知结果: {result}"))
     }
-    if result != "OK" {
-        return Err(format!("{method} 返回未知结果: {result}"));
-    }
-    Ok(())
 }
 
 // 分享文件到其他应用（仅 Android）
@@ -1672,6 +1678,24 @@ pub async fn open_file_in_android(#[allow(non_snake_case)] filePath: String) -> 
     let final_path = normalize_android_external_file_path(&filePath);
     println!("[Command] 准备打开文件: {}", final_path);
     call_android_file_action("openFile", &final_path)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn get_android_file_state(
+    #[allow(non_snake_case)] filePath: String,
+) -> Result<String, String> {
+    let final_path = normalize_android_external_file_path(&filePath);
+    call_android_file_method("getFileState", &final_path)
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub async fn get_android_file_state(
+    #[allow(non_snake_case)] filePath: String,
+) -> Result<String, String> {
+    let _ = filePath;
+    Ok("NOT_APPLICABLE".to_string())
 }
 
 #[cfg(not(target_os = "android"))]

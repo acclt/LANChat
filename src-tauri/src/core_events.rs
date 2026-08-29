@@ -113,7 +113,7 @@ impl CoreEventBus {
         let event = match (msg_type, file_status) {
             (Some("file"), Some("offered")) => CoreEvent::FileOfferReceived(payload),
             (Some("file"), Some("downloading")) => CoreEvent::FileTransferStarted(payload),
-            (Some("file"), Some("accepted" | "received" | "completed")) => {
+            (Some("file"), Some("accepted" | "received" | "completed" | "save_failed")) => {
                 CoreEvent::FileTransferCompleted(payload)
             }
             (Some("file_download_progress" | "file_progress"), _) => {
@@ -144,5 +144,18 @@ mod tests {
         assert!(receiver.try_recv().is_err());
         drop(receiver);
         assert_eq!(bus.subscriber_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn save_failed_file_is_still_reported_as_completed_transfer() {
+        let bus = CoreEventBus::default();
+        let mut receiver = bus.subscribe();
+        bus.publish_message(serde_json::json!({
+            "msg_type": "file",
+            "file_status": "save_failed",
+            "file_path": "fd:received-file"
+        }));
+        let event = receiver.recv().await.unwrap();
+        assert!(matches!(event, CoreEvent::FileTransferCompleted(_)));
     }
 }

@@ -13,6 +13,10 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Android 独立版本号：不跟随桌面端的 Tauri/Cargo 版本。
+val lanchatAndroidVersionName = "0.16"
+val lanchatAndroidVersionCode = 1017
+
 android {
     compileSdk = 36
     namespace = "com.lanchat.app"
@@ -21,8 +25,8 @@ android {
         applicationId = "com.lanchat.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        versionCode = lanchatAndroidVersionCode
+        versionName = lanchatAndroidVersionName
     }
     buildTypes {
         getByName("debug") {

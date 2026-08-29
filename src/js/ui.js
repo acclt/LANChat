@@ -1018,6 +1018,85 @@ function isImageFile(fileName) {
   return imageExtensions.some((ext) => lowerFileName.endsWith(ext));
 }
 
+// 将 Android SAF 的 content URI 转成用户可理解的保存位置。
+function formatAndroidStoredPath(filePath, fileName) {
+  if (!filePath) return fileName || "未知位置";
+
+  if (filePath.startsWith("fd:")) {
+    return `临时文件/${fileName || "未命名文件"}`;
+  }
+
+  if (filePath.startsWith("content://")) {
+    try {
+      const decoded = decodeURIComponent(filePath);
+      const documentMarker = "/document/";
+      const documentIndex = decoded.lastIndexOf(documentMarker);
+      if (documentIndex >= 0) {
+        const documentId = decoded.slice(documentIndex + documentMarker.length);
+        if (documentId.startsWith("primary:")) {
+          return `内部存储/${documentId.slice("primary:".length)}`;
+        }
+        if (documentId.includes(":")) {
+          const separator = documentId.indexOf(":");
+          const volume = documentId.slice(0, separator);
+          const path = documentId.slice(separator + 1);
+          return `${volume}/${path}`;
+        }
+      }
+      return `系统选定目录/${fileName || "未命名文件"}`;
+    } catch (_) {
+      return `系统选定目录/${fileName || "未命名文件"}`;
+    }
+  }
+
+  return filePath.replaceAll("\\", "/");
+}
+
+function showMessageActionToast(text) {
+  document.querySelector(".message-action-toast")?.remove();
+  const toast = document.createElement("div");
+  toast.className = "message-action-toast";
+  toast.textContent = text;
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 180);
+  }, 1400);
+}
+
+function getActionErrorMessage(error) {
+  if (typeof error === "string") return error;
+  if (error?.message) return error.message;
+  try {
+    return JSON.stringify(error);
+  } catch (_) {
+    return String(error || "未知错误");
+  }
+}
+
+async function copyMessageText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      if (!document.execCommand("copy")) throw new Error("copy failed");
+      textarea.remove();
+    }
+    showMessageActionToast("已复制");
+  } catch (error) {
+    console.error("[UI] 复制消息失败:", error);
+    showMessageActionToast("复制失败");
+  }
+}
+
 // 等待聊天窗口中的所有图片加载完成
 function waitForImagesToLoad(container) {
   return new Promise((resolve) => {
@@ -1372,6 +1451,8 @@ function createMessageElement(message, isSent) {
   const contentDiv = document.createElement("div");
   contentDiv.className = "message-content";
   let externalFileActionBtn = null;
+  let refreshAndroidFileState = null;
+  let renderAndroidFileState = null;
 
   // ---- 构建消息主体 ----
   if (message.msg_type === "file") {
@@ -1379,11 +1460,17 @@ function createMessageElement(message, isSent) {
     fileContainer.className = "message-file";
 
     const isImage = isImageFile(message.file_name || message.content);
+    const hasLocalFile = [
+      "sent",
+      "accepted",
+      "offering",
+      "uploading",
+      "pending",
+      "save_failed",
+    ].includes(message.file_status);
     if (
       isImage && message.file_path &&
-      (message.file_status === "sent" || message.file_status === "accepted" ||
-       message.file_status === "offering" || message.file_status === "uploading" ||
-       message.file_status === "pending")
+      hasLocalFile
     ) {
       const imgPreview = document.createElement("div");
       imgPreview.className = "image-preview";
@@ -1428,6 +1515,79 @@ function createMessageElement(message, isSent) {
       fileContainer.appendChild(createFileIcon(message));
     }
     contentDiv.appendChild(fileContainer);
+
+    const isAndroidFile = Boolean(
+      window.__TAURI__ &&
+      navigator.userAgent.includes("Android") &&
+      message.file_path
+    );
+    let androidFileState = "UNKNOWN";
+    if (isAndroidFile) {
+      const saveStateDiv = document.createElement("div");
+      saveStateDiv.className = "file-save-state";
+      saveStateDiv.title = message.file_path;
+      contentDiv.appendChild(saveStateDiv);
+
+      renderAndroidFileState = (state) => {
+        androidFileState = state;
+        saveStateDiv.className = "file-save-state";
+        const storedPath = formatAndroidStoredPath(
+          message.file_path,
+          message.file_name || message.content,
+        );
+
+        const separator = typeof state === "string" ? state.indexOf(":") : -1;
+        const stateType = separator >= 0 ? state.slice(0, separator) : state;
+        const stateDetail = separator >= 0 ? state.slice(separator + 1) : "";
+
+        if (stateType === "DELETED" || message.file_status === "deleted") {
+          saveStateDiv.classList.add("deleted");
+          saveStateDiv.textContent = "文件已删除";
+        } else if (stateType === "INACCESSIBLE") {
+          saveStateDiv.classList.add("inaccessible");
+          saveStateDiv.textContent = "文件不可访问 · 保存权限已失效";
+        } else if (stateType === "PROVIDER_ERROR" || stateType === "ERROR") {
+          saveStateDiv.classList.add("action-error");
+          saveStateDiv.textContent = `文件检查失败：${stateDetail || "无法读取文件状态"}`;
+        } else if (stateType === "OPEN_ERROR") {
+          saveStateDiv.classList.add("action-error");
+          saveStateDiv.textContent = `打开失败：${stateDetail || "未知错误"}`;
+        } else if (stateType === "SHARE_ERROR") {
+          saveStateDiv.classList.add("action-error");
+          saveStateDiv.textContent = `分享失败：${stateDetail || "未知错误"}`;
+        } else if (message.file_status === "save_failed") {
+          saveStateDiv.classList.add("save-failed");
+          saveStateDiv.textContent = `保存失败 · 已保留临时文件：${storedPath}`;
+        } else {
+          saveStateDiv.classList.add("saved");
+          saveStateDiv.textContent = `${isSent ? "文件位置" : "保存到"}：${storedPath}`;
+        }
+      };
+
+      refreshAndroidFileState = async () => {
+        const state = await apiGetAndroidFileState(message.file_path);
+        renderAndroidFileState(state);
+        return state;
+      };
+
+      renderAndroidFileState(message.file_status === "deleted" ? "DELETED" : "UNKNOWN");
+      refreshAndroidFileState().catch((error) => {
+        console.warn("[UI] 检查 Android 文件状态失败:", error);
+      });
+    }
+
+    const ensureAndroidFileAvailable = async () => {
+      if (!isAndroidFile || !refreshAndroidFileState) return true;
+      // 每次操作前重新检查，确保文件被用户从下载目录删除后立即更新为“已删除”。
+      const state = await refreshAndroidFileState();
+      if (state === "AVAILABLE" || state === "NOT_APPLICABLE") return true;
+      if (state === "DELETED") showMessageActionToast("文件已删除");
+      else if (state === "INACCESSIBLE") showMessageActionToast("文件访问权限已失效");
+      else showMessageActionToast(
+        state.includes(":") ? state.slice(state.indexOf(":") + 1) : "无法读取文件",
+      );
+      return false;
+    };
 
     // 文件点击事件
     if (message.file_status === "offered" || message.file_status === "invalid") {
@@ -1474,7 +1634,7 @@ function createMessageElement(message, isSent) {
           console.error("[UI] 请求文件失败:", e.message);
         }
       });
-    } else if (message.file_status === "sent" || message.file_status === "accepted" || message.file_status === "offering" || message.file_status === "uploading" || message.file_status === "pending") {
+    } else if (hasLocalFile) {
       fileContainer.style.cursor = "pointer";
       const tauri = window.__TAURI__;
       if (tauri) {
@@ -1482,9 +1642,12 @@ function createMessageElement(message, isSent) {
           if (navigator.userAgent.includes("Android")) {
             const openAndroidFile = async () => {
               try {
+                if (!await ensureAndroidFileAvailable()) return;
                 await apiOpenFileInAndroid(message.file_path);
               } catch (e) {
-                alert("打开失败: " + e.message);
+                const reason = getActionErrorMessage(e);
+                renderAndroidFileState?.(`OPEN_ERROR:${reason}`);
+                alert("打开失败: " + reason);
               }
             };
             fileContainer.setAttribute("role", "button");
@@ -1507,9 +1670,12 @@ function createMessageElement(message, isSent) {
             shareBtn.addEventListener("click", async (e) => {
               e.stopPropagation();
               try {
+                if (!await ensureAndroidFileAvailable()) return;
                 await apiShareFileToOtherApp(message.file_path);
               } catch (e) {
-                alert("分享失败: " + e.message);
+                const reason = getActionErrorMessage(e);
+                renderAndroidFileState?.(`SHARE_ERROR:${reason}`);
+                alert("分享失败: " + reason);
               }
             });
             externalFileActionBtn = shareBtn;
@@ -1691,6 +1857,22 @@ function createMessageElement(message, isSent) {
     textSpan.className = "message-text";
     textSpan.textContent = message.content;
     contentDiv.appendChild(textSpan);
+  }
+
+  // 普通文本气泡点击即复制；模型选择等交互型消息保持原有行为。
+  if (
+    message.msg_type === "text" &&
+    typeof message.content === "string" &&
+    !message.content.startsWith("[MODEL_LIST]")
+  ) {
+    contentDiv.classList.add("copyable-text-message");
+    contentDiv.title = "点击复制文本";
+    contentDiv.addEventListener("click", (event) => {
+      if (window.selectMode?.active) return;
+      if (event.target.closest("button, a, input, textarea")) return;
+      const visibleText = contentDiv.innerText?.trim() || message.content;
+      copyMessageText(visibleText);
+    });
   }
 
   // ---- 统一处理纯净版的状态展示 ----
