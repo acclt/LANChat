@@ -50,7 +50,12 @@ pub fn cache_fd_for_msg(msg_id: i64, fd: RawFd, name: String, size: u64) {
     }
 
     cache.insert(msg_id, (fd, name, size));
-    println!("[AndroidFD] FD 已缓存: msg_id={}, fd={} (cache_size={})", msg_id, fd, cache.len());
+    println!(
+        "[AndroidFD] FD 已缓存: msg_id={}, fd={} (cache_size={})",
+        msg_id,
+        fd,
+        cache.len()
+    );
 }
 
 /// 从 FD 缓存中克隆一个文件对象（通过 try_clone / dup 系统调用），
@@ -75,11 +80,17 @@ pub fn duplicate_cached_file(msg_id: i64) -> Option<(tokio::fs::File, String, u6
         // try_clone → 底层 fcntl(F_DUPFD_CLOEXEC)，纯内存复制 FD，绕过路径权限检查
         match original.try_clone() {
             Ok(cloned) => {
-                println!("[AndroidFD] FD 克隆成功 (try_clone): msg_id={}, raw_fd={}", msg_id, raw_fd);
+                println!(
+                    "[AndroidFD] FD 克隆成功 (try_clone): msg_id={}, raw_fd={}",
+                    msg_id, raw_fd
+                );
                 Some((tokio::fs::File::from_std(cloned), name.clone(), *size))
             }
             Err(e) => {
-                eprintln!("[AndroidFD] FD try_clone 失败: msg_id={}, err={}", msg_id, e);
+                eprintln!(
+                    "[AndroidFD] FD try_clone 失败: msg_id={}, err={}",
+                    msg_id, e
+                );
                 None
             }
         }
@@ -125,11 +136,17 @@ pub fn clone_fd_for_ipc(msg_id: i64) -> Option<RawFd> {
         match original.try_clone() {
             Ok(cloned) => {
                 let fd = cloned.into_raw_fd();
-                println!("[AndroidFD] 跨进程分享 FD 克隆成功: msg_id={}, fd={}", msg_id, fd);
+                println!(
+                    "[AndroidFD] 跨进程分享 FD 克隆成功: msg_id={}, fd={}",
+                    msg_id, fd
+                );
                 Some(fd)
             }
             Err(e) => {
-                eprintln!("[AndroidFD] 跨进程分享 FD try_clone 失败: msg_id={}, err={}", msg_id, e);
+                eprintln!(
+                    "[AndroidFD] 跨进程分享 FD try_clone 失败: msg_id={}, err={}",
+                    msg_id, e
+                );
                 None
             }
         }
@@ -154,7 +171,10 @@ pub extern "system" fn Java_com_lanchat_app_FdContentProvider_nativeGetClonedFd(
     _class: jni::objects::JClass,
     msg_id: jni::sys::jlong,
 ) -> jni::sys::jint {
-    println!("[AndroidFD] FdContentProvider 请求克隆 FD: msg_id={}", msg_id);
+    println!(
+        "[AndroidFD] FdContentProvider 请求克隆 FD: msg_id={}",
+        msg_id
+    );
     match clone_fd_for_ipc(msg_id as i64) {
         Some(fd) => fd as jni::sys::jint,
         None => -1,
@@ -232,29 +252,38 @@ impl AndroidFile {
         let ctx = ndk_context::android_context();
         let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
-        let mut env = vm.attach_current_thread()
+        let mut env = vm
+            .attach_current_thread()
             .map_err(|e| format!("无法附加到当前线程: {}", e))?;
         let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-        let content_resolver = env.call_method(
-            context,
-            "getContentResolver",
-            "()Landroid/content/ContentResolver;",
-            &[]
-        ).map_err(|e| format!("无法获取 ContentResolver: {}", e))?
-        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+        let content_resolver = env
+            .call_method(
+                context,
+                "getContentResolver",
+                "()Landroid/content/ContentResolver;",
+                &[],
+            )
+            .map_err(|e| format!("无法获取 ContentResolver: {}", e))?
+            .l()
+            .map_err(|e| format!("无法转换为对象: {}", e))?;
 
-        let uri_string = env.new_string(uri)
+        let uri_string = env
+            .new_string(uri)
             .map_err(|e| format!("无法创建 URI 字符串: {}", e))?;
-        let uri_obj = env.call_static_method(
-            "android/net/Uri",
-            "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[JValue::Object(&JObject::from(uri_string))]
-        ).map_err(|e| format!("无法解析 URI: {}", e))?
-        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+        let uri_obj = env
+            .call_static_method(
+                "android/net/Uri",
+                "parse",
+                "(Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&JObject::from(uri_string))],
+            )
+            .map_err(|e| format!("无法解析 URI: {}", e))?
+            .l()
+            .map_err(|e| format!("无法转换为对象: {}", e))?;
 
-        let mode_string = env.new_string("r")
+        let mode_string = env
+            .new_string("r")
             .map_err(|e| format!("无法创建模式字符串: {}", e))?;
         let pfd_result = env.call_method(
             content_resolver,
@@ -262,8 +291,8 @@ impl AndroidFile {
             "(Landroid/net/Uri;Ljava/lang/String;)Landroid/os/ParcelFileDescriptor;",
             &[
                 JValue::Object(&uri_obj),
-                JValue::Object(&JObject::from(mode_string))
-            ]
+                JValue::Object(&JObject::from(mode_string)),
+            ],
         );
 
         if env.exception_check().unwrap_or(false) {
@@ -274,19 +303,18 @@ impl AndroidFile {
 
         let pfd = pfd_result
             .map_err(|e| format!("无法打开文件描述符: {}", e))?
-            .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+            .l()
+            .map_err(|e| format!("无法转换为对象: {}", e))?;
 
         if pfd.is_null() {
             return Err(format!("openFileDescriptor 返回 null: {}", uri));
         }
 
-        let fd = env.call_method(
-            pfd,
-            "detachFd",
-            "()I",
-            &[]
-        ).map_err(|e| format!("无法分离文件描述符: {}", e))?
-        .i().map_err(|e| format!("无法转换为整数: {}", e))?;
+        let fd = env
+            .call_method(pfd, "detachFd", "()I", &[])
+            .map_err(|e| format!("无法分离文件描述符: {}", e))?
+            .i()
+            .map_err(|e| format!("无法转换为整数: {}", e))?;
 
         println!("[AndroidFD] 成功获取文件描述符: fd={}", fd);
         Self::from_fd(fd)
@@ -302,27 +330,35 @@ impl AndroidFile {
         let ctx = ndk_context::android_context();
         let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
-        let mut env = vm.attach_current_thread()
+        let mut env = vm
+            .attach_current_thread()
             .map_err(|e| format!("无法附加到当前线程: {}", e))?;
         let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-        let content_resolver = env.call_method(
-            &context,
-            "getContentResolver",
-            "()Landroid/content/ContentResolver;",
-            &[],
-        ).map_err(|e| format!("无法获取 ContentResolver: {}", e))?
-        .l().map_err(|e| format!("转换失败: {}", e))?;
+        let content_resolver = env
+            .call_method(
+                &context,
+                "getContentResolver",
+                "()Landroid/content/ContentResolver;",
+                &[],
+            )
+            .map_err(|e| format!("无法获取 ContentResolver: {}", e))?
+            .l()
+            .map_err(|e| format!("转换失败: {}", e))?;
 
-        let uri_jstring = env.new_string(uri)
+        let uri_jstring = env
+            .new_string(uri)
             .map_err(|e| format!("创建字符串失败: {}", e))?;
-        let uri_obj = env.call_static_method(
-            "android/net/Uri",
-            "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[JValue::Object(&JObject::from(uri_jstring))],
-        ).map_err(|e| format!("解析 URI 失败: {}", e))?
-        .l().map_err(|e| format!("转换失败: {}", e))?;
+        let uri_obj = env
+            .call_static_method(
+                "android/net/Uri",
+                "parse",
+                "(Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&JObject::from(uri_jstring))],
+            )
+            .map_err(|e| format!("解析 URI 失败: {}", e))?
+            .l()
+            .map_err(|e| format!("转换失败: {}", e))?;
 
         let cursor = env.call_method(
             &content_resolver,
@@ -342,9 +378,11 @@ impl AndroidFile {
             return Err("ContentResolver.query 返回 null".to_string());
         }
 
-        let has_row = env.call_method(&cursor, "moveToFirst", "()Z", &[])
+        let has_row = env
+            .call_method(&cursor, "moveToFirst", "()Z", &[])
             .map_err(|e| format!("moveToFirst 失败: {}", e))?
-            .z().map_err(|e| format!("转换失败: {}", e))?;
+            .z()
+            .map_err(|e| format!("转换失败: {}", e))?;
 
         if !has_row {
             let _ = env.call_method(&cursor, "close", "()V", &[]);
@@ -352,66 +390,73 @@ impl AndroidFile {
         }
 
         let display_name_col = {
-            let col_name = env.new_string("_display_name")
+            let col_name = env
+                .new_string("_display_name")
                 .map_err(|e| format!("创建字符串失败: {}", e))?;
             env.call_method(
                 &cursor,
                 "getColumnIndex",
                 "(Ljava/lang/String;)I",
                 &[JValue::Object(&JObject::from(col_name))],
-            ).map_err(|e| format!("getColumnIndex 失败: {}", e))?
-            .i().map_err(|e| format!("转换失败: {}", e))?
+            )
+            .map_err(|e| format!("getColumnIndex 失败: {}", e))?
+            .i()
+            .map_err(|e| format!("转换失败: {}", e))?
         };
 
         let size_col = {
-            let col_name = env.new_string("_size")
+            let col_name = env
+                .new_string("_size")
                 .map_err(|e| format!("创建字符串失败: {}", e))?;
             env.call_method(
                 &cursor,
                 "getColumnIndex",
                 "(Ljava/lang/String;)I",
                 &[JValue::Object(&JObject::from(col_name))],
-            ).map_err(|e| format!("getColumnIndex 失败: {}", e))?
-            .i().map_err(|e| format!("转换失败: {}", e))?
+            )
+            .map_err(|e| format!("getColumnIndex 失败: {}", e))?
+            .i()
+            .map_err(|e| format!("转换失败: {}", e))?
         };
 
         let file_name = if display_name_col >= 0 {
-            let name_obj = env.call_method(
-                &cursor,
-                "getString",
-                "(I)Ljava/lang/String;",
-                &[JValue::Int(display_name_col)],
-            ).map_err(|e| format!("getString 失败: {}", e))?
-            .l().map_err(|e| format!("转换失败: {}", e))?;
+            let name_obj = env
+                .call_method(
+                    &cursor,
+                    "getString",
+                    "(I)Ljava/lang/String;",
+                    &[JValue::Int(display_name_col)],
+                )
+                .map_err(|e| format!("getString 失败: {}", e))?
+                .l()
+                .map_err(|e| format!("转换失败: {}", e))?;
 
             if name_obj.is_null() {
                 String::new()
             } else {
                 let jstr = unsafe { jni::objects::JString::from_raw(name_obj.into_raw()) };
-                env.get_string(&jstr)
-                    .map(|s| s.into())
-                    .unwrap_or_default()
+                env.get_string(&jstr).map(|s| s.into()).unwrap_or_default()
             }
         } else {
             String::new()
         };
 
         let file_size = if size_col >= 0 {
-            env.call_method(
-                &cursor,
-                "getLong",
-                "(I)J",
-                &[JValue::Int(size_col)],
-            ).map_err(|e| format!("getLong 失败: {}", e))?
-            .j().map_err(|e| format!("转换失败: {}", e))
-            .unwrap_or(0) as u64
+            env.call_method(&cursor, "getLong", "(I)J", &[JValue::Int(size_col)])
+                .map_err(|e| format!("getLong 失败: {}", e))?
+                .j()
+                .map_err(|e| format!("转换失败: {}", e))
+                .unwrap_or(0) as u64
         } else {
             0u64
         };
 
         let _ = env.call_method(&cursor, "close", "()V", &[]);
 
-        println!("[AndroidFD] 查询结果: 文件名={}, 大小={}", file_name, file_size);
+        println!(
+            "[AndroidFD] 查询结果: 文件名={}, 大小={}",
+            file_name, file_size
+        );
         Ok((file_name, file_size))
     }
 
@@ -424,15 +469,15 @@ impl AndroidFile {
         let ctx = ndk_context::android_context();
         let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
-        let mut env = vm.attach_current_thread()
+        let mut env = vm
+            .attach_current_thread()
             .map_err(|e| format!("无法附加到当前线程: {}", e))?;
 
-        let sdk_int = env.get_static_field(
-            "android/os/Build$VERSION",
-            "SDK_INT",
-            "I",
-        ).map_err(|e| format!("获取 SDK_INT 失败: {}", e))?
-        .i().map_err(|e| format!("转换为 int 失败: {}", e))?;
+        let sdk_int = env
+            .get_static_field("android/os/Build$VERSION", "SDK_INT", "I")
+            .map_err(|e| format!("获取 SDK_INT 失败: {}", e))?
+            .i()
+            .map_err(|e| format!("转换为 int 失败: {}", e))?;
 
         println!("[AndroidFD] API level: {}", sdk_int);
         Ok(sdk_int)
@@ -447,27 +492,35 @@ impl AndroidFile {
         let ctx = ndk_context::android_context();
         let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
-        let mut env = vm.attach_current_thread()
+        let mut env = vm
+            .attach_current_thread()
             .map_err(|e| format!("无法附加到当前线程: {}", e))?;
         let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-        let content_resolver = env.call_method(
-            context,
-            "getContentResolver",
-            "()Landroid/content/ContentResolver;",
-            &[],
-        ).map_err(|e| format!("无法获取 ContentResolver: {}", e))?
-        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+        let content_resolver = env
+            .call_method(
+                context,
+                "getContentResolver",
+                "()Landroid/content/ContentResolver;",
+                &[],
+            )
+            .map_err(|e| format!("无法获取 ContentResolver: {}", e))?
+            .l()
+            .map_err(|e| format!("无法转换为对象: {}", e))?;
 
-        let uri_string = env.new_string(uri)
+        let uri_string = env
+            .new_string(uri)
             .map_err(|e| format!("创建 URI 字符串失败: {}", e))?;
-        let uri_obj = env.call_static_method(
-            "android/net/Uri",
-            "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[JValue::Object(&JObject::from(uri_string))],
-        ).map_err(|e| format!("解析 URI 失败: {}", e))?
-        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+        let uri_obj = env
+            .call_static_method(
+                "android/net/Uri",
+                "parse",
+                "(Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&JObject::from(uri_string))],
+            )
+            .map_err(|e| format!("解析 URI 失败: {}", e))?
+            .l()
+            .map_err(|e| format!("无法转换为对象: {}", e))?;
 
         // FLAG_GRANT_READ_URI_PERMISSION = 1
         let flags: i32 = 1;
@@ -476,10 +529,7 @@ impl AndroidFile {
             content_resolver,
             "takePersistableUriPermission",
             "(Landroid/net/Uri;I)V",
-            &[
-                JValue::Object(&uri_obj),
-                JValue::Int(flags),
-            ],
+            &[JValue::Object(&uri_obj), JValue::Int(flags)],
         );
 
         // ★ 必须先检查并清除 Java 异常，再处理 Result
@@ -505,27 +555,35 @@ impl AndroidFile {
         let ctx = ndk_context::android_context();
         let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
-        let mut env = vm.attach_current_thread()
+        let mut env = vm
+            .attach_current_thread()
             .map_err(|e| format!("无法附加到当前线程: {}", e))?;
         let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-        let content_resolver = env.call_method(
-            context,
-            "getContentResolver",
-            "()Landroid/content/ContentResolver;",
-            &[],
-        ).map_err(|e| format!("无法获取 ContentResolver: {}", e))?
-        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+        let content_resolver = env
+            .call_method(
+                context,
+                "getContentResolver",
+                "()Landroid/content/ContentResolver;",
+                &[],
+            )
+            .map_err(|e| format!("无法获取 ContentResolver: {}", e))?
+            .l()
+            .map_err(|e| format!("无法转换为对象: {}", e))?;
 
-        let uri_string = env.new_string(uri)
+        let uri_string = env
+            .new_string(uri)
             .map_err(|e| format!("创建 URI 字符串失败: {}", e))?;
-        let uri_obj = env.call_static_method(
-            "android/net/Uri",
-            "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[JValue::Object(&JObject::from(uri_string))],
-        ).map_err(|e| format!("解析 URI 失败: {}", e))?
-        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+        let uri_obj = env
+            .call_static_method(
+                "android/net/Uri",
+                "parse",
+                "(Ljava/lang/String;)Landroid/net/Uri;",
+                &[JValue::Object(&JObject::from(uri_string))],
+            )
+            .map_err(|e| format!("解析 URI 失败: {}", e))?
+            .l()
+            .map_err(|e| format!("无法转换为对象: {}", e))?;
 
         let flags: i32 = 1; // FLAG_GRANT_READ_URI_PERMISSION
 
@@ -533,10 +591,7 @@ impl AndroidFile {
             content_resolver,
             "releasePersistableUriPermission",
             "(Landroid/net/Uri;I)V",
-            &[
-                JValue::Object(&uri_obj),
-                JValue::Int(flags),
-            ],
+            &[JValue::Object(&uri_obj), JValue::Int(flags)],
         );
 
         // ★ 必须先检查并清除 Java 异常
@@ -562,35 +617,40 @@ impl AndroidFile {
         let ctx = ndk_context::android_context();
         let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| format!("无法获取 JavaVM: {}", e))?;
-        let mut env = vm.attach_current_thread()
+        let mut env = vm
+            .attach_current_thread()
             .map_err(|e| format!("无法附加到当前线程: {}", e))?;
         let context = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-        let content_resolver = env.call_method(
-            context,
-            "getContentResolver",
-            "()Landroid/content/ContentResolver;",
-            &[],
-        ).map_err(|e| format!("无法获取 ContentResolver: {}", e))?
-        .l().map_err(|e| format!("无法转换为对象: {}", e))?;
+        let content_resolver = env
+            .call_method(
+                context,
+                "getContentResolver",
+                "()Landroid/content/ContentResolver;",
+                &[],
+            )
+            .map_err(|e| format!("无法获取 ContentResolver: {}", e))?
+            .l()
+            .map_err(|e| format!("无法转换为对象: {}", e))?;
 
         // getPersistedUriPermissions() → java.util.List
-        let list = env.call_method(
-            content_resolver,
-            "getPersistedUriPermissions",
-            "()Ljava/util/List;",
-            &[],
-        ).map_err(|e| format!("getPersistedUriPermissions 失败: {}", e))?
-        .l().map_err(|e| format!("无法转换为 List: {}", e))?;
+        let list = env
+            .call_method(
+                content_resolver,
+                "getPersistedUriPermissions",
+                "()Ljava/util/List;",
+                &[],
+            )
+            .map_err(|e| format!("getPersistedUriPermissions 失败: {}", e))?
+            .l()
+            .map_err(|e| format!("无法转换为 List: {}", e))?;
 
         // List.size() → int
-        let count = env.call_method(
-            &list,
-            "size",
-            "()I",
-            &[],
-        ).map_err(|e| format!("List.size() 失败: {}", e))?
-        .i().map_err(|e| format!("转换为 int 失败: {}", e))?;
+        let count = env
+            .call_method(&list, "size", "()I", &[])
+            .map_err(|e| format!("List.size() 失败: {}", e))?
+            .i()
+            .map_err(|e| format!("转换为 int 失败: {}", e))?;
 
         println!("[AndroidFD] 系统持久化 URI 权限数量: {}", count);
         Ok(count)
@@ -604,17 +664,14 @@ impl AndroidFile {
         let ctx = ndk_context::android_context();
         let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| format!("获取 JavaVM 失败: {}", e))?;
-        let mut env = vm.attach_current_thread()
+        let mut env = vm
+            .attach_current_thread()
             .map_err(|e| format!("附加线程失败: {}", e))?;
 
         let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
 
-        env.call_method(
-            &activity,
-            "launchSafFilePicker",
-            "()V",
-            &[]
-        ).map_err(|e| format!("JNI 调用 launchSafFilePicker 失败: {}", e))?;
+        env.call_method(&activity, "launchSafFilePicker", "()V", &[])
+            .map_err(|e| format!("JNI 调用 launchSafFilePicker 失败: {}", e))?;
 
         println!("[AndroidFD] JNI 已触发 launchSafFilePicker");
         Ok(())
@@ -640,12 +697,113 @@ impl AndroidFile {
         Self::trigger_activity_method("launchSafMultiFilePicker")
     }
 
+    pub fn trigger_download_directory_picker_jni() -> Result<(), String> {
+        Self::trigger_activity_method("launchDownloadDirectoryPicker")
+    }
+
     pub fn trigger_media_images_jni() -> Result<(), String> {
         Self::trigger_activity_method("loadMediaImages")
     }
 
     pub fn trigger_installed_apps_jni() -> Result<(), String> {
         Self::trigger_activity_method("loadInstalledApps")
+    }
+}
+
+/// 将应用专属目录中已经完整接收的文件导出到用户通过 SAF 选择的目录。
+/// Kotlin 侧负责 DocumentsContract/ContentResolver 操作，Rust 侧只传递稳定的字符串参数。
+#[cfg(target_os = "android")]
+pub fn export_received_file(
+    tree_uri: &str,
+    source_path: &str,
+    file_name: &str,
+) -> Result<String, String> {
+    use jni::objects::{JClass, JObject, JString, JValue};
+    use jni::JavaVM;
+
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+        .map_err(|error| format!("获取 JavaVM 失败: {error}"))?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|error| format!("附加 JNI 线程失败: {error}"))?;
+
+    // FindClass 在由 Rust/Tokio 附加的原生线程上只使用系统 ClassLoader，
+    // 无法找到应用 Kotlin 类。必须从 Android Context 取得应用 ClassLoader。
+    let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+    let class_loader = env
+        .call_method(&context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
+        .map_err(|error| format!("获取应用 ClassLoader 失败: {error}"))?
+        .l()
+        .map_err(|error| format!("读取应用 ClassLoader 失败: {error}"))?;
+    let class_name = env
+        .new_string("com.lanchat.app.AndroidDownloadStore")
+        .map_err(|error| format!("创建 Kotlin 类名失败: {error}"))?;
+    let loaded_class = match env.call_method(
+        &class_loader,
+        "loadClass",
+        "(Ljava/lang/String;)Ljava/lang/Class;",
+        &[JValue::Object(&JObject::from(class_name))],
+    ) {
+        Ok(value) => value
+            .l()
+            .map_err(|error| format!("读取 Kotlin 导出类失败: {error}"))?,
+        Err(error) => {
+            if env.exception_check().unwrap_or(false) {
+                let _ = env.exception_describe();
+                let _ = env.exception_clear();
+            }
+            return Err(format!("加载 Kotlin 文件导出类失败: {error}"));
+        }
+    };
+    let download_store_class = JClass::from(loaded_class);
+
+    let tree_uri = env
+        .new_string(tree_uri)
+        .map_err(|error| format!("创建目录 URI 参数失败: {error}"))?;
+    let source_path = env
+        .new_string(source_path)
+        .map_err(|error| format!("创建源路径参数失败: {error}"))?;
+    let file_name = env
+        .new_string(file_name)
+        .map_err(|error| format!("创建文件名参数失败: {error}"))?;
+
+    let result_value = match env.call_static_method(
+        &download_store_class,
+        "exportReceivedFile",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        &[
+            JValue::Object(&JObject::from(tree_uri)),
+            JValue::Object(&JObject::from(source_path)),
+            JValue::Object(&JObject::from(file_name)),
+        ],
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            if env.exception_check().unwrap_or(false) {
+                let _ = env.exception_describe();
+                let _ = env.exception_clear();
+            }
+            return Err(format!("调用 Android 文件导出失败: {error}"));
+        }
+    };
+    let result = result_value
+        .l()
+        .map_err(|error| format!("读取 Android 文件导出结果失败: {error}"))?;
+
+    if result.is_null() {
+        return Err("Android 文件导出未返回结果".to_string());
+    }
+
+    let result = JString::from(result);
+    let value: String = env
+        .get_string(&result)
+        .map_err(|error| format!("解析 Android 文件导出结果失败: {error}"))?
+        .into();
+    if let Some(message) = value.strip_prefix("ERROR:") {
+        Err(message.to_string())
+    } else {
+        Ok(value)
     }
 }
 

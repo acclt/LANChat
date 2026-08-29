@@ -1,5 +1,14 @@
 // 防御性获取 Tauri 接口
 const getTauri = () => window.__TAURI__;
+const getErrorMessage = (error) => {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  try {
+    return JSON.stringify(error) || "未知错误";
+  } catch (_) {
+    return String(error ?? "未知错误");
+  }
+};
 
 async function apiGetMyName() {
   const tauri = getTauri();
@@ -135,7 +144,7 @@ async function apiGetDefaultDownloadPath() {
       return await tauri.core.invoke("get_default_download_path");
     } catch (e) {
       console.error("[JS-API] 获取默认路径失败:", e);
-      return "/storage/emulated/0/Download/LANChat";
+      return "";
     }
   } else {
     return "/tmp/lanchat";
@@ -453,7 +462,7 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
       }
     } catch (e) {
       console.error("[JS-API] 文件发送失败:", e);
-      throw new Error("发送失败: " + e.message);
+      throw new Error("发送失败: " + getErrorMessage(e));
     }
   } else {
     // Web 端 - 通过 HTTP 上传（使用分块协议）
@@ -659,7 +668,7 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
       };
     } catch (e) {
       console.error("[JS-API] 文件上传失败:", e);
-      throw new Error("上传失败: " + e.message);
+      throw new Error("上传失败: " + getErrorMessage(e));
     }
   }
 }

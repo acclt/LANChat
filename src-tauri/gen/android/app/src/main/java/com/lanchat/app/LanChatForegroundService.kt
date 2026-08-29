@@ -56,6 +56,7 @@ class LanChatForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        AndroidDownloadStore.initialize(applicationContext)
         notificationManager = getSystemService(NotificationManager::class.java)
         connectivityManager = getSystemService(ConnectivityManager::class.java)
         wifiManager = applicationContext.getSystemService(WifiManager::class.java)

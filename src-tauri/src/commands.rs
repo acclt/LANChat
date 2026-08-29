@@ -1,7 +1,7 @@
 // commands.rs - Tauri 命令（桌面端和移动端共享）
+use std::sync::atomic::AtomicBool;
 #[cfg(not(target_os = "android"))]
 use std::sync::atomic::Ordering;
-use std::sync::atomic::AtomicBool;
 
 #[cfg(feature = "desktop")]
 use crate::db::DbState;
@@ -195,10 +195,7 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
         file_size, adjusted_chunk_size, total_chunks
     );
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .map_err(|e| format!("创建客户端失败: {}", e))?;
+    let client = crate::network::lan_http_client(Some(std::time::Duration::from_secs(300)))?;
 
     let upload_url = format!("http://{}/api/upload", peer_addr);
 
@@ -236,8 +233,12 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
             let elapsed = start_time.elapsed().as_secs_f64();
             if elapsed > 0.0 {
                 (offset as f64 / (1024.0 * 1024.0)) / elapsed
-            } else { 0.0 }
-        } else { 0.0 };
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
 
         let sender_msg_id_str = message_id.map(|id| id.to_string()).unwrap_or_default();
 
@@ -390,7 +391,8 @@ pub async fn get_my_id(state: State<'_, DbState>) -> Result<String, String> {
 pub async fn get_settings(state: State<'_, DbState>) -> Result<serde_json::Value, String> {
     let download_path = crate::db::get_download_path(&state.pool).await?;
     #[cfg(target_os = "android")]
-    let port = crate::db::get_port(&state.pool).await
+    let port = crate::db::get_port(&state.pool)
+        .await
         .map(|p| p.to_string())
         .unwrap_or_else(|| "8888".to_string());
     #[cfg(not(target_os = "android"))]
@@ -399,7 +401,9 @@ pub async fn get_settings(state: State<'_, DbState>) -> Result<serde_json::Value
         .unwrap_or_else(|| "8888".to_string());
     let cfg = crate::config_file::read_config();
     let close_to_tray = cfg.close_to_tray.unwrap_or(true);
-    let db_path = cfg.db_path.unwrap_or_else(crate::config_file::get_default_db_path);
+    let db_path = cfg
+        .db_path
+        .unwrap_or_else(crate::config_file::get_default_db_path);
     let auto_download = crate::db::get_auto_download(&state.pool).await;
 
     Ok(serde_json::json!({
@@ -634,30 +638,42 @@ pub async fn send_file(
         #[cfg(target_os = "android")]
         {
             use crate::android_fd::AndroidFile;
-            let (name, size) = AndroidFile::query_content_uri_info(&actual_path).unwrap_or_default();
+            let (name, size) =
+                AndroidFile::query_content_uri_info(&actual_path).unwrap_or_default();
             let name = if name.is_empty() {
-                let raw_seg = actual_path.split('/').last()
+                let raw_seg = actual_path
+                    .split('/')
+                    .last()
                     .and_then(|s| urlencoding::decode(s).ok())
                     .map(|s| s.to_string())
                     .unwrap_or_default();
                 let name = if let Some(idx) = raw_seg.rfind(':') {
                     raw_seg[idx + 1..].to_string()
-                } else { raw_seg };
+                } else {
+                    raw_seg
+                };
                 if !name.contains('.') || name.is_empty() {
                     format!("file_{}.dat", chrono::Utc::now().timestamp())
-                } else { name }
-            } else { name };
+                } else {
+                    name
+                }
+            } else {
+                name
+            };
             (name, size as usize)
         }
         #[cfg(not(target_os = "android"))]
-        { return Err("content:// URI 仅在 Android 上支持".to_string()); }
+        {
+            return Err("content:// URI 仅在 Android 上支持".to_string());
+        }
     } else {
         let name = std::path::Path::new(&actual_path)
-            .file_name().and_then(|n| n.to_str())
+            .file_name()
+            .and_then(|n| n.to_str())
             .ok_or("无效的文件名")?
             .to_string();
-        let metadata = std::fs::metadata(&actual_path)
-            .map_err(|e| format!("读取文件信息失败: {}", e))?;
+        let metadata =
+            std::fs::metadata(&actual_path).map_err(|e| format!("读取文件信息失败: {}", e))?;
         (name, metadata.len() as usize)
     };
 
@@ -666,7 +682,11 @@ pub async fn send_file(
     // ── 检查接收端是否离线 ──
     let is_offline_now = {
         let peers = peer_state.manager.get_all_peers();
-        peers.iter().find(|p| p.id == peer_id).map(|p| p.is_offline).unwrap_or(true)
+        peers
+            .iter()
+            .find(|p| p.id == peer_id)
+            .map(|p| p.is_offline)
+            .unwrap_or(true)
     };
 
     if is_offline_now {
@@ -695,13 +715,20 @@ pub async fn send_file(
     // ── 检查接收端的 auto_download 设置 ──
     let auto_enabled = {
         let auto_dl_url = format!("http://{}/api/auto_download", peer_addr);
-        match reqwest::Client::new().get(&auto_dl_url).send().await {
-            Ok(resp) => {
-                if let Ok(data) = resp.json::<serde_json::Value>().await {
-                    data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true)
-                } else { true }
-            }
-            Err(_) => true, // 连不上时默认 ON（保底走现有上传流程）
+        match crate::network::lan_http_client(None) {
+            Ok(client) => match client.get(&auto_dl_url).send().await {
+                Ok(resp) => {
+                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                        data.get("enabled")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true)
+                    } else {
+                        true
+                    }
+                }
+                Err(_) => true, // 连不上时默认 ON（保底走现有上传流程）
+            },
+            Err(_) => true,
         }
     };
 
@@ -726,12 +753,19 @@ pub async fn send_file(
             let sender_msg_id_val = msg_id.unwrap_or(0);
 
             // 1. 如果系统配额将满，FIFO 淘汰最旧的
-            let max_limit = if AndroidFile::get_api_level().unwrap_or(30) >= 30 { 500 } else { 120 };
+            let max_limit = if AndroidFile::get_api_level().unwrap_or(30) >= 30 {
+                500
+            } else {
+                120
+            };
             let sys_count = AndroidFile::get_persisted_uri_count().unwrap_or(0);
             let need_free = (sys_count as i64) - (max_limit as i64 - 1);
             if need_free > 0 {
                 for _ in 0..need_free {
-                    match crate::db::get_oldest_persisted_uri(&state.pool).await.unwrap_or(None) {
+                    match crate::db::get_oldest_persisted_uri(&state.pool)
+                        .await
+                        .unwrap_or(None)
+                    {
                         Some((_id, oldest_uri, _oldest_msg_id)) => {
                             let _ = AndroidFile::release_persistable_uri_permission(&oldest_uri);
                             let _ = crate::db::remove_persisted_uri(&state.pool, &oldest_uri).await;
@@ -745,7 +779,9 @@ pub async fn send_file(
             // 2. 尝试持久化当前 URI
             match AndroidFile::take_persistable_uri_permission(&actual_path) {
                 Ok(_) => {
-                    let _ = crate::db::add_persisted_uri(&state.pool, &actual_path, sender_msg_id_val).await;
+                    let _ =
+                        crate::db::add_persisted_uri(&state.pool, &actual_path, sender_msg_id_val)
+                            .await;
                     println!("[Command] ✓ content URI 权限已持久化: {}", actual_path);
                 }
                 Err(e) => {
@@ -765,15 +801,23 @@ pub async fn send_file(
                             &state.pool,
                             sender_msg_id_val,
                             &format!("fd:{}", sender_msg_id_val),
-                        ).await;
-                        println!("[Command] ✓ FD 已缓存作为降级: msg_id={}", sender_msg_id_val);
+                        )
+                        .await;
+                        println!(
+                            "[Command] ✓ FD 已缓存作为降级: msg_id={}",
+                            sender_msg_id_val
+                        );
                     }
                 }
             }
         }
 
-        let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
-        let my_name = crate::db::get_username(&state.pool).await.unwrap_or_default();
+        let my_id = crate::db::get_user_id(&state.pool)
+            .await
+            .unwrap_or_default();
+        let my_name = crate::db::get_username(&state.pool)
+            .await
+            .unwrap_or_default();
         let sender_msg_id = msg_id.unwrap_or(0);
 
         // 通过 WS 向接收端发送 file_offer
@@ -813,20 +857,36 @@ pub async fn send_file(
                 .map(|s| {
                     if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peer_id) {
                         (!p.is_offline, Some(p.addr.clone()))
-                    } else { (false, None) }
+                    } else {
+                        (false, None)
+                    }
                 })
                 .unwrap_or((true, None));
 
             if let Some(latest_addr) = backend_addr {
-                if latest_addr != peer_addr { peer_addr = latest_addr; }
+                if latest_addr != peer_addr {
+                    peer_addr = latest_addr;
+                }
             }
             return upload_file_internal(
-                &app, &state, peer_state.as_ref(),
-                peer_id, peer_addr, file_name, file_size, actual_path, file, is_online, None,
-            ).await;
+                &app,
+                &state,
+                peer_state.as_ref(),
+                peer_id,
+                peer_addr,
+                file_name,
+                file_size,
+                actual_path,
+                file,
+                is_online,
+                None,
+            )
+            .await;
         }
         #[cfg(not(target_os = "android"))]
-        { return Err("content:// URI 仅在 Android 上支持".to_string()); }
+        {
+            return Err("content:// URI 仅在 Android 上支持".to_string());
+        }
     }
 
     // 普通文件路径
@@ -840,16 +900,29 @@ pub async fn send_file(
         .map(|s| {
             if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peer_id) {
                 (!p.is_offline, Some(p.addr.clone()))
-            } else { (false, None) }
+            } else {
+                (false, None)
+            }
         })
         .unwrap_or((true, None));
 
     if let Some(latest_addr) = backend_addr {
-        if latest_addr != peer_addr { peer_addr = latest_addr; }
+        if latest_addr != peer_addr {
+            peer_addr = latest_addr;
+        }
     }
     upload_file_internal(
-        &app, &state, peer_state.as_ref(),
-        peer_id, peer_addr, file_name, file_size, actual_path, file, is_online, None,
+        &app,
+        &state,
+        peer_state.as_ref(),
+        peer_id,
+        peer_addr,
+        file_name,
+        file_size,
+        actual_path,
+        file,
+        is_online,
+        None,
     )
     .await
 }
@@ -961,12 +1034,11 @@ pub async fn get_current_theme(state: State<'_, DbState>) -> Result<String, Stri
 }
 
 #[tauri::command]
-pub async fn get_default_download_path() -> Result<String, String> {
+pub async fn get_default_download_path(_state: State<'_, DbState>) -> Result<String, String> {
     if cfg!(target_os = "android") {
-        // Android 的公共下载目录
-        let download_path = "/storage/emulated/0/Download/LANChat";
-        println!("[Command] Android 默认下载路径: {}", download_path);
-        Ok(download_path.to_string())
+        let download_path = crate::db::get_download_path(&_state.pool).await?;
+        println!("[Command] Android 下载目标: {}", download_path);
+        Ok(download_path)
     } else {
         // 桌面端和 Web 端返回用户下载目录
         let home_dir = dirs::home_dir().ok_or("无法获取用户主目录")?;
@@ -980,10 +1052,8 @@ pub async fn get_default_download_path() -> Result<String, String> {
 pub async fn request_storage_permission() -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
-        // Android 上需要请求存储权限
-        // 注意：这个功能需要 Tauri 的 Android 插件支持
-        // 目前先返回 true，假设权限已授予
-        println!("[Command] Android 存储权限检查（假设已授予）");
+        crate::android_fd::AndroidFile::trigger_download_directory_picker_jni()?;
+        println!("[Command] 已打开 Android 系统下载文件夹选择器");
         return Ok(true);
     }
 
@@ -1246,7 +1316,13 @@ async fn persist_android_fd(
     use crate::android_fd::AndroidFile;
     let safe_name: String = file_name
         .chars()
-        .map(|ch| if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { ch })
+        .map(|ch| {
+            if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                ch
+            }
+        })
         .collect();
     let outbox = app
         .path()
@@ -1294,7 +1370,11 @@ pub async fn send_file_from_fd(
         // ── 检查接收端是否离线 ──
         let is_offline_now = {
             let peers = peer_state.manager.get_all_peers();
-            peers.iter().find(|p| p.id == peerId).map(|p| p.is_offline).unwrap_or(true)
+            peers
+                .iter()
+                .find(|p| p.id == peerId)
+                .map(|p| p.is_offline)
+                .unwrap_or(true)
         };
 
         if is_offline_now {
@@ -1312,7 +1392,9 @@ pub async fn send_file_from_fd(
                 persisted_path,
                 "pending".to_string(),
                 "pending".to_string(),
-            ).await.map_err(|e| format!("创建记录失败: {}", e))?;
+            )
+            .await
+            .map_err(|e| format!("创建记录失败: {}", e))?;
 
             return Ok(serde_json::json!({
                 "success": true,
@@ -1325,12 +1407,19 @@ pub async fn send_file_from_fd(
         // ── 1. 检查接收端的 auto_download 设置 ──
         let auto_enabled = {
             let auto_dl_url = format!("http://{}/api/auto_download", peerAddr);
-            match reqwest::Client::new().get(&auto_dl_url).send().await {
-                Ok(resp) => {
-                    if let Ok(data) = resp.json::<serde_json::Value>().await {
-                        data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true)
-                    } else { true }
-                }
+            match crate::network::lan_http_client(None) {
+                Ok(client) => match client.get(&auto_dl_url).send().await {
+                    Ok(resp) => {
+                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                            data.get("enabled")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(true)
+                        } else {
+                            true
+                        }
+                    }
+                    Err(_) => true,
+                },
                 Err(_) => true,
             }
         };
@@ -1346,10 +1435,16 @@ pub async fn send_file_from_fd(
                 persisted_path,
                 "offering".to_string(),
                 "sent".to_string(),
-            ).await.map_err(|e| format!("创建发送记录失败: {}", e))?;
+            )
+            .await
+            .map_err(|e| format!("创建发送记录失败: {}", e))?;
 
-            let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
-            let my_name = crate::db::get_username(&state.pool).await.unwrap_or_default();
+            let my_id = crate::db::get_user_id(&state.pool)
+                .await
+                .unwrap_or_default();
+            let my_name = crate::db::get_username(&state.pool)
+                .await
+                .unwrap_or_default();
 
             // 通过 WS 向接收端发送 file_offer
             let offer = serde_json::json!({
@@ -1360,7 +1455,8 @@ pub async fn send_file_from_fd(
                 "file_size": fileSize,
                 "sender_msg_id": sender_msg_id,
             });
-            let _ = crate::network::messaging::send_json_via_ws(&peerAddr, &offer.to_string()).await;
+            let _ =
+                crate::network::messaging::send_json_via_ws(&peerAddr, &offer.to_string()).await;
 
             return Ok(serde_json::json!({
                 "success": true,
@@ -1402,7 +1498,9 @@ pub async fn send_file_from_fd(
         let file_path = originalUri.unwrap_or_else(|| format!("fd:{}", fd));
         let android_file = AndroidFile::from_fd(fd)?;
         let std_file = android_file.into_file();
-        let dup = std_file.try_clone().map_err(|e| format!("FD 克隆失败: {}", e))?;
+        let dup = std_file
+            .try_clone()
+            .map_err(|e| format!("FD 克隆失败: {}", e))?;
         let file = tokio::fs::File::from_std(std_file);
 
         // 先存消息获取 msg_id
@@ -1414,7 +1512,9 @@ pub async fn send_file_from_fd(
             file_path,
             "uploading".to_string(),
             overall_status.to_string(),
-        ).await.map_err(|e| format!("保存消息失败: {}", e))?;
+        )
+        .await
+        .map_err(|e| format!("保存消息失败: {}", e))?;
 
         // 缓存 FD（用 msg_id 作为 key，供媒体服务器 /api/media 读取）
         let raw_fd = dup.into_raw_fd();
@@ -1712,8 +1812,7 @@ impl AndroidShareState {
 // 批量删除消息
 #[tauri::command]
 pub async fn delete_messages(
-    #[allow(unused_variables)]
-    app: tauri::AppHandle,
+    #[allow(unused_variables)] app: tauri::AppHandle,
     state: tauri::State<'_, crate::db::DbState>,
     msg_ids: Vec<i64>,
 ) -> Result<(), String> {
@@ -1723,7 +1822,11 @@ pub async fn delete_messages(
     #[cfg(target_os = "android")]
     {
         use crate::android_fd::AndroidFile;
-        let outbox = app.path().app_data_dir().ok().map(|path| path.join("outbox"));
+        let outbox = app
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|path| path.join("outbox"));
         for &msg_id in &msg_ids {
             // 释放持久化 URI 权限
             if let Ok(Some(uri)) = crate::db::get_uri_by_msg_id(&state.pool, msg_id).await {
@@ -1735,9 +1838,10 @@ pub async fn delete_messages(
             crate::android_fd::remove_cached_fd(msg_id);
 
             // 仅删除由 LANChat 自己复制到私有 outbox 的附件副本。
-            if let (Some(outbox_dir), Ok((file_path, _, _))) =
-                (outbox.as_ref(), crate::db::get_sender_file_by_msg_id(&state.pool, msg_id).await)
-            {
+            if let (Some(outbox_dir), Ok((file_path, _, _))) = (
+                outbox.as_ref(),
+                crate::db::get_sender_file_by_msg_id(&state.pool, msg_id).await,
+            ) {
                 let candidate = std::path::PathBuf::from(file_path);
                 if candidate.starts_with(outbox_dir) && candidate.is_file() {
                     let _ = tokio::fs::remove_file(candidate).await;
@@ -1778,17 +1882,25 @@ pub async fn delete_user_complete(
 // ── 自定义 IP 命令 ──
 
 #[tauri::command]
-pub async fn get_custom_peers(state: tauri::State<'_, crate::db::DbState>) -> Result<Vec<String>, String> {
+pub async fn get_custom_peers(
+    state: tauri::State<'_, crate::db::DbState>,
+) -> Result<Vec<String>, String> {
     Ok(crate::db::get_custom_peers(&state.pool).await)
 }
 
 #[tauri::command]
-pub async fn add_custom_peer(state: tauri::State<'_, crate::db::DbState>, peer: String) -> Result<(), String> {
+pub async fn add_custom_peer(
+    state: tauri::State<'_, crate::db::DbState>,
+    peer: String,
+) -> Result<(), String> {
     crate::db::add_custom_peer(&state.pool, &peer).await
 }
 
 #[tauri::command]
-pub async fn remove_custom_peer(state: tauri::State<'_, crate::db::DbState>, peer: String) -> Result<(), String> {
+pub async fn remove_custom_peer(
+    state: tauri::State<'_, crate::db::DbState>,
+    peer: String,
+) -> Result<(), String> {
     crate::db::remove_custom_peer(&state.pool, &peer).await
 }
 
@@ -1798,7 +1910,10 @@ pub async fn request_file(
     sender_addr: String,
     sender_msg_id: i64,
 ) -> Result<(), String> {
-    println!("[手动下载] 桌面端接收端请求文件: msg_id={}, 发送端地址={}", sender_msg_id, sender_addr);
+    println!(
+        "[手动下载] 桌面端接收端请求文件: msg_id={}, 发送端地址={}",
+        sender_msg_id, sender_addr
+    );
     let my_id = crate::db::get_user_id(&state.pool).await?;
     let req_msg = serde_json::json!({
         "msg_type": "file_request",
@@ -1809,12 +1924,17 @@ pub async fn request_file(
 }
 
 #[tauri::command]
-pub async fn get_notifications_enabled(state: tauri::State<'_, crate::db::DbState>) -> Result<bool, String> {
+pub async fn get_notifications_enabled(
+    state: tauri::State<'_, crate::db::DbState>,
+) -> Result<bool, String> {
     Ok(crate::db::get_notifications_enabled(&state.pool).await)
 }
 
 #[tauri::command]
-pub async fn set_notifications_enabled(state: tauri::State<'_, crate::db::DbState>, enabled: bool) -> Result<(), String> {
+pub async fn set_notifications_enabled(
+    state: tauri::State<'_, crate::db::DbState>,
+    enabled: bool,
+) -> Result<(), String> {
     crate::db::set_notifications_enabled(&state.pool, enabled).await
 }
 
@@ -1936,7 +2056,10 @@ pub fn request_permission_on_android(app: tauri::AppHandle) -> Result<String, St
     #[cfg(target_os = "android")]
     {
         use tauri_plugin_notification::NotificationExt;
-        let result = app.notification().request_permission().map_err(|e| e.to_string())?;
+        let result = app
+            .notification()
+            .request_permission()
+            .map_err(|e| e.to_string())?;
         return Ok(format!("{:?}", result));
     }
     #[cfg(not(target_os = "android"))]
@@ -1960,7 +2083,12 @@ fn get_notification_id(from_id: &str) -> i32 {
 }
 
 #[tauri::command]
-pub fn show_notification(_app: tauri::AppHandle, title: String, body: String, #[allow(unused_variables)] from_id: String) {
+pub fn show_notification(
+    _app: tauri::AppHandle,
+    title: String,
+    body: String,
+    #[allow(unused_variables)] from_id: String,
+) {
     #[cfg(target_os = "linux")]
     {
         // Linux 用 notify-send
@@ -1989,7 +2117,9 @@ pub fn show_notification(_app: tauri::AppHandle, title: String, body: String, #[
 pub fn clear_notification(_app: tauri::AppHandle, #[allow(unused_variables)] from_id: String) {
     #[cfg(any(target_os = "macos", target_os = "android"))]
     {
-        if from_id.is_empty() { return; }
+        if from_id.is_empty() {
+            return;
+        }
         use tauri_plugin_notification::NotificationExt;
         let notif_id = get_notification_id(&from_id);
         let _ = _app.notification().cancel(vec![notif_id]);

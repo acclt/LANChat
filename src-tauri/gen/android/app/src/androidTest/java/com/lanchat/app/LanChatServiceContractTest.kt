@@ -17,6 +17,19 @@ import org.json.JSONObject
 
 @RunWith(AndroidJUnit4::class)
 class LanChatServiceContractTest {
+
+    @Test
+    fun safDownloadBridgeKeepsJniEntryPoint() {
+        assertNotNull(
+            AndroidDownloadStore::class.java.getDeclaredMethod(
+                "exportReceivedFile",
+                String::class.java,
+                String::class.java,
+                String::class.java,
+            )
+        )
+        assertNotNull(MainActivity::class.java.getDeclaredMethod("launchDownloadDirectoryPicker"))
+    }
     @Test
     fun serviceManifestKeepsSingleProcessNonStickySessionContract() {
         val context = ApplicationProvider.getApplicationContext<Context>()

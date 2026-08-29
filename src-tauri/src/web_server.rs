@@ -88,7 +88,10 @@ pub async fn run_server(
     event_bus: CoreEventBus,
     cancellation: CancellationToken,
 ) -> Result<(), String> {
-    let port = listener.local_addr().map_err(|error| error.to_string())?.port();
+    let port = listener
+        .local_addr()
+        .map_err(|error| error.to_string())?
+        .port();
     let media_token = uuid::Uuid::new_v4().to_string();
     println!("[Web Server] 媒体访问 Token: {}", media_token);
 
@@ -215,7 +218,9 @@ async fn get_settings_http(State(state): State<Arc<AppState>>) -> impl IntoRespo
 
     let cfg = crate::config_file::read_config();
     let close_to_tray = cfg.close_to_tray.unwrap_or(true);
-    let db_path = cfg.db_path.unwrap_or_else(crate::config_file::get_default_db_path);
+    let db_path = cfg
+        .db_path
+        .unwrap_or_else(crate::config_file::get_default_db_path);
 
     let auto_download = crate::db::get_auto_download(&state.pool).await;
 
@@ -253,7 +258,13 @@ async fn update_settings_http(
         let port_num: u16 = match p.parse() {
             Ok(n) if n > 0 => n,
             _ => {
-                return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "invalid port".to_string() })).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "invalid port".to_string(),
+                    }),
+                )
+                    .into_response();
             }
         };
         if let Err(e) = crate::config_file::save_port_to_config(port_num) {
@@ -301,7 +312,11 @@ struct SetLanguageRequest {
 async fn set_language_http(Json(payload): Json<SetLanguageRequest>) -> impl IntoResponse {
     match crate::config_file::save_lang_to_config(&payload.lang) {
         Ok(()) => Json(serde_json::json!({ "success": true })).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -356,9 +371,16 @@ async fn offer_file_http(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<OfferFileRequest>,
 ) -> impl IntoResponse {
-    println!("[Web Server] file_offer: {} -> {}", payload.file_name, payload.peer_addr);
-    let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
-    let my_name = crate::db::get_username(&state.pool).await.unwrap_or_default();
+    println!(
+        "[Web Server] file_offer: {} -> {}",
+        payload.file_name, payload.peer_addr
+    );
+    let my_id = crate::db::get_user_id(&state.pool)
+        .await
+        .unwrap_or_default();
+    let my_name = crate::db::get_username(&state.pool)
+        .await
+        .unwrap_or_default();
     let offer = serde_json::json!({
         "msg_type": "file_offer",
         "from_id": my_id,
@@ -367,11 +389,16 @@ async fn offer_file_http(
         "file_size": payload.file_size,
         "sender_msg_id": payload.sender_msg_id,
     });
-    match crate::network::messaging::send_json_via_ws(&payload.peer_addr, &offer.to_string()).await {
+    match crate::network::messaging::send_json_via_ws(&payload.peer_addr, &offer.to_string()).await
+    {
         Ok(_) => Json(serde_json::json!({"success": true})).into_response(),
-        Err(e) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
-            "error": format!("发送 file_offer 失败: {}", e)
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": format!("发送 file_offer 失败: {}", e)
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -386,7 +413,10 @@ async fn start_send_http(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<StartSendRequest>,
 ) -> impl IntoResponse {
-    println!("[手动下载] HTTP请求开始发送文件: msg_id={}, 接收端={}", payload.sender_msg_id, payload.receiver_addr);
+    println!(
+        "[手动下载] HTTP请求开始发送文件: msg_id={}, 接收端={}",
+        payload.sender_msg_id, payload.receiver_addr
+    );
 
     // 查询发送端 DB 中的文件记录
     match crate::db::get_sender_file_by_msg_id(&state.pool, payload.sender_msg_id).await {
@@ -411,9 +441,13 @@ async fn start_send_http(
                     });
                     let _ = state.ws_broadcast.send(upload_notice.to_string());
                     state.event_bus.publish_message(upload_notice);
-                    return (StatusCode::OK, Json(serde_json::json!({
-                        "success": true, "status": "notifying_browser"
-                    }))).into_response();
+                    return (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "success": true, "status": "notifying_browser"
+                        })),
+                    )
+                        .into_response();
                 }
                 // 文件丢失 → 通知接收端
                 let notice = serde_json::json!({
@@ -423,20 +457,29 @@ async fn start_send_http(
                 let _ = crate::network::messaging::send_json_via_ws(
                     &payload.receiver_addr,
                     &notice.to_string(),
-                ).await;
-                return (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                    "error": "文件不存在",
-                    "not_found": true,
-                }))).into_response();
+                )
+                .await;
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({
+                        "error": "文件不存在",
+                        "not_found": true,
+                    })),
+                )
+                    .into_response();
             }
 
             // 文件存在，开始上传
             let file = match tokio::fs::File::open(&file_path).await {
                 Ok(f) => f,
                 Err(e) => {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-                        "error": format!("打开文件失败: {}", e)
-                    }))).into_response();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "error": format!("打开文件失败: {}", e)
+                        })),
+                    )
+                        .into_response();
                 }
             };
 
@@ -470,7 +513,8 @@ async fn start_send_http(
                     file,
                     sm_id,
                     event_bus.clone(),
-                ).await;
+                )
+                .await;
                 // 上传完成 → 更新发送端 DB 状态
                 let _ = crate::db::update_file_status_by_id(&pool, sm_id, "sent").await;
                 // 通知发送端前端更新 UI
@@ -483,14 +527,20 @@ async fn start_send_http(
                 event_bus.publish_message(update);
             });
 
-            (StatusCode::OK, Json(serde_json::json!({"success": true, "status": "sending"}))).into_response()
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"success": true, "status": "sending"})),
+            )
+                .into_response()
         }
-        Err(e) => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
                 "error": format!("查询文件记录失败: {}", e),
                 "not_found": true,
-            }))).into_response()
-        }
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -520,7 +570,13 @@ async fn upload_to_receiver(
     let mut chunk_index = 0usize;
     let mut offset: usize = 0;
     let start_time = std::time::Instant::now();
-    let client = reqwest::Client::new();
+    let client = match crate::network::lan_http_client(None) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("[WebServer] 无法创建局域网 HTTP 客户端: {error}");
+            return;
+        }
+    };
     let upload_url = format!("http://{}/api/upload", peer_addr);
 
     loop {
@@ -533,17 +589,25 @@ async fn upload_to_receiver(
                 Err(_) => break,
             };
             bytes_read += n;
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
         }
-        if bytes_read == 0 { break; }
+        if bytes_read == 0 {
+            break;
+        }
         buf.truncate(bytes_read);
 
         let speed_mb_s = if chunk_index > 0 {
             let elapsed = start_time.elapsed().as_secs_f64();
             if elapsed > 0.0 {
                 (offset as f64 / (1024.0 * 1024.0)) / elapsed
-            } else { 0.0 }
-        } else { 0.0 };
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
 
         let form = reqwest::multipart::Form::new()
             .text("peer_id", my_id.clone())
@@ -553,7 +617,12 @@ async fn upload_to_receiver(
             .text("chunk_total", total_chunks.to_string())
             .text("sender_msg_id", _sender_msg_id.to_string())
             .text("speed_mb_s", format!("{:.1}", speed_mb_s))
-            .part("chunk", reqwest::multipart::Part::bytes(buf).mime_str("application/octet-stream").unwrap());
+            .part(
+                "chunk",
+                reqwest::multipart::Part::bytes(buf)
+                    .mime_str("application/octet-stream")
+                    .unwrap(),
+            );
 
         if let Ok(resp) = client.post(&upload_url).multipart(form).send().await {
             if resp.status().is_success() {
@@ -591,9 +660,14 @@ async fn request_file_http(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RequestFilePayload>,
 ) -> impl IntoResponse {
-    println!("[手动下载] 接收端请求文件: msg_id={}, 发送端地址={}", payload.sender_msg_id, payload.sender_addr);
+    println!(
+        "[手动下载] 接收端请求文件: msg_id={}, 发送端地址={}",
+        payload.sender_msg_id, payload.sender_addr
+    );
 
-    let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
+    let my_id = crate::db::get_user_id(&state.pool)
+        .await
+        .unwrap_or_default();
 
     let req_msg = serde_json::json!({
         "msg_type": "file_request",
@@ -601,11 +675,17 @@ async fn request_file_http(
         "from_id": my_id,
     });
 
-    match crate::network::messaging::send_json_via_ws(&payload.sender_addr, &req_msg.to_string()).await {
+    match crate::network::messaging::send_json_via_ws(&payload.sender_addr, &req_msg.to_string())
+        .await
+    {
         Ok(_) => Json(serde_json::json!({"success": true})).into_response(),
-        Err(e) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
-            "error": format!("发送 file_request 失败: {}", e)
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": format!("发送 file_request 失败: {}", e)
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -691,7 +771,10 @@ async fn send_message_http(
             is_online = true;
             // 发现 IP 不一致，强行改写前端的请求载荷！
             if p.addr != payload.peer_addr {
-                println!("[Web Server] 🛡️ 拦截到过期 Web 请求 IP，后端强行纠正: {} -> {}", payload.peer_addr, p.addr);
+                println!(
+                    "[Web Server] 🛡️ 拦截到过期 Web 请求 IP，后端强行纠正: {} -> {}",
+                    payload.peer_addr, p.addr
+                );
                 payload.peer_addr = p.addr.clone();
             }
         }
@@ -849,38 +932,70 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
 
                 match serde_json::from_str::<serde_json::Value>(&text) {
                     Ok(val) => {
-                        let stream_id = val.get("stream_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-                        let stream_final = val.get("stream_final").and_then(|v| v.as_bool()).unwrap_or(true);
-                        let msg_type = val.get("msg_type").and_then(|v| v.as_str()).unwrap_or("text").to_string();
+                        let stream_id = val
+                            .get("stream_id")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let stream_final = val
+                            .get("stream_final")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true);
+                        let msg_type = val
+                            .get("msg_type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("text")
+                            .to_string();
 
                         if let Some(ref sid) = stream_id {
                             // ── 流式消息 ──
                             // 构建广播消息（保留原字段，统一注入 is_streaming）
                             let mut broadcast_val = val.clone();
                             if let Some(obj) = broadcast_val.as_object_mut() {
-                                obj.insert("is_streaming".to_string(), serde_json::json!(!stream_final));
+                                obj.insert(
+                                    "is_streaming".to_string(),
+                                    serde_json::json!(!stream_final),
+                                );
                                 obj.remove("stream_final");
                             }
                             let broadcast_msg = broadcast_val.to_string();
 
                             // 流式消息不存 DB（除了 text 类型的 stream_final）
                             if stream_final && msg_type == "text" {
-                                if let Ok(message) = serde_json::from_value::<crate::network::messaging::TextMessage>(val.clone()) {
+                                if let Ok(message) = serde_json::from_value::<
+                                    crate::network::messaging::TextMessage,
+                                >(val.clone())
+                                {
                                     match save_message_to_db(&state.pool, &message).await {
                                         Ok(msg_id) => {
-                                            println!("[WebSocket] 流式完成: {} (id={})", message.content.chars().take(40).collect::<String>(), msg_id);
+                                            println!(
+                                                "[WebSocket] 流式完成: {} (id={})",
+                                                message
+                                                    .content
+                                                    .chars()
+                                                    .take(40)
+                                                    .collect::<String>(),
+                                                msg_id
+                                            );
                                             // 重新广播（带 id）
                                             let mut final_val = val.clone();
                                             if let Some(obj) = final_val.as_object_mut() {
-                                                obj.insert("id".to_string(), serde_json::json!(msg_id));
-                                                obj.insert("is_streaming".to_string(), serde_json::json!(false));
+                                                obj.insert(
+                                                    "id".to_string(),
+                                                    serde_json::json!(msg_id),
+                                                );
+                                                obj.insert(
+                                                    "is_streaming".to_string(),
+                                                    serde_json::json!(false),
+                                                );
                                                 obj.remove("stream_final");
                                             }
                                             let final_msg = final_val.to_string();
                                             let _ = state.ws_broadcast.send(final_msg);
                                             state.event_bus.publish_message(final_val);
                                         }
-                                        Err(e) => eprintln!("[WebSocket] 保存流式最终消息失败: {}", e)
+                                        Err(e) => {
+                                            eprintln!("[WebSocket] 保存流式最终消息失败: {}", e)
+                                        }
                                     }
                                 }
                             } else {
@@ -891,11 +1006,22 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                             }
                         } else if msg_type == "file_offer" {
                             // ── 收到文件邀请 ──
-                            let file_name = val.get("file_name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                            let file_size = val.get("file_size").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let file_name = val
+                                .get("file_name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            let file_size =
+                                val.get("file_size").and_then(|v| v.as_u64()).unwrap_or(0);
                             let from_id = val.get("from_id").and_then(|v| v.as_str()).unwrap_or("");
-                            let sender_msg_id = val.get("sender_msg_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                            let from_name = val.get("from_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let sender_msg_id = val
+                                .get("sender_msg_id")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                            let from_name = val
+                                .get("from_name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
 
                             let auto_dl = crate::db::get_auto_download(&state.pool).await;
                             if auto_dl {
@@ -905,18 +1031,26 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                     "sender_msg_id": sender_msg_id,
                                 });
                                 // 需要知道对方的地址来回复，用 from_id 查找 peer
-                                let peer_addr = state.peer_manager.get_all_peers().iter()
+                                let peer_addr = state
+                                    .peer_manager
+                                    .get_all_peers()
+                                    .iter()
                                     .find(|p| p.id == from_id)
                                     .map(|p| p.addr.clone());
                                 if let Some(addr) = peer_addr {
                                     let _ = crate::network::messaging::send_json_via_ws(
-                                        &addr, &accept.to_string(),
-                                    ).await;
+                                        &addr,
+                                        &accept.to_string(),
+                                    )
+                                    .await;
                                 }
                             } else {
                                 // 自动下载关闭 → 创建 offered 记录并通知前端
                                 let timestamp = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs()
+                                    as i64;
                                 if let Ok(msg_id) = crate::db::create_offered_file_record(
                                     &state.pool,
                                     from_id,
@@ -924,7 +1058,9 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                     file_size,
                                     &sender_msg_id.to_string(),
                                     timestamp,
-                                ).await {
+                                )
+                                .await
+                                {
                                     let broadcast_msg = serde_json::json!({
                                         "id": msg_id,
                                         "from_id": from_id,
@@ -942,19 +1078,38 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                             }
                         } else if msg_type == "file_accept" {
                             // ── 对方确认接受（auto_download=ON），开始上传 ──
-                            let sender_msg_id = val.get("sender_msg_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                            eprintln!("[WebSocket] 收到 file_accept for msg_id={}, 开始上传", sender_msg_id);
+                            let sender_msg_id = val
+                                .get("sender_msg_id")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                            eprintln!(
+                                "[WebSocket] 收到 file_accept for msg_id={}, 开始上传",
+                                sender_msg_id
+                            );
                             // 更新 DB 状态
-                            let _ = crate::db::update_file_status_by_id(&state.pool, sender_msg_id, "uploading").await;
-
+                            let _ = crate::db::update_file_status_by_id(
+                                &state.pool,
+                                sender_msg_id,
+                                "uploading",
+                            )
+                            .await;
                         } else if msg_type == "file_request" {
                             // ── 对方请求开始发送文件（手动下载） ──
-                            let sender_msg_id = val.get("sender_msg_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let sender_msg_id = val
+                                .get("sender_msg_id")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
                             let from_id = val.get("from_id").and_then(|v| v.as_str()).unwrap_or("");
-                            println!("[手动下载] 发送端收到下载请求: msg_id={}, from={}", sender_msg_id, from_id);
+                            println!(
+                                "[手动下载] 发送端收到下载请求: msg_id={}, from={}",
+                                sender_msg_id, from_id
+                            );
 
                             // 从 peer manager 查找对方地址
-                            let receiver_addr = state.peer_manager.get_all_peers().iter()
+                            let receiver_addr = state
+                                .peer_manager
+                                .get_all_peers()
+                                .iter()
                                 .find(|p| p.id == from_id)
                                 .map(|p| p.addr.clone())
                                 .unwrap_or_default();
@@ -965,12 +1120,17 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                             }
 
                             // 查询发送端文件记录
-                            match crate::db::get_sender_file_by_msg_id(&state.pool, sender_msg_id).await {
+                            match crate::db::get_sender_file_by_msg_id(&state.pool, sender_msg_id)
+                                .await
+                            {
                                 Ok((file_path, fname, fsize)) => {
                                     // 立即更新为 uploading，前端显示「上传中」
                                     let _ = crate::db::update_file_status_by_id(
-                                        &state.pool, sender_msg_id, "uploading",
-                                    ).await;
+                                        &state.pool,
+                                        sender_msg_id,
+                                        "uploading",
+                                    )
+                                    .await;
                                     let update = serde_json::json!({
                                         "msg_type": "file_status_update",
                                         "sender_msg_id": sender_msg_id,
@@ -999,7 +1159,8 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             use crate::android_fd::AndroidFile;
                                             match AndroidFile::from_content_uri(&file_path) {
                                                 Ok(af) => {
-                                                    let file = tokio::fs::File::from_std(af.into_file());
+                                                    let file =
+                                                        tokio::fs::File::from_std(af.into_file());
                                                     let pool = state.pool.clone();
                                                     let raddr = receiver_addr.clone();
                                                     let ws_tx = state.ws_broadcast.clone();
@@ -1007,13 +1168,23 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                     let fname2 = fname.clone();
                                                     tokio::spawn(async move {
                                                         upload_to_receiver(
-                                                            &pool, &raddr, &fname2, fsize as usize, &file_path, file,
+                                                            &pool,
+                                                            &raddr,
+                                                            &fname2,
+                                                            fsize as usize,
+                                                            &file_path,
+                                                            file,
                                                             sender_msg_id,
                                                             event_bus.clone(),
-                                                        ).await;
-                                                        let _ = crate::db::update_file_status_by_id(
-                                                            &pool, sender_msg_id, "sent",
-                                                        ).await;
+                                                        )
+                                                        .await;
+                                                        let _ =
+                                                            crate::db::update_file_status_by_id(
+                                                                &pool,
+                                                                sender_msg_id,
+                                                                "sent",
+                                                            )
+                                                            .await;
                                                         let update = serde_json::json!({
                                                             "msg_type": "file_status_update",
                                                             "sender_msg_id": sender_msg_id,
@@ -1024,7 +1195,10 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                     });
                                                 }
                                                 Err(e) => {
-                                                    eprintln!("[手动下载] content URI 打开失败: {}", e);
+                                                    eprintln!(
+                                                        "[手动下载] content URI 打开失败: {}",
+                                                        e
+                                                    );
                                                     let notice = serde_json::json!({
                                                         "msg_type": "file_not_found",
                                                         "sender_msg_id": sender_msg_id,
@@ -1045,14 +1219,20 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             let _ = crate::network::messaging::send_json_via_ws(
                                                 &receiver_addr,
                                                 &notice.to_string(),
-                                            ).await;
+                                            )
+                                            .await;
                                         }
                                     } else if file_path.starts_with("fd:") {
                                         // ── Android Share Intent 文件（FD 缓存） ──
-                                        println!("[手动下载] Share Intent FD 缓存文件: msg_id={}", sender_msg_id);
+                                        println!(
+                                            "[手动下载] Share Intent FD 缓存文件: msg_id={}",
+                                            sender_msg_id
+                                        );
                                         #[cfg(target_os = "android")]
                                         {
-                                            match crate::android_fd::duplicate_cached_file(sender_msg_id) {
+                                            match crate::android_fd::duplicate_cached_file(
+                                                sender_msg_id,
+                                            ) {
                                                 Some((file, cached_name, cached_size)) => {
                                                     let pool = state.pool.clone();
                                                     let raddr = receiver_addr.clone();
@@ -1061,13 +1241,23 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                     let fname2 = cached_name;
                                                     tokio::spawn(async move {
                                                         upload_to_receiver(
-                                                            &pool, &raddr, &fname2, cached_size as usize, &file_path, file,
+                                                            &pool,
+                                                            &raddr,
+                                                            &fname2,
+                                                            cached_size as usize,
+                                                            &file_path,
+                                                            file,
                                                             sender_msg_id,
                                                             event_bus.clone(),
-                                                        ).await;
-                                                        let _ = crate::db::update_file_status_by_id(
-                                                            &pool, sender_msg_id, "sent",
-                                                        ).await;
+                                                        )
+                                                        .await;
+                                                        let _ =
+                                                            crate::db::update_file_status_by_id(
+                                                                &pool,
+                                                                sender_msg_id,
+                                                                "sent",
+                                                            )
+                                                            .await;
                                                         let update = serde_json::json!({
                                                             "msg_type": "file_status_update",
                                                             "sender_msg_id": sender_msg_id,
@@ -1099,11 +1289,15 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             let _ = crate::network::messaging::send_json_via_ws(
                                                 &receiver_addr,
                                                 &notice.to_string(),
-                                            ).await;
+                                            )
+                                            .await;
                                         }
                                     } else if !std::path::Path::new(&file_path).exists() {
                                         // ── 普通文件不存在 ──
-                                        println!("[手动下载] 文件已丢失: msg_id={}, path={}", sender_msg_id, file_path);
+                                        println!(
+                                            "[手动下载] 文件已丢失: msg_id={}, path={}",
+                                            sender_msg_id, file_path
+                                        );
                                         let notice = serde_json::json!({
                                             "msg_type": "file_not_found",
                                             "sender_msg_id": sender_msg_id,
@@ -1111,7 +1305,8 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                         let _ = crate::network::messaging::send_json_via_ws(
                                             &receiver_addr,
                                             &notice.to_string(),
-                                        ).await;
+                                        )
+                                        .await;
                                     } else {
                                         // ── 普通文件存在，开始上传 ──
                                         println!("[手动下载] 文件存在，开始上传: msg_id={}, file={}, to={}", sender_msg_id, file_path, receiver_addr);
@@ -1124,14 +1319,23 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                 let fname2 = fname.clone();
                                                 tokio::spawn(async move {
                                                     upload_to_receiver(
-                                                        &pool, &raddr, &fname2, fsize as usize, &file_path, file,
+                                                        &pool,
+                                                        &raddr,
+                                                        &fname2,
+                                                        fsize as usize,
+                                                        &file_path,
+                                                        file,
                                                         sender_msg_id,
                                                         event_bus.clone(),
-                                                    ).await;
+                                                    )
+                                                    .await;
                                                     // 上传完成 → 更新发送端 DB 状态
                                                     let _ = crate::db::update_file_status_by_id(
-                                                        &pool, sender_msg_id, "sent",
-                                                    ).await;
+                                                        &pool,
+                                                        sender_msg_id,
+                                                        "sent",
+                                                    )
+                                                    .await;
                                                     // 通知发送端前端更新 UI
                                                     let update = serde_json::json!({
                                                         "msg_type": "file_status_update",
@@ -1148,16 +1352,21 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                     "msg_type": "file_not_found",
                                                     "sender_msg_id": sender_msg_id,
                                                 });
-                                                let _ = crate::network::messaging::send_json_via_ws(
-                                                    &receiver_addr,
-                                                    &notice.to_string(),
-                                                ).await;
+                                                let _ =
+                                                    crate::network::messaging::send_json_via_ws(
+                                                        &receiver_addr,
+                                                        &notice.to_string(),
+                                                    )
+                                                    .await;
                                             }
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    println!("[手动下载] 查询文件记录失败: msg_id={}, err={}", sender_msg_id, e);
+                                    println!(
+                                        "[手动下载] 查询文件记录失败: msg_id={}, err={}",
+                                        sender_msg_id, e
+                                    );
                                     let notice = serde_json::json!({
                                         "msg_type": "file_not_found",
                                         "sender_msg_id": sender_msg_id,
@@ -1165,18 +1374,23 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                     let _ = crate::network::messaging::send_json_via_ws(
                                         &receiver_addr,
                                         &notice.to_string(),
-                                    ).await;
+                                    )
+                                    .await;
                                 }
                             }
                         } else if msg_type == "file_not_found" {
                             // ── 发送端告知文件已丢失 ──
-                            let sender_msg_id = val.get("sender_msg_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let sender_msg_id = val
+                                .get("sender_msg_id")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
                             println!("[WebSocket] 收到 file_not_found: msg_id={}", sender_msg_id);
                             let _ = crate::db::update_file_status_by_sender_msg_id(
                                 &state.pool,
                                 &sender_msg_id.to_string(),
                                 "invalid",
-                            ).await;
+                            )
+                            .await;
 
                             // 通知前端更新状态
                             let update = serde_json::json!({
@@ -1188,10 +1402,16 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                             state.event_bus.publish_message(update);
                         } else {
                             // ── 非流式消息：尝试作为 TextMessage 存 DB ──
-                            if let Ok(message) = serde_json::from_value::<crate::network::messaging::TextMessage>(val.clone()) {
+                            if let Ok(message) = serde_json::from_value::<
+                                crate::network::messaging::TextMessage,
+                            >(val.clone())
+                            {
                                 match save_message_to_db(&state.pool, &message).await {
                                     Ok(msg_id) => {
-                                        println!("[WebSocket] 消息已保存: {} 说: {} (id={})", message.from_name, message.content, msg_id);
+                                        println!(
+                                            "[WebSocket] 消息已保存: {} 说: {} (id={})",
+                                            message.from_name, message.content, msg_id
+                                        );
                                         let broadcast_value = serde_json::json!({
                                             "id": msg_id,
                                             "from_id": message.from_id,
@@ -1200,18 +1420,22 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             "timestamp": message.timestamp,
                                             "msg_type": message.msg_type,
                                         });
-                                        let _ = state.ws_broadcast.send(broadcast_value.to_string());
+                                        let _ =
+                                            state.ws_broadcast.send(broadcast_value.to_string());
                                         // save_message_to_db 已提交后才发布接收事件。
                                         state.event_bus.publish_message(broadcast_value);
                                     }
-                                    Err(e) => eprintln!("[WebSocket] 保存消息失败: {}", e)
+                                    Err(e) => eprintln!("[WebSocket] 保存消息失败: {}", e),
                                 }
                             } else {
-                                eprintln!("[WebSocket] 无法解析消息: {}", &text[..text.len().min(100)]);
+                                eprintln!(
+                                    "[WebSocket] 无法解析消息: {}",
+                                    &text[..text.len().min(100)]
+                                );
                             }
                         }
                     }
-                    Err(e) => eprintln!("[WebSocket] JSON 解析失败: {}", e)
+                    Err(e) => eprintln!("[WebSocket] JSON 解析失败: {}", e),
                 }
             }
             Ok(Message::Close(_)) => {
@@ -1401,6 +1625,19 @@ async fn upload_file_http(
                     candidate, file_size
                 );
 
+                if let Err(error) =
+                    export_to_configured_android_directory(&state.pool, &candidate, &file_name)
+                        .await
+                {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: format!("文件已接收，但写入所选安卓文件夹失败: {error}"),
+                        }),
+                    )
+                        .into_response();
+                }
+
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -1419,10 +1656,9 @@ async fn upload_file_http(
 
                 if let Some((existing_id, _)) = updated_offered {
                     // 立即标记为 accepted（文件已完整）
-                    if let Err(error) = crate::db::update_file_status_by_id(
-                        &state.pool, existing_id, "accepted",
-                    )
-                    .await
+                    if let Err(error) =
+                        crate::db::update_file_status_by_id(&state.pool, existing_id, "accepted")
+                            .await
                     {
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1437,7 +1673,10 @@ async fn upload_file_http(
                         existing_id
                     );
 
-                    let sender_name = state.peer_manager.get_all_peers().iter()
+                    let sender_name = state
+                        .peer_manager
+                        .get_all_peers()
+                        .iter()
                         .find(|p| p.id == sender_id)
                         .map(|p| p.name.clone())
                         .unwrap_or_default();
@@ -1474,10 +1713,9 @@ async fn upload_file_http(
                     {
                         Ok(msg_id) => {
                             // 立即标记为 accepted（文件已完整）
-                            if let Err(error) = crate::db::update_file_status_by_id(
-                                &state.pool, msg_id, "accepted",
-                            )
-                            .await
+                            if let Err(error) =
+                                crate::db::update_file_status_by_id(&state.pool, msg_id, "accepted")
+                                    .await
                             {
                                 return (
                                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -1491,7 +1729,10 @@ async fn upload_file_http(
                                 "[Web Server] ✓ 秒传记录已创建并标记为 accepted，ID: {}",
                                 msg_id
                             );
-                            let sender_name = state.peer_manager.get_all_peers().iter()
+                            let sender_name = state
+                                .peer_manager
+                                .get_all_peers()
+                                .iter()
                                 .find(|p| p.id == sender_id)
                                 .map(|p| p.name.clone())
                                 .unwrap_or_default();
@@ -1701,9 +1942,7 @@ async fn upload_file_http(
         .unwrap_or(None);
 
         let record_id = if let Some((found_id, _)) = updated_offered {
-            println!(
-                "[Web Server] ✓ 已更新 offered 记录为 downloading，无需新建"
-            );
+            println!("[Web Server] ✓ 已更新 offered 记录为 downloading，无需新建");
             found_id
         } else {
             // 没有 offered 记录 → 新建接收记录（含 sender_msg_id，用于 DOM 查找）
@@ -1733,7 +1972,10 @@ async fn upload_file_http(
         };
 
         // 查询发送者名称
-        let sender_name = state.peer_manager.get_all_peers().iter()
+        let sender_name = state
+            .peer_manager
+            .get_all_peers()
+            .iter()
             .find(|p| p.id == sender_id)
             .map(|p| p.name.clone())
             .unwrap_or_default();
@@ -1784,6 +2026,23 @@ async fn upload_file_http(
                     "[Web Server] ✓ 临时文件已重命名为最终文件: {:?}",
                     final_path
                 );
+
+                if let Err(error) = export_to_configured_android_directory(
+                    &state.pool,
+                    &final_path,
+                    &final_file_name,
+                )
+                .await
+                {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: format!("文件已接收，但写入所选安卓文件夹失败: {error}"),
+                        }),
+                    )
+                        .into_response();
+                }
+
                 match crate::db::update_file_status(&state.pool, &final_file_name, "accepted").await
                 {
                     Ok(_) => {
@@ -1791,17 +2050,28 @@ async fn upload_file_http(
 
                         // 通知前端刷新（广播完整消息对象，让前端重新渲染）
                         let msg_id = crate::db::get_latest_msg_id_by_file(
-                            &state.pool, &sender_id, &final_file_name,
-                        ).await.unwrap_or(0);
+                            &state.pool,
+                            &sender_id,
+                            &final_file_name,
+                        )
+                        .await
+                        .unwrap_or(0);
                         let sender_msg_id = crate::db::get_sender_msg_id_by_file(
-                            &state.pool, &sender_id, &final_file_name,
-                        ).await.unwrap_or_default();
+                            &state.pool,
+                            &sender_id,
+                            &final_file_name,
+                        )
+                        .await
+                        .unwrap_or_default();
                         let file_id = std::path::Path::new(&final_file_name)
                             .file_name()
                             .and_then(|s| s.to_str())
                             .unwrap_or(&final_file_name)
                             .to_string();
-                        let sender_name = state.peer_manager.get_all_peers().iter()
+                        let sender_name = state
+                            .peer_manager
+                            .get_all_peers()
+                            .iter()
                             .find(|p| p.id == sender_id)
                             .map(|p| p.name.clone())
                             .unwrap_or_default();
@@ -1821,7 +2091,9 @@ async fn upload_file_http(
                         });
                         let _ = state.ws_broadcast.send(full_msg.to_string());
                         // update_received_file_complete 已提交后才发布文件完成事件。
-                        state.event_bus.publish(crate::core_events::CoreEvent::FileTransferCompleted(full_msg));
+                        state.event_bus.publish(
+                            crate::core_events::CoreEvent::FileTransferCompleted(full_msg),
+                        );
                     }
                     Err(e) => eprintln!("[Web Server] ✗ 更新文件状态失败: {}", e),
                 }
@@ -1920,21 +2192,14 @@ async fn accept_file_http(
             .into_response();
     }
 
-    // 确定最终保存路径
+    // Android 的公开目标可能是 content URI，实际接收/移动仍在应用专属 staging 中完成。
+    #[cfg(target_os = "android")]
+    let final_path = get_download_dir(&state.pool).await.join(&file_name);
+    #[cfg(not(target_os = "android"))]
     let final_path = if let Some(path) = payload.save_path {
         std::path::PathBuf::from(path).join(&file_name)
     } else {
-        let download_path = crate::db::get_download_path(&state.pool)
-            .await
-            .unwrap_or_else(|_| {
-                std::env::temp_dir()
-                    .join("lanchat_downloads")
-                    .to_str()
-                    .unwrap()
-                    .to_string()
-            });
-        println!("[Web Server] 使用默认下载路径: {}", download_path);
-        std::path::PathBuf::from(download_path).join(&file_name)
+        get_download_dir(&state.pool).await.join(&file_name)
     };
 
     println!("[Web Server] 最终路径: {:?}", final_path);
@@ -1979,6 +2244,18 @@ async fn accept_file_http(
         println!("[Web Server] ✓ 文件已复制到目标位置");
     } else {
         println!("[Web Server] ✓ 文件已移动到目标位置");
+    }
+
+    if let Err(error) =
+        export_to_configured_android_directory(&state.pool, &final_path, &file_name).await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("文件已接收，但写入所选安卓文件夹失败: {error}"),
+            }),
+        )
+            .into_response();
     }
 
     // 更新数据库状态
@@ -2085,13 +2362,46 @@ async fn download_file_http(
 
 // 获取下载目录
 async fn get_download_dir(pool: &Pool<Sqlite>) -> std::path::PathBuf {
-    // 从数据库读取配置
-    match crate::db::get_download_path(pool).await {
+    // Android 返回应用专属 staging 目录；桌面端返回用户配置的下载目录。
+    match crate::db::get_receive_directory(pool).await {
         Ok(path) => std::path::PathBuf::from(path),
         Err(_) => {
             // 默认路径
             std::env::temp_dir().join("lanchat_downloads")
         }
+    }
+}
+
+async fn export_to_configured_android_directory(
+    pool: &Pool<Sqlite>,
+    source_path: &std::path::Path,
+    file_name: &str,
+) -> Result<Option<String>, String> {
+    #[cfg(target_os = "android")]
+    {
+        let tree_uri = crate::db::get_download_path(pool).await?;
+        if !tree_uri.starts_with("content://") {
+            return Ok(None);
+        }
+
+        let source_path = source_path
+            .to_str()
+            .ok_or_else(|| "接收文件路径不是有效 UTF-8".to_string())?
+            .to_string();
+        let file_name = file_name.to_string();
+        let exported_uri = tokio::task::spawn_blocking(move || {
+            crate::android_fd::export_received_file(&tree_uri, &source_path, &file_name)
+        })
+        .await
+        .map_err(|error| format!("Android 文件导出任务失败: {error}"))??;
+        println!("[Web Server] ✓ 文件已导出到 Android 系统目录: {exported_uri}");
+        Ok(Some(exported_uri))
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (pool, source_path, file_name);
+        Ok(None)
     }
 }
 
@@ -2137,16 +2447,14 @@ async fn create_upload_record_http(
     )
     .await
     {
-        Ok(msg_id) => {
-            Json(serde_json::json!({
-                "success": true,
-                "msg_id": msg_id,
-                "is_online": is_online,
-                "file_status": file_status,
-                "status": overall_status,
-            }))
-            .into_response()
-        }
+        Ok(msg_id) => Json(serde_json::json!({
+            "success": true,
+            "msg_id": msg_id,
+            "is_online": is_online,
+            "file_status": file_status,
+            "status": overall_status,
+        }))
+        .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e})),
@@ -2212,9 +2520,7 @@ async fn mark_upload_complete_http(
     );
 
     match crate::db::update_file_status_by_id(&state.pool, payload.msg_id, &payload.status).await {
-        Ok(_) => {
-            Json(serde_json::json!({"success": true})).into_response()
-        }
+        Ok(_) => Json(serde_json::json!({"success": true})).into_response(),
         Err(e) => {
             eprintln!("[Web Server] ✗ 标记上传完成失败: {}", e);
             (
@@ -2566,17 +2872,15 @@ async fn serve_media_http(
     if params.uri.starts_with("fd:") {
         let msg_id_str = &params.uri["fd:".len()..];
         match msg_id_str.parse::<i64>() {
-            Ok(msg_id) => {
-                match crate::android_fd::duplicate_cached_file(msg_id) {
-                    Some((f, _name, _size)) => {
-                        tokio_file = f;
-                    }
-                    None => {
-                        println!("[Media] FD 缓存未命中: msg_id={}", msg_id);
-                        return (StatusCode::GONE, "FD cache miss").into_response();
-                    }
+            Ok(msg_id) => match crate::android_fd::duplicate_cached_file(msg_id) {
+                Some((f, _name, _size)) => {
+                    tokio_file = f;
                 }
-            }
+                None => {
+                    println!("[Media] FD 缓存未命中: msg_id={}", msg_id);
+                    return (StatusCode::GONE, "FD cache miss").into_response();
+                }
+            },
             Err(_) => {
                 println!("[Media] 无效的 fd: 路径: {}", params.uri);
                 return (StatusCode::BAD_REQUEST, "Invalid fd: path").into_response();

@@ -2383,6 +2383,7 @@ function initSettings() {
   let initialNotifications = true;
   let initialCloseToTray = true;
   let initialAutostart = false;
+  let androidDownloadTarget = "";
   const autoDownloadToggle = document.getElementById("auto-download-toggle");
   const notificationToggle = document.getElementById("notification-toggle");
   const notificationHint = document.getElementById("notification-permission-hint");
@@ -2412,6 +2413,33 @@ function initSettings() {
   }
   if (backgroundReceiveSetting && isAndroid) {
     backgroundReceiveSetting.style.display = "block";
+  }
+  if (isAndroid) {
+    downloadPathInput.readOnly = true;
+    downloadPathInput.placeholder = "应用专属存储（默认）";
+  }
+
+  function showAndroidDownloadTarget(target, label = "") {
+    androidDownloadTarget = target || "";
+    downloadPathInput.title = androidDownloadTarget;
+    downloadPathInput.value = androidDownloadTarget.startsWith("content://")
+      ? `系统文件夹：${label || "已授权目录"}`
+      : "应用专属存储（默认）";
+  }
+
+  if (isAndroid) {
+    window.addEventListener("android-download-directory-selected", (event) => {
+      const target = event.detail?.uri || "";
+      if (!target) return;
+      showAndroidDownloadTarget(target, event.detail?.label || "");
+      settingsErrorMsg.textContent = "";
+      settingsSuccessMsg.textContent = "已选择系统文件夹，请点击保存。";
+      settingsSuccessMsg.classList.add("show");
+    });
+    window.addEventListener("android-download-directory-error", (event) => {
+      settingsErrorMsg.textContent = "选择文件夹失败: " +
+        (event.detail?.message || "系统未授予写入权限");
+    });
   }
 
   async function refreshBackgroundReceiveState() {
@@ -2457,9 +2485,6 @@ function initSettings() {
   // 获取默认下载路径
   async function getDefaultDownloadPath() {
     const tauri = window.__TAURI__;
-    if (isAndroid) {
-      return "/storage/emulated/0/Download/LANChat";
-    }
     if (tauri) {
       try {
         return await tauri.core.invoke("get_default_download_path");
@@ -2487,12 +2512,17 @@ function initSettings() {
         const settings = await apiGetSettings();
         const defaultDlPath = await getDefaultDownloadPath();
 
-        downloadPathInput.value = settings.download_path || defaultDlPath;
+        const configuredDownloadPath = settings.download_path || defaultDlPath;
+        if (isAndroid) {
+          showAndroidDownloadTarget(configuredDownloadPath);
+        } else {
+          downloadPathInput.value = configuredDownloadPath;
+        }
         portInput.value = settings.port || "8888";
         initialPort = portInput.value;
         dbPathInput.value = settings.db_path || "";
         initialDbPath = dbPathInput.value;
-        initialDlPath = downloadPathInput.value;
+        initialDlPath = configuredDownloadPath;
         autoDownloadToggle.checked = settings.auto_download !== false;
         initialAutoDl = autoDownloadToggle.checked;
         if (isWindowsDesktop) {
@@ -2523,8 +2553,12 @@ function initSettings() {
     const tauri = window.__TAURI__;
 
     if (isAndroid) {
-      const androidPathPanel = document.getElementById("android-path-panel");
-      androidPathPanel.style.display = "block";
+      try {
+        settingsErrorMsg.textContent = "";
+        await tauri.core.invoke("request_storage_permission");
+      } catch (e) {
+        settingsErrorMsg.textContent = "打开系统文件夹选择器失败: " + e;
+      }
     } else if (tauri) {
       try {
         const defaultPath = await getDefaultDownloadPath();
@@ -2582,37 +2616,6 @@ function initSettings() {
     }
   });
 
-  // Android 路径选择面板逻辑
-  const androidPathPanel = document.getElementById("android-path-panel");
-  const pathOptions = document.querySelectorAll(".path-option");
-  const customPathInput = document.getElementById("custom-path-input");
-  const useCustomPathBtn = document.getElementById("use-custom-path-btn");
-  const cancelAndroidPathBtn = document.getElementById(
-    "cancel-android-path-btn",
-  );
-
-  pathOptions.forEach((option) => {
-    option.addEventListener("click", () => {
-      const path = option.getAttribute("data-path");
-      downloadPathInput.value = path;
-      androidPathPanel.style.display = "none";
-    });
-  });
-
-  useCustomPathBtn.addEventListener("click", () => {
-    const customPath = customPathInput.value.trim();
-    if (customPath) {
-      downloadPathInput.value = customPath;
-      androidPathPanel.style.display = "none";
-      customPathInput.value = "";
-    }
-  });
-
-  cancelAndroidPathBtn.addEventListener("click", () => {
-    androidPathPanel.style.display = "none";
-    customPathInput.value = "";
-  });
-
   // 保存设置
   saveSettingsBtn.addEventListener("click", async () => {
     try {
@@ -2635,7 +2638,9 @@ function initSettings() {
       }
 
       // 空值恢复默认
-      const dlPath = downloadPathInput.value.trim() || (await getDefaultDownloadPath());
+      const dlPath = isAndroid
+        ? (androidDownloadTarget || (await getDefaultDownloadPath()))
+        : (downloadPathInput.value.trim() || (await getDefaultDownloadPath()));
       const myPort = portInput.value || "8888";
       const myDbPath = dbPathInput.value.trim() || "";
       const autoDl = autoDownloadToggle.checked;

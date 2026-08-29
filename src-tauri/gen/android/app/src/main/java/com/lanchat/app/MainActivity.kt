@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.MediaStore
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Base64
@@ -67,6 +68,31 @@ class MainActivity : TauriActivity() {
         dispatchJsonEvent("android-files-selected", result)
     }
 
+    private val downloadDirectoryPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                contentResolver.takePersistableUriPermission(uri, takeFlags)
+                val treeName = runCatching {
+                    DocumentsContract.getTreeDocumentId(uri)
+                        .substringAfter(':')
+                        .ifBlank { "已选择的文件夹" }
+                }.getOrDefault("已选择的文件夹")
+                dispatchObjectEvent("android-download-directory-selected", JSONObject().apply {
+                    put("uri", uri.toString())
+                    put("label", treeName)
+                })
+            } catch (error: Exception) {
+                dispatchObjectEvent("android-download-directory-error", JSONObject().apply {
+                    put("message", error.message ?: "无法取得文件夹写入权限")
+                })
+            }
+        }
+    }
+
     private val mediaPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -84,6 +110,7 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        AndroidDownloadStore.initialize(applicationContext)
 
         // 开启 WebView 调试（方便 adb logcat 看到 JS console 输出）
         android.webkit.WebView.setWebContentsDebuggingEnabled(true)
@@ -150,6 +177,11 @@ class MainActivity : TauriActivity() {
     @Keep
     fun launchSafMultiFilePicker() {
         runOnUiThread { safMultiPickerLauncher.launch(arrayOf("*/*")) }
+    }
+
+    @Keep
+    fun launchDownloadDirectoryPicker() {
+        runOnUiThread { downloadDirectoryPickerLauncher.launch(null) }
     }
 
     @Keep
@@ -485,6 +517,16 @@ class MainActivity : TauriActivity() {
                 }
             })();
         """.trimIndent())
+    }
+
+    private fun dispatchObjectEvent(name: String, payload: JSONObject) {
+        if (webView == null) webView = findWebView(window.decorView)
+        runOnUiThread {
+            webView?.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent(${JSONObject.quote(name)}, {detail: $payload}));",
+                null
+            )
+        }
     }
 
     private fun notifyPeerOpened(peerId: String) {

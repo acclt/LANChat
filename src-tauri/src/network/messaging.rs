@@ -169,7 +169,8 @@ pub async fn send_json_via_ws(peer_addr: &str, json: &str) -> Result<(), String>
         Ok((mut ws_stream, _)) => {
             use futures_util::SinkExt;
             use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
-            ws_stream.send(WsMessage::Text(json.to_string().into()))
+            ws_stream
+                .send(WsMessage::Text(json.to_string().into()))
                 .await
                 .map_err(|e| format!("发送 WS 消息失败: {}", e))?;
             let _ = ws_stream.close(None).await;
@@ -441,7 +442,9 @@ async fn resend_file_background(
     } else if file_path.starts_with("fd:") {
         // 解析 msg_id 并从 FD 缓存克隆
         let msg_id_str = &file_path["fd:".len()..];
-        let msg_id: i64 = msg_id_str.parse().map_err(|_| format!("无效的 fd: 路径: {}", file_path))?;
+        let msg_id: i64 = msg_id_str
+            .parse()
+            .map_err(|_| format!("无效的 fd: 路径: {}", file_path))?;
         match crate::android_fd::duplicate_cached_file(msg_id) {
             Some((file, _, _)) => file,
             None => return Err(format!("FD 缓存未命中: msg_id={}", msg_id)),
@@ -457,10 +460,7 @@ async fn resend_file_background(
         .await
         .map_err(|e| format!("无法打开文件: {}", e))?;
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300)) // 5 分钟超时
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+    let client = crate::network::lan_http_client(Some(std::time::Duration::from_secs(300)))?;
 
     let upload_url = format!("http://{}/api/upload", peer_addr);
     let chunk_size = 50 * 1024 * 1024;
@@ -573,20 +573,19 @@ pub async fn resend_pending_messages(
                         (Some(path), Some(size)) if !path.trim().is_empty() => {
                             // 检查接收端 auto_download 设置
                             let auto_dl_url = format!("http://{}/api/auto_download", peer_addr);
-                            let auto_enabled = match reqwest::Client::new()
-                                .get(&auto_dl_url)
-                                .send()
-                                .await
-                            {
-                                Ok(resp) => {
-                                    if let Ok(data) = resp.json::<serde_json::Value>().await {
-                                        data.get("enabled")
-                                            .and_then(|v| v.as_bool())
-                                            .unwrap_or(true)
-                                    } else {
-                                        true
+                            let auto_enabled = match crate::network::lan_http_client(None) {
+                                Ok(client) => match client.get(&auto_dl_url).send().await {
+                                    Ok(resp) => {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            data.get("enabled")
+                                                .and_then(|v| v.as_bool())
+                                                .unwrap_or(true)
+                                        } else {
+                                            true
+                                        }
                                     }
-                                }
+                                    Err(_) => true,
+                                },
                                 Err(_) => true,
                             };
 
@@ -598,24 +597,17 @@ pub async fn resend_pending_messages(
                                 .await
                                 {
                                     Ok(_) => {
-                                        println!(
-                                            "[UDP] ✓ 文件消息 {} 补发成功",
-                                            msg_id
-                                        );
+                                        println!("[UDP] ✓ 文件消息 {} 补发成功", msg_id);
                                         msg_ids_to_mark.push(msg_id);
                                     }
                                     Err(e) => {
-                                        eprintln!(
-                                            "[UDP] ✗ 文件消息 {} 补发失败: {}",
-                                            msg_id, e
-                                        );
+                                        eprintln!("[UDP] ✗ 文件消息 {} 补发失败: {}", msg_id, e);
                                     }
                                 }
                             } else {
                                 // 自动下载关闭 → 发 file_offer，不直接上传
-                                let my_name = crate::db::get_username(pool)
-                                    .await
-                                    .unwrap_or_default();
+                                let my_name =
+                                    crate::db::get_username(pool).await.unwrap_or_default();
                                 let offer = serde_json::json!({
                                     "msg_type": "file_offer",
                                     "from_id": my_id,
@@ -630,14 +622,14 @@ pub async fn resend_pending_messages(
                                 {
                                     use futures_util::SinkExt;
                                     use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
-                                    let _ = ws_stream
-                                        .send(WsMessage::Text(offer.to_string()))
-                                        .await;
+                                    let _ =
+                                        ws_stream.send(WsMessage::Text(offer.to_string())).await;
                                     let _ = ws_stream.close(None).await;
                                     // 更新发送端 status 为 offering，前端显示「等待对方接收」
                                     let _ = crate::db::update_file_status_by_id(
                                         pool, msg_id, "offering",
-                                    ).await;
+                                    )
+                                    .await;
                                     event_bus.publish_message(serde_json::json!({
                                         "msg_type": "file_status_update",
                                         "sender_msg_id": msg_id,
@@ -660,9 +652,8 @@ pub async fn resend_pending_messages(
                             if let Some(size) = file_size {
                                 // 有文件大小但无路径 → Web端发送的离线文件，浏览器持有 File 引用
                                 // 尝试发送 file_offer 给接收端，后续 file_request → start_upload 由 WS handler 处理
-                                let my_name = crate::db::get_username(pool)
-                                    .await
-                                    .unwrap_or_default();
+                                let my_name =
+                                    crate::db::get_username(pool).await.unwrap_or_default();
                                 let offer = serde_json::json!({
                                     "msg_type": "file_offer",
                                     "from_id": my_id,
@@ -677,14 +668,14 @@ pub async fn resend_pending_messages(
                                 {
                                     use futures_util::SinkExt;
                                     use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
-                                    let _ = ws_stream
-                                        .send(WsMessage::Text(offer.to_string()))
-                                        .await;
+                                    let _ =
+                                        ws_stream.send(WsMessage::Text(offer.to_string())).await;
                                     let _ = ws_stream.close(None).await;
                                     // 更新发送端 status 为 offering，前端显示「等待对方接收」
                                     let _ = crate::db::update_file_status_by_id(
                                         pool, msg_id, "offering",
-                                    ).await;
+                                    )
+                                    .await;
                                     event_bus.publish_message(serde_json::json!({
                                         "msg_type": "file_status_update",
                                         "sender_msg_id": msg_id,

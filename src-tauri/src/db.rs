@@ -1,5 +1,5 @@
 use crate::utils::generate_random_name;
-use sqlx::{Pool, Sqlite, sqlite::SqlitePool};
+use sqlx::{sqlite::SqlitePool, Pool, Sqlite};
 use std::path::PathBuf;
 
 #[cfg(feature = "desktop")]
@@ -87,7 +87,10 @@ pub async fn get_download_path(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<String
         Err(_) => {
             // 如果没有设置，返回默认路径
             if cfg!(target_os = "android") {
-                Ok("/storage/emulated/0/Download/LANChat".to_string())
+                Ok(std::env::temp_dir()
+                    .join("lanchat_received_files")
+                    .to_string_lossy()
+                    .to_string())
             } else {
                 let home_dir = dirs::home_dir().ok_or("cannot get home directory")?;
                 let default_path = home_dir.join("Downloads").join("LANChat");
@@ -95,6 +98,22 @@ pub async fn get_download_path(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<String
             }
         }
     }
+}
+
+/// 接收文件实际落盘的目录。Android 的 `download_path` 允许保存 SAF tree URI，
+/// 因此网络接收始终先写入应用专属的 staging 目录，再由 ContentResolver 导出。
+pub async fn get_receive_directory(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<String, String> {
+    if cfg!(target_os = "android") {
+        let result: Result<(String,), _> =
+            sqlx::query_as("SELECT value FROM settings WHERE key = 'download_staging_path'")
+                .fetch_one(pool)
+                .await;
+        return result
+            .map(|(path,)| path)
+            .map_err(|error| error.to_string());
+    }
+
+    get_download_path(pool).await
 }
 
 // 更新下载路径
@@ -109,13 +128,18 @@ pub async fn update_download_path(
         return Err("path cannot be empty".to_string());
     }
 
-    // 尝试创建目录
-    if let Err(e) = std::fs::create_dir_all(&new_path) {
-        return Err(format!("cannot create directory: {}", e));
+    let trimmed = new_path.trim();
+
+    // SAF tree URI 不是文件系统路径，目录存在性与写权限由 Android
+    // ContentResolver 和持久化 URI 授权负责。
+    if !trimmed.starts_with("content://") {
+        if let Err(e) = std::fs::create_dir_all(trimmed) {
+            return Err(format!("cannot create directory: {}", e));
+        }
     }
 
     sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('download_path', ?)")
-        .bind(new_path.trim())
+        .bind(trimmed)
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
@@ -149,6 +173,17 @@ pub async fn init_db_standalone(custom_path: Option<PathBuf>) -> Result<Pool<Sql
     };
 
     init_db_with_path(app_dir).await
+}
+
+fn default_download_dir(app_dir: &std::path::Path) -> PathBuf {
+    if cfg!(target_os = "android") {
+        // Android 10+ 的分区存储不允许 targetSdk 36 应用直接用 std::fs 写公共 Download。
+        // 接收文件保存在应用专属持久目录，并继续由 LANChat 提供下载和预览。
+        app_dir.join("received_files")
+    } else {
+        let home_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+        home_dir.join("Downloads").join("LANChat")
+    }
 }
 
 // 通用的数据库初始化逻辑
@@ -264,17 +299,7 @@ pub async fn init_db_with_path(app_dir: PathBuf) -> Result<Pool<Sqlite>, sqlx::E
             .execute(&pool)
             .await?;
 
-        // 初始保存路径 - 统一使用 ~/Downloads/LANChat
-        let download_dir = if cfg!(target_os = "android") {
-            "/storage/emulated/0/Download/LANChat".to_string()
-        } else {
-            let home_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
-            home_dir
-                .join("Downloads")
-                .join("LANChat")
-                .to_string_lossy()
-                .to_string()
-        };
+        let download_dir = default_download_dir(&app_dir).to_string_lossy().to_string();
 
         println!("[DB] 设置默认下载路径: {}", download_dir);
 
@@ -282,6 +307,33 @@ pub async fn init_db_with_path(app_dir: PathBuf) -> Result<Pool<Sqlite>, sqlx::E
             .bind(download_dir)
             .execute(&pool)
             .await?;
+    }
+
+    if cfg!(target_os = "android") {
+        let private_download_dir = default_download_dir(&app_dir);
+        std::fs::create_dir_all(&private_download_dir).map_err(sqlx::Error::Io)?;
+        let expected = private_download_dir.to_string_lossy().to_string();
+        let current = get_download_path(&pool).await.ok();
+
+        sqlx::query(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('download_staging_path', ?)",
+        )
+        .bind(&expected)
+        .execute(&pool)
+        .await?;
+
+        // 旧版本保存的是公共 Download 路径，在 Android 16/targetSdk 36 下不可直接写入。
+        // 已由系统文件夹选择器产生的 content URI 必须保留。
+        let has_saf_directory = current
+            .as_deref()
+            .is_some_and(|path| path.starts_with("content://"));
+        if !has_saf_directory && current.as_deref() != Some(expected.as_str()) {
+            sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('download_path', ?)")
+                .bind(&expected)
+                .execute(&pool)
+                .await?;
+            println!("[DB] Android 下载目录已迁移到应用专属路径: {}", expected);
+        }
     }
 
     Ok(pool)
@@ -340,7 +392,10 @@ pub async fn save_file_message(
             .bind(new_id)
             .execute(pool)
             .await;
-        println!("[DB] 文件消息保存完成, id={}, sender_msg_id={}", new_id, new_id);
+        println!(
+            "[DB] 文件消息保存完成, id={}, sender_msg_id={}",
+            new_id, new_id
+        );
         Ok(new_id)
     }
 }
@@ -443,7 +498,10 @@ pub async fn create_upload_record(
         .bind(new_id)
         .execute(pool)
         .await;
-    println!("[DB] 上传记录创建完成, id={}, sender_msg_id={}", new_id, new_id);
+    println!(
+        "[DB] 上传记录创建完成, id={}, sender_msg_id={}",
+        new_id, new_id
+    );
     Ok(new_id)
 }
 
@@ -453,7 +511,10 @@ pub async fn update_upload_status(
     file_name: String,
     status: String,
 ) -> Result<(), String> {
-    println!("[DB] Web前端确认发送完毕，强制同步更新状态: {} -> {}", file_name, status);
+    println!(
+        "[DB] Web前端确认发送完毕，强制同步更新状态: {} -> {}",
+        file_name, status
+    );
     // 只要前端说传完了，不管后端之前以为它是 pending 还是 uploading，统统强制标为已发送！
     sqlx::query(
         "UPDATE messages SET file_status = ?, status = 'sent' WHERE sender_id = 'me' AND content = ?"
@@ -689,7 +750,7 @@ pub async fn create_received_file_record(
     file_path: String,
     file_size: u64,
     timestamp: i64,
-    sender_msg_id: &str,  // 发送端的 DB row ID，用于进度 DOM 查找
+    sender_msg_id: &str, // 发送端的 DB row ID，用于进度 DOM 查找
 ) -> Result<i64, String> {
     // 获取当前用户ID作为接收者
     let my_id = get_user_id(pool).await?;
@@ -966,15 +1027,17 @@ pub async fn get_latest_msg_id_by_file(
     // 尝试最多 3 次查询，每次间隔 50ms，应对写入延迟
     for _ in 0..3 {
         let res = sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM messages WHERE sender_id = ? AND content = ? ORDER BY id DESC LIMIT 1"
+            "SELECT id FROM messages WHERE sender_id = ? AND content = ? ORDER BY id DESC LIMIT 1",
         )
         .bind(sender_id)
         .bind(file_name)
         .fetch_optional(pool)
         .await
         .unwrap_or(None);
-        
-        if res.is_some() { return res; }
+
+        if res.is_some() {
+            return res;
+        }
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     }
     None
@@ -994,17 +1057,21 @@ pub async fn get_sender_msg_id_by_file(
     .fetch_optional(pool)
     .await
     .map_err(|e| format!("查询 sender_msg_id 失败: {}", e))?;
-    
+
     Ok(result.unwrap_or_default())
 }
 
 /// 清空与某个用户的聊天记录
-pub async fn clear_chat_history(pool: &sqlx::Pool<sqlx::Sqlite>, my_id: &str, peer_id: &str) -> Result<(), String> {
+pub async fn clear_chat_history(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    my_id: &str,
+    peer_id: &str,
+) -> Result<(), String> {
     println!("[DB] 清空与用户 {} 的聊天记录", peer_id);
     sqlx::query(
         "DELETE FROM messages WHERE 
         (sender_id = 'me' AND receiver_id = ?) OR 
-        (sender_id = ? AND (receiver_id = ? OR receiver_id IS NULL))"
+        (sender_id = ? AND (receiver_id = ? OR receiver_id IS NULL))",
     )
     .bind(peer_id)
     .bind(peer_id)
@@ -1016,7 +1083,11 @@ pub async fn clear_chat_history(pool: &sqlx::Pool<sqlx::Sqlite>, my_id: &str, pe
 }
 
 /// 删除用户及其所有聊天记录
-pub async fn delete_user_and_history(pool: &sqlx::Pool<sqlx::Sqlite>, my_id: &str, peer_id: &str) -> Result<(), String> {
+pub async fn delete_user_and_history(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    my_id: &str,
+    peer_id: &str,
+) -> Result<(), String> {
     // 1. 删除消息
     clear_chat_history(pool, my_id, peer_id).await?;
     // 2. 从用户表删除
@@ -1036,12 +1107,10 @@ const CUSTOM_PEER_KEY_PREFIX: &str = "custom_peer_";
 /// 获取所有自定义 IP
 pub async fn get_custom_peers(pool: &sqlx::Pool<sqlx::Sqlite>) -> Vec<String> {
     let pattern = format!("{}%", CUSTOM_PEER_KEY_PREFIX);
-    match sqlx::query_as::<_, (String,)>(
-        "SELECT value FROM settings WHERE key LIKE ?",
-    )
-    .bind(&pattern)
-    .fetch_all(pool)
-    .await
+    match sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key LIKE ?")
+        .bind(&pattern)
+        .fetch_all(pool)
+        .await
     {
         Ok(rows) => rows.into_iter().map(|r| r.0).collect(),
         Err(e) => {
@@ -1111,11 +1180,10 @@ pub async fn set_notifications_enabled(
 
 /// 获取自动下载开关状态（默认开启）
 pub async fn get_auto_download(pool: &sqlx::Pool<sqlx::Sqlite>) -> bool {
-    let res = sqlx::query_as::<_, (String,)>( 
-        "SELECT value FROM settings WHERE key = 'auto_download'"
-    )
-    .fetch_one(pool)
-    .await;
+    let res =
+        sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'auto_download'")
+            .fetch_one(pool)
+            .await;
 
     match res {
         Ok((val,)) => val == "true",
@@ -1140,11 +1208,9 @@ pub async fn set_auto_download(
 
 /// 获取端口（仅 Android 端使用，其他平台走 config.json）
 pub async fn get_port(pool: &sqlx::Pool<sqlx::Sqlite>) -> Option<u16> {
-    let res = sqlx::query_as::<_, (String,)>( 
-        "SELECT value FROM settings WHERE key = 'port'"
-    )
-    .fetch_one(pool)
-    .await;
+    let res = sqlx::query_as::<_, (String,)>("SELECT value FROM settings WHERE key = 'port'")
+        .fetch_one(pool)
+        .await;
 
     match res {
         Ok((val,)) => val.parse::<u16>().ok(),
@@ -1153,10 +1219,7 @@ pub async fn get_port(pool: &sqlx::Pool<sqlx::Sqlite>) -> Option<u16> {
 }
 
 /// 设置端口（仅 Android 端使用）
-pub async fn set_port(
-    pool: &sqlx::Pool<sqlx::Sqlite>,
-    port: u16,
-) -> Result<(), String> {
+pub async fn set_port(pool: &sqlx::Pool<sqlx::Sqlite>, port: u16) -> Result<(), String> {
     sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('port', ?)")
         .bind(port.to_string())
         .execute(pool)
@@ -1219,7 +1282,10 @@ pub async fn find_and_update_offered_record(
             .execute(pool)
             .await
             .map_err(|e| format!("更新 offered 为 downloading 失败: {}", e))?;
-        println!("[DB] 已更新 offered 记录(ID={}, sender_msg_id={}) 为 downloading，路径: {}", msg_id, sender_msg_id, file_path);
+        println!(
+            "[DB] 已更新 offered 记录(ID={}, sender_msg_id={}) 为 downloading，路径: {}",
+            msg_id, sender_msg_id, file_path
+        );
         Ok(Some((msg_id, sender_msg_id)))
     } else {
         Ok(None)
@@ -1247,7 +1313,7 @@ pub async fn get_sender_file_by_msg_id(
     msg_id: i64,
 ) -> Result<(String, String, i64), String> {
     sqlx::query_as::<_, (String, String, i64)>(
-        "SELECT file_path, content, file_size FROM messages WHERE id = ? AND sender_id = 'me'"
+        "SELECT file_path, content, file_size FROM messages WHERE id = ? AND sender_id = 'me'",
     )
     .bind(msg_id)
     .fetch_one(pool)
@@ -1270,15 +1336,13 @@ pub async fn add_persisted_uri(
         .unwrap_or_default()
         .as_secs() as i64;
 
-    sqlx::query(
-        "INSERT OR IGNORE INTO persisted_uris (uri, msg_id, created_at) VALUES (?, ?, ?)"
-    )
-    .bind(uri)
-    .bind(msg_id)
-    .bind(now)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("添加持久化 URI 记录失败: {}", e))?;
+    sqlx::query("INSERT OR IGNORE INTO persisted_uris (uri, msg_id, created_at) VALUES (?, ?, ?)")
+        .bind(uri)
+        .bind(msg_id)
+        .bind(now)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("添加持久化 URI 记录失败: {}", e))?;
 
     println!("[DB] 已添加持久化 URI: msg_id={}, uri={}", msg_id, uri);
     Ok(())
@@ -1316,7 +1380,7 @@ pub async fn get_oldest_persisted_uri(
 ) -> Result<Option<(i64, String, i64)>, String> {
     // 返回 (id, uri, msg_id)，按 created_at ASC
     let result = sqlx::query_as::<_, (i64, String, i64)>(
-        "SELECT id, uri, msg_id FROM persisted_uris ORDER BY created_at ASC LIMIT 1"
+        "SELECT id, uri, msg_id FROM persisted_uris ORDER BY created_at ASC LIMIT 1",
     )
     .fetch_optional(pool)
     .await
@@ -1325,15 +1389,11 @@ pub async fn get_oldest_persisted_uri(
 }
 
 /// 统计当前追踪的持久化 URI 数量
-pub async fn count_persisted_uris(
-    pool: &sqlx::Pool<sqlx::Sqlite>,
-) -> Result<i64, String> {
-    let result = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM persisted_uris"
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| format!("统计持久化 URI 数量失败: {}", e))?;
+pub async fn count_persisted_uris(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<i64, String> {
+    let result = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM persisted_uris")
+        .fetch_one(pool)
+        .await
+        .map_err(|e| format!("统计持久化 URI 数量失败: {}", e))?;
     Ok(result)
 }
 
@@ -1342,13 +1402,11 @@ pub async fn get_msg_id_for_uri(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     uri: &str,
 ) -> Result<Option<i64>, String> {
-    let result = sqlx::query_scalar::<_, i64>(
-        "SELECT msg_id FROM persisted_uris WHERE uri = ?"
-    )
-    .bind(uri)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("通过 URI 查询 msg_id 失败: {}", e))?;
+    let result = sqlx::query_scalar::<_, i64>("SELECT msg_id FROM persisted_uris WHERE uri = ?")
+        .bind(uri)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("通过 URI 查询 msg_id 失败: {}", e))?;
     Ok(result)
 }
 
@@ -1357,13 +1415,11 @@ pub async fn get_uri_by_msg_id(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     msg_id: i64,
 ) -> Result<Option<String>, String> {
-    let result = sqlx::query_scalar::<_, String>(
-        "SELECT uri FROM persisted_uris WHERE msg_id = ?"
-    )
-    .bind(msg_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("通过 msg_id 查询 URI 失败: {}", e))?;
+    let result = sqlx::query_scalar::<_, String>("SELECT uri FROM persisted_uris WHERE msg_id = ?")
+        .bind(msg_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("通过 msg_id 查询 URI 失败: {}", e))?;
     Ok(result)
 }
 

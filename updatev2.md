@@ -393,6 +393,14 @@ Android 设置页至少展示：
 [ 停止后台接收并退出 ]
 ```
 
+Android 下载目录采用系统 Storage Access Framework（`ACTION_OPEN_DOCUMENT_TREE`）：
+
+- 用户可以在系统文件选择器中选择 Download、Documents 或其他文档提供方允许写入的目录。
+- 应用持久化该 tree URI 的读写授权，不保存 `/storage/emulated/0/...` 一类任意原始路径。
+- 文件先完整写入应用专属 staging 目录；校验和原子落盘完成后，再通过 `ContentResolver` 导出到用户选择的目录。
+- 用户尚未选择目录或授权已失效时，应用专属目录是可靠兜底；授权失效的导出错误必须明确返回，不能显示 `undefined`。
+- LAN 设备间 HTTP 请求必须禁用系统/环境代理，避免文字 WebSocket 正常而文件 HTTP 被本机代理截获。
+
 “停止后台接收并退出”与最近任务划掉执行同一幂等清理入口。再次显式打开 App 时允许开始新的运行会话。
 
 不得保存或调度用于进程被杀后自动恢复 Service 的运行请求。普通业务设置仍可保存在 SQLite 或 SharedPreferences，但不能被后台组件用于自动拉活。
@@ -437,6 +445,10 @@ open_battery_optimization_settings()
 | `src-tauri/src/core_runtime.rs` | 新增进程级网络核心、事务化启动和幂等停止 |
 | `src-tauri/src/core_events.rs` | 新增统一事件模型 |
 | `src-tauri/src/android_service.rs` | 新增 Service JNI 和 AndroidEventBridge 入口 |
+| `src-tauri/src/android_fd.rs` | 增加 SAF 下载目录选择与完成文件导出 JNI 桥接 |
+| `src-tauri/src/db.rs` | 分离用户下载目标 URI 与应用专属接收 staging 路径 |
+| `src-tauri/src/web_server.rs` | 文件完整落盘后经 ContentResolver 导出到 SAF 目录 |
+| `src-tauri/gen/android/app/src/main/java/com/lanchat/app/AndroidDownloadStore.kt` | Android DocumentsContract 写入实现 |
 | `src-tauri/src/network/discovery.rs` | 异步化、可取消、返回启动错误 |
 | `src-tauri/src/web_server.rs` | 返回 Result、支持优雅停止、移除启动 unwrap |
 | `src-tauri/src/network/messaging.rs` | AppHandle 改为 CoreEventBus；提交数据库后发事件 |

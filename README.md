@@ -40,6 +40,7 @@ Local build artifacts are not committed to the source repository. Build from sou
 - 🤖 **[LANClaw](https://github.com/cap153/LANClaw) AI Bot** - Pi-powered AI chatbot with auto-reply, file analysis, and scheduled tasks
 - 📱 **Android Dual-Track File Engine** — SAF persistable permissions + Share Intent FD cache zero-copy dual track
 - 📁 **SAF File Picker** — Android native `ACTION_OPEN_DOCUMENT`; selected files remain readable across process/reboot
+- 📥 **Android Custom Download Folder** — Pick a writable system folder and safely export completed transfers
 - 🔁 **Offline Re-send** — Offline messages auto-cached; auto-re-send on reconnect, including files
 - 🔗 **Manual Receive** - Turn off **Auto Download** and click to download files manually
 
