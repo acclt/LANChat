@@ -448,9 +448,9 @@ pub async fn update_settings(
     if let Some(enabled) = auto_download {
         crate::db::set_auto_download(&state.pool, enabled).await?;
     }
-    if let Some(enabled) = close_to_tray {
+    if let Some(_enabled) = close_to_tray {
         #[cfg(not(target_os = "android"))]
-        crate::config_file::save_close_to_tray_to_config(enabled)?;
+        crate::config_file::save_close_to_tray_to_config(_enabled)?;
     }
 
     Ok(())
@@ -1816,6 +1816,86 @@ pub async fn get_notifications_enabled(state: tauri::State<'_, crate::db::DbStat
 #[tauri::command]
 pub async fn set_notifications_enabled(state: tauri::State<'_, crate::db::DbState>, enabled: bool) -> Result<(), String> {
     crate::db::set_notifications_enabled(&state.pool, enabled).await
+}
+
+#[tauri::command]
+pub fn get_background_receive_state() -> serde_json::Value {
+    serde_json::to_value(crate::core_runtime::CoreRuntime::global().status())
+        .unwrap_or_else(|_| serde_json::json!({"state": "ERROR"}))
+}
+
+#[cfg(target_os = "android")]
+fn call_android_activity_void(method: &str) -> Result<(), String> {
+    let context = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
+        .map_err(|error| format!("获取 JavaVM 失败: {error}"))?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|error| format!("附加线程失败: {error}"))?;
+    let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
+    env.call_method(activity, method, "()V", &[])
+        .map_err(|error| format!("调用 {method} 失败: {error}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn call_android_activity_string(method: &str) -> Result<String, String> {
+    let context = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
+        .map_err(|error| format!("获取 JavaVM 失败: {error}"))?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|error| format!("附加线程失败: {error}"))?;
+    let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
+    let value = env
+        .call_method(activity, method, "()Ljava/lang/String;", &[])
+        .map_err(|error| format!("调用 {method} 失败: {error}"))?
+        .l()
+        .map_err(|error| error.to_string())?;
+    let value = jni::objects::JString::from(value);
+    env.get_string(&value)
+        .map(|value| value.to_string_lossy().into_owned())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn retry_background_service() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_void("retryBackgroundService");
+    #[cfg(not(target_os = "android"))]
+    Err("仅 Android 支持后台接收服务".to_string())
+}
+
+#[tauri::command]
+pub fn stop_background_receive_and_exit() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_void("stopBackgroundReceiveAndExit");
+    #[cfg(not(target_os = "android"))]
+    Err("仅 Android 支持后台接收服务".to_string())
+}
+
+#[tauri::command]
+pub fn get_battery_optimization_state() -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_string("getBatteryOptimizationState");
+    #[cfg(not(target_os = "android"))]
+    Ok("not_applicable".to_string())
+}
+
+#[tauri::command]
+pub fn open_battery_optimization_settings() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_void("openBatteryOptimizationSettings");
+    #[cfg(not(target_os = "android"))]
+    Err("仅 Android 支持电池优化设置".to_string())
+}
+
+#[tauri::command]
+pub fn get_notification_permission_state() -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_string("getNotificationPermissionState");
+    #[cfg(not(target_os = "android"))]
+    Ok("not_applicable".to_string())
 }
 
 #[tauri::command]

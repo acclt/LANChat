@@ -2390,6 +2390,13 @@ function initSettings() {
   const closeToTrayToggle = document.getElementById("close-to-tray-toggle");
   const autostartSetting = document.getElementById("autostart-setting");
   const autostartToggle = document.getElementById("autostart-toggle");
+  const backgroundReceiveSetting = document.getElementById("background-receive-setting");
+  const backgroundReceiveStatus = document.getElementById("background-receive-status");
+  const backgroundReceiveError = document.getElementById("background-receive-error");
+  const retryBackgroundServiceBtn = document.getElementById("retry-background-service-btn");
+  const batteryOptimizationStatus = document.getElementById("battery-optimization-status");
+  const openBatterySettingsBtn = document.getElementById("open-battery-settings-btn");
+  const stopBackgroundServiceBtn = document.getElementById("stop-background-service-btn");
 
   // Android 端隐藏数据库路径配置
   const isAndroid = window.__TAURI__ && navigator.userAgent.includes("Android");
@@ -2402,6 +2409,49 @@ function initSettings() {
   }
   if (autostartSetting && !isWindowsDesktop) {
     autostartSetting.style.display = "none";
+  }
+  if (backgroundReceiveSetting && isAndroid) {
+    backgroundReceiveSetting.style.display = "block";
+  }
+
+  async function refreshBackgroundReceiveState() {
+    if (!isAndroid || !window.__TAURI__) return;
+    try {
+      const state = await window.__TAURI__.core.invoke("get_background_receive_state");
+      const labels = {
+        RUNNING: "● 正在运行",
+        STARTING: "● 正在启动",
+        STOPPING: "○ 正在停止",
+        STOPPED: "○ 已停止",
+        ERROR: "△ 启动失败",
+      };
+      backgroundReceiveStatus.textContent = labels[state.state] || state.state || "未知";
+      backgroundReceiveError.textContent = state.last_error_message || "";
+      retryBackgroundServiceBtn.style.display = state.state === "ERROR" ? "inline-block" : "none";
+      const battery = await window.__TAURI__.core.invoke("get_battery_optimization_state");
+      batteryOptimizationStatus.textContent = battery === "unrestricted" ? "不受限制" : "受系统优化限制";
+      const notification = await window.__TAURI__.core.invoke("get_notification_permission_state");
+      notificationHint.textContent = notification === "granted"
+        ? ""
+        : "系统通知权限已关闭；后台仍可运行，但新消息提醒可能不可见。";
+    } catch (error) {
+      backgroundReceiveError.textContent = "读取后台状态失败: " + error;
+    }
+  }
+
+  if (isAndroid) {
+    retryBackgroundServiceBtn?.addEventListener("click", async () => {
+      await window.__TAURI__.core.invoke("retry_background_service");
+      setTimeout(refreshBackgroundReceiveState, 500);
+    });
+    openBatterySettingsBtn?.addEventListener("click", () =>
+      window.__TAURI__.core.invoke("open_battery_optimization_settings"));
+    stopBackgroundServiceBtn?.addEventListener("click", async () => {
+      if (confirm("停止后台接收并退出 LANChat？")) {
+        await window.__TAURI__.core.invoke("stop_background_receive_and_exit");
+      }
+    });
+    window.__TAURI__.event?.listen("core-state-changed", refreshBackgroundReceiveState);
   }
 
   // 获取默认下载路径
@@ -2460,6 +2510,7 @@ function initSettings() {
             notificationHint.textContent = "";
           }
         }
+        await refreshBackgroundReceiveState();
       } catch (e) {
         settingsErrorMsg.textContent = "加载设置失败: " + e.message;
       }

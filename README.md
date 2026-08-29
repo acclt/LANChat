@@ -302,6 +302,14 @@ When devices are on different VLANs or connected via WireGuard, UDP broadcast wo
 > Only one side needs to add the other. Upon receiving a heartbeat, the peer **auto-replies** with its own heartbeat, enabling mutual discovery without manual setup on both sides.
 > Reply heartbeats include a `|1` marker to prevent infinite loops.
 
+## Android Background Receiving
+
+After the user explicitly opens LANChat, the Android app starts an in-process foreground service with its own persistent status notification. Pressing Home, switching apps, locking the screen, or a normal Activity recreation does not create a second network core. Swiping LANChat from Recents is treated as an explicit exit and releases the service, UDP/HTTP ports, notifications, and system locks.
+
+The Settings panel shows the background-receive, notification-permission, and battery-optimization states. It also links to Android battery settings and provides “Stop background receiving and exit.” The app does not auto-recover after process death, device reboot, force-stop, or a Recents swipe; opening the app explicitly starts a new session.
+
+Deep Doze and vendor-specific battery policies can still delay LAN traffic. For higher screen-off reliability, set LANChat to unrestricted battery use. Multicast discovery and direct communication with a known IP are separate paths and should be tested independently.
+
 ## Tech Stack
 
 - **Backend**: Rust + Tauri 2.0

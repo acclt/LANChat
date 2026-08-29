@@ -1,385 +1,273 @@
 use socket2::{Domain, Protocol, Socket, Type};
-use std::net::{Ipv4Addr, UdpSocket};
+use std::collections::HashMap;
+use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
 
-#[cfg(feature = "desktop")]
-use tauri::{AppHandle, Emitter};
-
+use crate::core_events::{CoreEvent, CoreEventBus};
 use crate::peers::PeerManager;
 
 const MULTICAST_IP: &str = "224.0.0.167";
 
-// 创建支持广播和组播的 UDP socket
-fn create_discovery_socket(
-    bind_addr: &str,
-    is_listener: bool,
-) -> Result<UdpSocket, std::io::Error> {
+fn create_discovery_socket(bind_addr: &str, is_listener: bool) -> std::io::Result<UdpSocket> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-
-    #[cfg(target_os = "windows")]
     socket.set_reuse_address(true)?;
-
     #[cfg(not(target_os = "windows"))]
-    {
-        socket.set_reuse_address(true)?;
-        socket.set_reuse_port(true)?;
-    }
+    socket.set_reuse_port(true)?;
 
-    let addr: std::net::SocketAddr = bind_addr
+    let addr: SocketAddr = bind_addr
         .parse()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
     socket.bind(&addr.into())?;
 
-    let std_socket: UdpSocket = socket.into();
-
+    let socket: UdpSocket = socket.into();
+    socket.set_nonblocking(true)?;
     if is_listener {
-        let multi_addr: Ipv4Addr = MULTICAST_IP.parse().unwrap();
-        let interface: Ipv4Addr = "0.0.0.0".parse().unwrap();
-        let _ = std_socket.join_multicast_v4(&multi_addr, &interface);
+        socket.join_multicast_v4(
+            &MULTICAST_IP
+                .parse::<Ipv4Addr>()
+                .expect("valid multicast address"),
+            &Ipv4Addr::UNSPECIFIED,
+        )?;
     } else {
-        std_socket.set_broadcast(true)?;
-        let _ = std_socket.set_multicast_ttl_v4(1);
+        socket.set_broadcast(true)?;
+        socket.set_multicast_ttl_v4(1)?;
     }
-
-    Ok(std_socket)
+    Ok(socket)
 }
 
-// 核心黑科技：生成全网段广播地址（绕过 Android 网卡读取限制）
-fn get_smart_broadcast_addresses(port: u16) -> Vec<String> {
+pub async fn bind_listener(port: u16) -> std::io::Result<tokio::net::UdpSocket> {
+    let socket = create_discovery_socket(&format!("0.0.0.0:{port}"), true)?;
+    tokio::net::UdpSocket::from_std(socket)
+}
+
+pub async fn bind_announcer() -> std::io::Result<tokio::net::UdpSocket> {
+    let socket = create_discovery_socket("0.0.0.0:0", false)?;
+    tokio::net::UdpSocket::from_std(socket)
+}
+
+fn get_smart_broadcast_addresses(port: u16) -> Vec<SocketAddr> {
     let mut addrs = Vec::with_capacity(260);
-
-    // 1. 全局受限广播 (应对普通路由器)
-    addrs.push(format!("255.255.255.255:{}", port));
-    // 2. 组播 (PC端互联完美生效)
-    addrs.push(format!("{}:{}", MULTICAST_IP, port));
-    // 3. 苹果 iOS 热点固定广播地址
-    addrs.push(format!("172.20.10.15:{}", port));
-    // 4. 常见企业路由器网段
-    addrs.push(format!("10.0.0.255:{}", port));
-
-    // 5. Android 随机热点网段 "暴力"覆盖 (192.168.0.255 ~ 192.168.255.255)
-    // 那些没有对应网卡的地址会在微秒级被内核路由表直接丢弃，不会产生网络风暴
-    for i in 0..=255 {
-        addrs.push(format!("192.168.{}.255:{}", i, port));
+    for address in [
+        format!("255.255.255.255:{port}"),
+        format!("{MULTICAST_IP}:{port}"),
+        format!("172.20.10.15:{port}"),
+        format!("10.0.0.255:{port}"),
+    ] {
+        if let Ok(address) = address.parse() {
+            addrs.push(address);
+        }
     }
-
+    for subnet in 0..=255 {
+        addrs.push(SocketAddr::from(([192, 168, subnet, 255], port)));
+    }
     addrs
 }
 
-pub async fn start_announcing(port: u16, user_id: String, pool: sqlx::Pool<sqlx::Sqlite>) {
-    let socket = match create_discovery_socket("0.0.0.0:0", false) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[UDP] 创建发送 socket 失败: {}", e);
-            return;
-        }
-    };
-
-    println!("[UDP] 开始通过智能路由遍历发送心跳...");
-
+pub async fn run_announcer(
+    socket: tokio::net::UdpSocket,
+    port: u16,
+    user_id: String,
+    pool: sqlx::Pool<sqlx::Sqlite>,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
     use sysinfo::System;
-    use std::collections::HashMap;
-    use std::time::Instant;
-    let mut sys = System::new();
-    let target_addrs = get_smart_broadcast_addresses(port);
 
-    // DNS 缓存：hostname → (解析结果, 过期时间)，TTL 60 秒
-    let mut dns_cache: HashMap<String, (Vec<std::net::SocketAddr>, Instant)> = HashMap::new();
+    let mut system = System::new();
+    let target_addrs = get_smart_broadcast_addresses(port);
+    let mut dns_cache: HashMap<String, (Vec<SocketAddr>, Instant)> = HashMap::new();
     const DNS_TTL: Duration = Duration::from_secs(60);
 
     loop {
-        let username = match crate::db::get_username(&pool).await {
-            Ok(name) => name,
-            Err(_) => "Unknown".to_string(),
-        };
+        let username = crate::db::get_username(&pool)
+            .await
+            .unwrap_or_else(|_| "Unknown".to_string());
+        system.refresh_memory();
+        let available_memory_mb = system.available_memory() / (1024 * 1024);
+        let message = format!("LANChat|ONLINE|{user_id}|{username}|{port}|{available_memory_mb}");
 
-        sys.refresh_memory();
-        let available_memory_mb = sys.available_memory() / (1024 * 1024);
-
-        let msg = format!(
-            "LANChat|ONLINE|{}|{}|{}|{}",
-            user_id, username, port, available_memory_mb
-        );
-
-        // 核心：遍历所有可能地址，仅路由存在的网卡能发送成功
-        for addr in &target_addrs {
-            let _ = socket.send_to(msg.as_bytes(), addr);
+        for address in &target_addrs {
+            let _ = socket.send_to(message.as_bytes(), address).await;
         }
 
-        // 发送单播到自定义设备（支持 IP 和 域名/主机名）
         let custom_peers = crate::db::get_custom_peers(&pool).await;
         let now = Instant::now();
         for peer in &custom_peers {
-            if let Ok(addr) = peer.parse::<std::net::SocketAddr>() {
-                // 快速路径：纯 IP:port
-                let _ = socket.send_to(msg.as_bytes(), addr);
+            let with_port = if peer.contains(':') {
+                peer.clone()
             } else {
-                // DNS 路径：域名/主机名
-                let with_port = if peer.contains(':') {
-                    peer.clone()
-                } else {
-                    format!("{}:{}", peer, port)
-                };
-
-                // 查缓存
-                let addrs = if let Some((cached, expiry)) = dns_cache.get(&with_port) {
-                    if *expiry > now {
-                        Some(cached.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                let addrs = match addrs {
-                    Some(a) => a,
-                    None => {
-                        // DNS 解析
-                        match tokio::net::lookup_host(&with_port).await {
-                            Ok(resolved) => {
-                                let list: Vec<_> = resolved.collect();
-                                if !list.is_empty() {
-                                    dns_cache.insert(with_port.clone(), (list.clone(), now + DNS_TTL));
-                                }
-                                list
-                            }
-                            Err(e) => {
-                                eprintln!("[UDP] DNS 解析失败 ({}): {}", peer, e);
-                                Vec::new()
-                            }
+                format!("{peer}:{port}")
+            };
+            let cached = dns_cache
+                .get(&with_port)
+                .filter(|(_, expiry)| *expiry > now)
+                .map(|(addresses, _)| addresses.clone());
+            let addresses = match cached {
+                Some(addresses) => addresses,
+                None => match tokio::net::lookup_host(&with_port).await {
+                    Ok(addresses) => {
+                        let addresses: Vec<_> = addresses.collect();
+                        if !addresses.is_empty() {
+                            dns_cache.insert(with_port.clone(), (addresses.clone(), now + DNS_TTL));
                         }
+                        addresses
                     }
-                };
-
-                for addr in &addrs {
-                    let _ = socket.send_to(msg.as_bytes(), addr);
-                }
+                    Err(error) => {
+                        eprintln!("[UDP] DNS 解析失败 ({peer}): {error}");
+                        Vec::new()
+                    }
+                },
+            };
+            for address in addresses {
+                let _ = socket.send_to(message.as_bytes(), address).await;
             }
         }
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::select! {
+            _ = cancellation.cancelled() => return Ok(()),
+            _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+        }
     }
 }
 
-// 桌面端版本 - 带 AppHandle
-#[cfg(all(feature = "desktop", not(feature = "web")))]
-pub async fn start_listening(
+#[allow(clippy::too_many_arguments)]
+pub async fn run_listener(
+    socket: tokio::net::UdpSocket,
     port: u16,
     my_id: String,
     my_name: String,
-    app: Option<AppHandle>,
     peer_manager: Arc<PeerManager>,
     pool: sqlx::Pool<sqlx::Sqlite>,
-) {
-    let bind_addr = format!("0.0.0.0:{}", port);
-    let socket = match create_discovery_socket(&bind_addr, true) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[UDP] 创建监听 socket 失败: {}", e);
-            return;
-        }
-    };
-
-    let mut buf = [0u8; 1024];
-    println!("[UDP] 正在端口 {} 监听邻居...", port);
+    event_bus: CoreEventBus,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
+    let mut buffer = [0_u8; 1024];
+    println!("[UDP] 正在端口 {port} 监听邻居...");
 
     loop {
-        if let Ok((size, addr)) = socket.recv_from(&mut buf) {
-            let msg = String::from_utf8_lossy(&buf[..size]);
-            let parts: Vec<&str> = msg.split('|').collect();
+        let (size, address) = tokio::select! {
+            _ = cancellation.cancelled() => return Ok(()),
+            result = socket.recv_from(&mut buffer) => result.map_err(|error| error.to_string())?,
+        };
+        let message = String::from_utf8_lossy(&buffer[..size]);
+        let parts: Vec<&str> = message.split('|').collect();
+        if parts.len() < 6 || parts[0] != "LANChat" {
+            continue;
+        }
 
-            if parts.len() >= 6 && parts[0] == "LANChat" {
-                let peer_id = parts[2].to_string();
-                let name = parts[3].to_string();
-                let peer_port = parts[4];
-                let available_memory_mb: u64 = parts[5].parse().unwrap_or(0);
-                if peer_id == my_id {
-                    continue;
+        let peer_id = parts[2].to_string();
+        if peer_id == my_id {
+            continue;
+        }
+        let name = parts[3].to_string();
+        let peer_port = parts[4];
+        let available_memory_mb = parts[5].parse().unwrap_or(0);
+        let peer_addr = format!("{}:{peer_port}", address.ip());
+        let is_new_or_reconnected = peer_manager.add_or_update_with_memory(
+            peer_id.clone(),
+            name.clone(),
+            peer_addr.clone(),
+            available_memory_mb,
+        );
+
+        crate::db::save_or_update_user(
+            &pool,
+            peer_id.clone(),
+            name.clone(),
+            peer_addr.clone(),
+            false,
+            available_memory_mb,
+        )
+        .await
+        .map_err(|error| format!("保存发现设备失败: {error}"))?;
+
+        if is_new_or_reconnected {
+            let resend_pool = pool.clone();
+            let resend_peer_id = peer_id.clone();
+            let resend_peer_addr = peer_addr.clone();
+            let resend_bus = event_bus.clone();
+            let resend_cancellation = cancellation.child_token();
+            tokio::spawn(async move {
+                if resend_cancellation.is_cancelled() {
+                    return;
                 }
-
-                let peer_addr = format!("{}:{}", addr.ip(), peer_port);
-
-                let is_new_or_reconnected = peer_manager.add_or_update_with_memory(
-                    peer_id.clone(),
-                    name.clone(),
-                    peer_addr.clone(),
-                    available_memory_mb,
-                );
-
-                // 保存或更新用户到数据库
-                let _ = crate::db::save_or_update_user(
-                    &pool,
-                    peer_id.clone(),
-                    name.clone(),
-                    peer_addr.clone(),
-                    false,
-                    available_memory_mb,
+                if let Err(error) = crate::network::messaging::resend_pending_messages(
+                    &resend_pool,
+                    &resend_peer_id,
+                    &resend_peer_addr,
+                    resend_bus,
                 )
-                .await;
-
-                // 只在新用户或重新上线时打印日志
-                if is_new_or_reconnected {
-                    println!(
-                        "[UDP] 发现用户: {} ({}) at {} (可用内存: {} MB)，准备检查补发队列...",
-                        name, peer_id, peer_addr, available_memory_mb
-                    );
-
-                    let pool_clone = pool.clone();
-                    let peer_id_clone = peer_id.clone();
-                    let peer_addr_clone = peer_addr.clone();
-                    let app_clone = app.clone();
-
-                    // 扔进后台线程执行，不要阻挡 UDP 监听其他用户的广播！
-                    tokio::spawn(async move {
-                        if let Err(e) = crate::network::messaging::resend_pending_messages(
-                            &pool_clone,
-                            &peer_id_clone,
-                            &peer_addr_clone,
-                            app_clone,
-                        )
-                        .await
-                        {
-                            eprintln!("[UDP] 补发消息严重失败: {}", e);
-                        }
-                    });
+                .await
+                {
+                    eprintln!("[UDP] 补发消息失败: {error}");
                 }
+            });
+        }
 
-                if let Some(app_handle) = &app {
-                    let _ = app_handle.emit("new-peer", serde_json::json!({
-                        "id": peer_id, "name": name, "addr": peer_addr, "available_memory_mb": available_memory_mb
-                    }));
-                }
+        event_bus.publish(CoreEvent::PeerDiscovered(serde_json::json!({
+            "id": peer_id,
+            "name": name,
+            "addr": peer_addr,
+            "available_memory_mb": available_memory_mb,
+        })));
 
-                // 回复心跳给对方（无 |1 标记则为原始心跳，需回复）
-                if parts.len() <= 6 {
-                    // 从数据库读取最新用户名（用户改名后动态生效）
-                    let reply_name = match crate::db::get_username(&pool).await {
-                        Ok(name) => name,
-                        Err(_) => my_name.clone(),
-                    };
-                    let reply = format!(
-                        "LANChat|ONLINE|{}|{}|{}|0|1",
-                        my_id, reply_name, port
-                    );
-                    let target = format!("{}:{}", addr.ip(), peer_port);
-                    let _ = socket.send_to(reply.as_bytes(), &target);
-                }
-            }
+        if parts.len() <= 6 {
+            let reply_name = crate::db::get_username(&pool)
+                .await
+                .unwrap_or_else(|_| my_name.clone());
+            let reply = format!("LANChat|ONLINE|{my_id}|{reply_name}|{port}|0|1");
+            let target = format!("{}:{peer_port}", address.ip());
+            let _ = socket.send_to(reply.as_bytes(), &target).await;
         }
     }
 }
 
-// Web 端版本 - 不带 AppHandle
-#[cfg(all(feature = "web", not(feature = "desktop")))]
+pub async fn start_announcing(
+    port: u16,
+    user_id: String,
+    pool: sqlx::Pool<sqlx::Sqlite>,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
+    let socket = bind_announcer().await.map_err(|error| error.to_string())?;
+    run_announcer(socket, port, user_id, pool, cancellation).await
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn start_listening(
     port: u16,
     my_id: String,
     my_name: String,
     peer_manager: Arc<PeerManager>,
     pool: sqlx::Pool<sqlx::Sqlite>,
-) {
-    let bind_addr = format!("0.0.0.0:{}", port);
-    let socket = match create_discovery_socket(&bind_addr, true) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[UDP] Web端创建监听 socket 失败: {}", e);
-            return;
-        }
-    };
-
-    let mut buf = [0u8; 1024];
-    loop {
-        if let Ok((size, addr)) = socket.recv_from(&mut buf) {
-            let msg = String::from_utf8_lossy(&buf[..size]);
-            let parts: Vec<&str> = msg.split('|').collect();
-
-            if parts.len() >= 6 && parts[0] == "LANChat" {
-                let peer_id = parts[2].to_string();
-                let name = parts[3].to_string();
-                let peer_port = parts[4];
-                let available_memory_mb: u64 = parts[5].parse().unwrap_or(0);
-                if peer_id == my_id {
-                    continue;
-                }
-                let peer_addr = format!("{}:{}", addr.ip(), peer_port);
-
-                let is_new_or_reconnected = peer_manager.add_or_update_with_memory(
-                    peer_id.clone(),
-                    name.clone(),
-                    peer_addr.clone(),
-                    available_memory_mb,
-                );
-
-                // 保存或更新用户到数据库
-                let _ = crate::db::save_or_update_user(
-                    &pool,
-                    peer_id.clone(),
-                    name.clone(),
-                    peer_addr.clone(),
-                    false,
-                    available_memory_mb,
-                )
-                .await;
-
-                // 用户重新上线，补发挂起的消息
-                if is_new_or_reconnected {
-                    println!("[UDP] 发现用户或重新上线，准备检查补发队列...");
-                    let pool_clone = pool.clone();
-                    let peer_id_clone = peer_id.clone();
-                    let peer_addr_clone = peer_addr.clone();
-
-                    // 扔进后台线程执行，不要阻挡 UDP 监听其他用户的广播！
-                    tokio::spawn(async move {
-                        if let Err(e) = crate::network::messaging::resend_pending_messages(
-                            &pool_clone,
-                            &peer_id_clone,
-                            &peer_addr_clone,
-                            None,
-                        )
-                        .await
-                        {
-                            eprintln!("[UDP] 补发消息严重失败: {}", e);
-                        }
-                    });
-                }
-
-                // 回复心跳给对方（无 |1 标记则为原始心跳，需回复）
-                if parts.len() <= 6 {
-                    // 从数据库读取最新用户名（用户改名后动态生效）
-                    let reply_name = match crate::db::get_username(&pool).await {
-                        Ok(name) => name,
-                        Err(_) => my_name.clone(),
-                    };
-                    let reply = format!(
-                        "LANChat|ONLINE|{}|{}|{}|0|1",
-                        my_id, reply_name, port
-                    );
-                    let target = format!("{}:{}", addr.ip(), peer_port);
-                    let _ = socket.send_to(reply.as_bytes(), &target);
-                }
-            }
-        }
-    }
+    event_bus: CoreEventBus,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
+    let socket = bind_listener(port)
+        .await
+        .map_err(|error| error.to_string())?;
+    run_listener(
+        socket,
+        port,
+        my_id,
+        my_name,
+        peer_manager,
+        pool,
+        event_bus,
+        cancellation,
+    )
+    .await
 }
 
-// 发送单次广播
 pub async fn send_single_broadcast(
     port: u16,
     user_id: String,
     username: String,
 ) -> Result<(), String> {
-    let socket = create_discovery_socket("0.0.0.0:0", false)
-        .map_err(|e| format!("创建发送socket失败: {}", e))?;
-
-    let msg = format!("LANChat|ONLINE|{}|{}|{}|0", user_id, username, port);
-    let target_addrs = get_smart_broadcast_addresses(port);
-
-    for addr in target_addrs {
-        let _ = socket.send_to(msg.as_bytes(), &addr);
+    let socket = bind_announcer().await.map_err(|error| error.to_string())?;
+    let message = format!("LANChat|ONLINE|{user_id}|{username}|{port}|0");
+    for address in get_smart_broadcast_addresses(port) {
+        let _ = socket.send_to(message.as_bytes(), address).await;
     }
-
     Ok(())
 }
-

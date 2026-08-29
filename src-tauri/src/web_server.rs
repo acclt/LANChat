@@ -15,8 +15,10 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::fs;
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
 
+use crate::core_events::CoreEventBus;
 use crate::peers::PeerManager;
 
 // 全局媒体 Token（仅 Android 使用）
@@ -60,8 +62,7 @@ pub struct AppState {
     pub peer_manager: Arc<PeerManager>,
     pub media_token: String,
     pub ws_broadcast: broadcast::Sender<String>,
-    #[cfg(feature = "desktop")]
-    pub app_handle: Option<tauri::AppHandle>,
+    pub event_bus: CoreEventBus,
 }
 
 pub async fn start_server(
@@ -69,15 +70,34 @@ pub async fn start_server(
     _udp_port: u16,
     pool: Pool<Sqlite>,
     peer_manager: Arc<PeerManager>,
-    #[cfg(feature = "desktop")] app_handle: Option<tauri::AppHandle>,
-) {
+    event_bus: CoreEventBus,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
+    let listener = bind_server(port).await.map_err(|error| error.to_string())?;
+    run_server(listener, pool, peer_manager, event_bus, cancellation).await
+}
+
+pub async fn bind_server(port: u16) -> std::io::Result<tokio::net::TcpListener> {
+    tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await
+}
+
+pub async fn run_server(
+    listener: tokio::net::TcpListener,
+    pool: Pool<Sqlite>,
+    peer_manager: Arc<PeerManager>,
+    event_bus: CoreEventBus,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
+    let port = listener.local_addr().map_err(|error| error.to_string())?.port();
     let media_token = uuid::Uuid::new_v4().to_string();
     println!("[Web Server] 媒体访问 Token: {}", media_token);
 
     // 将 token 存入全局，供 Tauri command 读取（仅 Android）
     #[cfg(target_os = "android")]
     {
-        let mut guard = MEDIA_TOKEN.lock().unwrap();
+        let mut guard = MEDIA_TOKEN
+            .lock()
+            .map_err(|_| "媒体 Token 锁已损坏".to_string())?;
         *guard = media_token.clone();
     }
 
@@ -88,8 +108,7 @@ pub async fn start_server(
         peer_manager,
         media_token,
         ws_broadcast,
-        #[cfg(feature = "desktop")]
-        app_handle,
+        event_bus,
     });
 
     // 配置 CORS - 允许所有来源（局域网内部使用）
@@ -140,11 +159,11 @@ pub async fn start_server(
         .with_state(state)
         .into_make_service_with_connect_info::<SocketAddr>();
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
-        .await
-        .unwrap();
     println!("[Web Server] 启动在端口 {} (无文件大小限制)", port);
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(cancellation.cancelled_owned())
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn get_name_http(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -383,11 +402,7 @@ async fn start_send_http(
                         "receiver_addr": payload.receiver_addr,
                     });
                     let _ = state.ws_broadcast.send(start_evt.to_string());
-                    #[cfg(feature = "desktop")]
-                    if let Some(ref app) = state.app_handle {
-                        use tauri::Emitter;
-                        let _ = app.emit("new-message", start_evt);
-                    }
+                    state.event_bus.publish_message(start_evt);
                     // 通知发送端前端显示上传中
                     let upload_notice = serde_json::json!({
                         "msg_type": "file_status_update",
@@ -395,11 +410,7 @@ async fn start_send_http(
                         "file_status": "uploading",
                     });
                     let _ = state.ws_broadcast.send(upload_notice.to_string());
-                    #[cfg(feature = "desktop")]
-                    if let Some(ref app) = state.app_handle {
-                        use tauri::Emitter;
-                        let _ = app.emit("new-message", upload_notice);
-                    }
+                    state.event_bus.publish_message(upload_notice);
                     return (StatusCode::OK, Json(serde_json::json!({
                         "success": true, "status": "notifying_browser"
                     }))).into_response();
@@ -436,11 +447,7 @@ async fn start_send_http(
                 "file_status": "uploading",
             });
             let _ = state.ws_broadcast.send(upload_notice.to_string());
-            #[cfg(feature = "desktop")]
-            if let Some(ref app) = state.app_handle {
-                use tauri::Emitter;
-                let _ = app.emit("new-message", upload_notice);
-            }
+            state.event_bus.publish_message(upload_notice);
 
             // 调用同步的上传函数
             let _ = state.pool.clone();
@@ -452,8 +459,7 @@ async fn start_send_http(
 
             let sm_id = payload.sender_msg_id;
             let ws_tx = state.ws_broadcast.clone();
-            #[cfg(feature = "desktop")]
-            let app_clone = state.app_handle.clone();
+            let event_bus = state.event_bus.clone();
             tokio::spawn(async move {
                 upload_to_receiver(
                     &pool,
@@ -463,7 +469,7 @@ async fn start_send_http(
                     &fpath,
                     file,
                     sm_id,
-                    #[cfg(feature = "desktop")] app_clone.clone(),
+                    event_bus.clone(),
                 ).await;
                 // 上传完成 → 更新发送端 DB 状态
                 let _ = crate::db::update_file_status_by_id(&pool, sm_id, "sent").await;
@@ -474,11 +480,7 @@ async fn start_send_http(
                     "file_status": "sent",
                 });
                 let _ = ws_tx.send(update.to_string());
-                #[cfg(feature = "desktop")]
-                if let Some(ref app_ref) = app_clone {
-                    use tauri::Emitter;
-                    let _ = app_ref.emit("new-message", update);
-                }
+                event_bus.publish_message(update);
             });
 
             (StatusCode::OK, Json(serde_json::json!({"success": true, "status": "sending"}))).into_response()
@@ -501,7 +503,7 @@ async fn upload_to_receiver(
     _file_path: &str,
     file: tokio::fs::File,
     _sender_msg_id: i64,
-    #[cfg(feature = "desktop")] _app: Option<tauri::AppHandle>,
+    event_bus: CoreEventBus,
 ) {
     // 获取自己的 ID
     let my_id = crate::db::get_user_id(_pool).await.unwrap_or_default();
@@ -564,16 +566,14 @@ async fn upload_to_receiver(
         // 发送进度到发送端前端
         let elapsed = start_time.elapsed().as_secs_f64();
         if elapsed > 0.0 {
-            #[cfg(feature = "desktop")]
-            if let Some(ref app_ref) = _app {
-                use tauri::Emitter;
-                let speed = offset as f64 / (1024.0 * 1024.0) / elapsed;
-                let _ = app_ref.emit("upload_progress", serde_json::json!({
+            let speed = offset as f64 / (1024.0 * 1024.0) / elapsed;
+            event_bus.publish(crate::core_events::CoreEvent::FileTransferProgress(
+                serde_json::json!({
                     "file_name": _file_name,
                     "speed_mb_s": speed,
                     "sender_msg_id": _sender_msg_id,
-                }));
-            }
+                }),
+            ));
         }
     }
 
@@ -878,11 +878,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             }
                                             let final_msg = final_val.to_string();
                                             let _ = state.ws_broadcast.send(final_msg);
-                                            #[cfg(feature = "desktop")]
-                                            if let Some(ref app) = state.app_handle {
-                                                use tauri::Emitter;
-                                                let _ = app.emit("new-message", final_val);
-                                            }
+                                            state.event_bus.publish_message(final_val);
                                         }
                                         Err(e) => eprintln!("[WebSocket] 保存流式最终消息失败: {}", e)
                                     }
@@ -891,13 +887,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                 // 非 final 或非 text 类型：直接广播
                                 println!("[WebSocket] 流式块 ({}, stream={})", msg_type, sid);
                                 let _ = state.ws_broadcast.send(broadcast_msg.clone());
-                                #[cfg(feature = "desktop")]
-                                if let Some(ref app) = state.app_handle {
-                                    use tauri::Emitter;
-                                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&broadcast_msg) {
-                                        let _ = app.emit("new-message", v);
-                                    }
-                                }
+                                // 流式中间块尚未形成数据库提交，不发布 CoreEvent。
                             }
                         } else if msg_type == "file_offer" {
                             // ── 收到文件邀请 ──
@@ -947,11 +937,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                         "timestamp": timestamp,
                                     });
                                     let _ = state.ws_broadcast.send(broadcast_msg.to_string());
-                                    #[cfg(feature = "desktop")]
-                                    if let Some(ref app) = state.app_handle {
-                                        use tauri::Emitter;
-                                        let _ = app.emit("new-message", broadcast_msg);
-                                    }
+                                    state.event_bus.publish_message(broadcast_msg);
                                 }
                             }
                         } else if msg_type == "file_accept" {
@@ -991,11 +977,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                         "file_status": "uploading",
                                     });
                                     let _ = state.ws_broadcast.send(update.to_string());
-                                    #[cfg(feature = "desktop")]
-                                    if let Some(ref app) = state.app_handle {
-                                        use tauri::Emitter;
-                                        let _ = app.emit("new-message", update);
-                                    }
+                                    state.event_bus.publish_message(update);
 
                                     if file_path.is_empty() {
                                         // ── Web 端：文件在浏览器中，通知浏览器上传 ──
@@ -1008,11 +990,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             "receiver_addr": receiver_addr,
                                         });
                                         let _ = state.ws_broadcast.send(start_evt.to_string());
-                                        #[cfg(feature = "desktop")]
-                                        if let Some(ref app) = state.app_handle {
-                                            use tauri::Emitter;
-                                            let _ = app.emit("new-message", start_evt);
-                                        }
+                                        state.event_bus.publish_message(start_evt);
                                     } else if file_path.starts_with("content://") {
                                         // ── Android SAF 文件（URI 已持久化权限） ──
                                         println!("[手动下载] Android content URI 文件: msg_id={}, uri={}", sender_msg_id, file_path);
@@ -1025,14 +1003,13 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                     let pool = state.pool.clone();
                                                     let raddr = receiver_addr.clone();
                                                     let ws_tx = state.ws_broadcast.clone();
-                                                    #[cfg(feature = "desktop")]
-                                                    let app_clone = state.app_handle.clone();
+                                                    let event_bus = state.event_bus.clone();
                                                     let fname2 = fname.clone();
                                                     tokio::spawn(async move {
                                                         upload_to_receiver(
                                                             &pool, &raddr, &fname2, fsize as usize, &file_path, file,
                                                             sender_msg_id,
-                                                            #[cfg(feature = "desktop")] app_clone.clone(),
+                                                            event_bus.clone(),
                                                         ).await;
                                                         let _ = crate::db::update_file_status_by_id(
                                                             &pool, sender_msg_id, "sent",
@@ -1043,11 +1020,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                             "file_status": "sent",
                                                         });
                                                         let _ = ws_tx.send(update.to_string());
-                                                        #[cfg(feature = "desktop")]
-                                                        if let Some(ref app_ref) = app_clone {
-                                                            use tauri::Emitter;
-                                                            let _ = app_ref.emit("new-message", update);
-                                                        }
+                                                        event_bus.publish_message(update);
                                                     });
                                                 }
                                                 Err(e) => {
@@ -1084,14 +1057,13 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                     let pool = state.pool.clone();
                                                     let raddr = receiver_addr.clone();
                                                     let ws_tx = state.ws_broadcast.clone();
-                                                    #[cfg(feature = "desktop")]
-                                                    let app_clone = state.app_handle.clone();
+                                                    let event_bus = state.event_bus.clone();
                                                     let fname2 = cached_name;
                                                     tokio::spawn(async move {
                                                         upload_to_receiver(
                                                             &pool, &raddr, &fname2, cached_size as usize, &file_path, file,
                                                             sender_msg_id,
-                                                            #[cfg(feature = "desktop")] app_clone.clone(),
+                                                            event_bus.clone(),
                                                         ).await;
                                                         let _ = crate::db::update_file_status_by_id(
                                                             &pool, sender_msg_id, "sent",
@@ -1102,11 +1074,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                             "file_status": "sent",
                                                         });
                                                         let _ = ws_tx.send(update.to_string());
-                                                        #[cfg(feature = "desktop")]
-                                                        if let Some(ref app_ref) = app_clone {
-                                                            use tauri::Emitter;
-                                                            let _ = app_ref.emit("new-message", update);
-                                                        }
+                                                        event_bus.publish_message(update);
                                                     });
                                                 }
                                                 None => {
@@ -1152,14 +1120,13 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                 let pool = state.pool.clone();
                                                 let raddr = receiver_addr.clone();
                                                 let ws_tx = state.ws_broadcast.clone();
-                                                #[cfg(feature = "desktop")]
-                                                let app_clone = state.app_handle.clone();
+                                                let event_bus = state.event_bus.clone();
                                                 let fname2 = fname.clone();
                                                 tokio::spawn(async move {
                                                     upload_to_receiver(
                                                         &pool, &raddr, &fname2, fsize as usize, &file_path, file,
                                                         sender_msg_id,
-                                                        #[cfg(feature = "desktop")] app_clone.clone(),
+                                                        event_bus.clone(),
                                                     ).await;
                                                     // 上传完成 → 更新发送端 DB 状态
                                                     let _ = crate::db::update_file_status_by_id(
@@ -1172,11 +1139,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                         "file_status": "sent",
                                                     });
                                                     let _ = ws_tx.send(update.to_string());
-                                                    #[cfg(feature = "desktop")]
-                                                    if let Some(ref app_ref) = app_clone {
-                                                        use tauri::Emitter;
-                                                        let _ = app_ref.emit("new-message", update);
-                                                    }
+                                                    event_bus.publish_message(update);
                                                 });
                                             }
                                             Err(_) => {
@@ -1222,41 +1185,24 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                 "file_status": "invalid",
                             });
                             let _ = state.ws_broadcast.send(update.to_string());
-                            #[cfg(feature = "desktop")]
-                            if let Some(ref app) = state.app_handle {
-                                use tauri::Emitter;
-                                let _ = app.emit("new-message", update);
-                            }
+                            state.event_bus.publish_message(update);
                         } else {
                             // ── 非流式消息：尝试作为 TextMessage 存 DB ──
                             if let Ok(message) = serde_json::from_value::<crate::network::messaging::TextMessage>(val.clone()) {
                                 match save_message_to_db(&state.pool, &message).await {
                                     Ok(msg_id) => {
                                         println!("[WebSocket] 消息已保存: {} 说: {} (id={})", message.from_name, message.content, msg_id);
-                                        let broadcast_msg = serde_json::json!({
+                                        let broadcast_value = serde_json::json!({
                                             "id": msg_id,
                                             "from_id": message.from_id,
                                             "from_name": message.from_name,
                                             "content": message.content,
                                             "timestamp": message.timestamp,
                                             "msg_type": message.msg_type,
-                                        }).to_string();
-                                        let _ = state.ws_broadcast.send(broadcast_msg);
-                                        #[cfg(feature = "desktop")]
-                                        if let Some(ref app) = state.app_handle {
-                                            use tauri::Emitter;
-                                            let _ = app.emit(
-                                                "new-message",
-                                                serde_json::json!({
-                                                    "id": msg_id,
-                                                    "from_id": message.from_id,
-                                                    "from_name": message.from_name,
-                                                    "content": message.content,
-                                                    "timestamp": message.timestamp,
-                                                    "msg_type": message.msg_type,
-                                                }),
-                                            );
-                                        }
+                                        });
+                                        let _ = state.ws_broadcast.send(broadcast_value.to_string());
+                                        // save_message_to_db 已提交后才发布接收事件。
+                                        state.event_bus.publish_message(broadcast_value);
                                     }
                                     Err(e) => eprintln!("[WebSocket] 保存消息失败: {}", e)
                                 }
@@ -1473,10 +1419,19 @@ async fn upload_file_http(
 
                 if let Some((existing_id, _)) = updated_offered {
                     // 立即标记为 accepted（文件已完整）
-                    let _ = crate::db::update_file_status_by_id(
+                    if let Err(error) = crate::db::update_file_status_by_id(
                         &state.pool, existing_id, "accepted",
                     )
-                    .await;
+                    .await
+                    {
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: format!("秒传状态提交失败: {error}"),
+                            }),
+                        )
+                            .into_response();
+                    }
                     println!(
                         "[Web Server] ✓ 秒传: 已更新 offered 记录(ID={}) 为 accepted",
                         existing_id
@@ -1504,11 +1459,7 @@ async fn upload_file_http(
                             .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
                     });
                     let _ = state.ws_broadcast.send(full_msg.to_string());
-                    #[cfg(feature = "desktop")]
-                    if let Some(ref app) = state.app_handle {
-                        use tauri::Emitter;
-                        let _ = app.emit("new-message", full_msg);
-                    }
+                    state.event_bus.publish_message(full_msg);
                 } else {
                     match crate::db::create_received_file_record(
                         &state.pool,
@@ -1523,10 +1474,19 @@ async fn upload_file_http(
                     {
                         Ok(msg_id) => {
                             // 立即标记为 accepted（文件已完整）
-                            let _ = crate::db::update_file_status_by_id(
+                            if let Err(error) = crate::db::update_file_status_by_id(
                                 &state.pool, msg_id, "accepted",
                             )
-                            .await;
+                            .await
+                            {
+                                return (
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Json(ErrorResponse {
+                                        error: format!("秒传状态提交失败: {error}"),
+                                    }),
+                                )
+                                    .into_response();
+                            }
                             println!(
                                 "[Web Server] ✓ 秒传记录已创建并标记为 accepted，ID: {}",
                                 msg_id
@@ -1552,11 +1512,7 @@ async fn upload_file_http(
                                     .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
                             });
                             let _ = state.ws_broadcast.send(full_msg.to_string());
-                            #[cfg(feature = "desktop")]
-                            if let Some(ref app) = state.app_handle {
-                                use tauri::Emitter;
-                                let _ = app.emit("new-message", full_msg);
-                            }
+                            state.event_bus.publish_message(full_msg);
                         }
                         Err(e) => {
                             eprintln!("[Web Server] ✗ 秒传记录创建失败: {}", e);
@@ -1797,11 +1753,7 @@ async fn upload_file_http(
                 "timestamp": timestamp,
             });
             let _ = state.ws_broadcast.send(init_msg.to_string());
-            #[cfg(feature = "desktop")]
-            if let Some(ref app) = state.app_handle {
-                use tauri::Emitter;
-                let _ = app.emit("new-message", init_msg);
-            }
+            state.event_bus.publish_message(init_msg);
         }
     }
 
@@ -1815,11 +1767,7 @@ async fn upload_file_http(
             "total": file_size,
         });
         let _ = state.ws_broadcast.send(progress_msg.to_string());
-        #[cfg(feature = "desktop")]
-        if let Some(ref app) = state.app_handle {
-            use tauri::Emitter;
-            let _ = app.emit("new-message", progress_msg);
-        }
+        state.event_bus.publish_message(progress_msg);
     }
 
     // 检查是否是最后一块
@@ -1872,37 +1820,8 @@ async fn upload_file_http(
                             "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
                         });
                         let _ = state.ws_broadcast.send(full_msg.to_string());
-                        #[cfg(feature = "desktop")]
-                        if let Some(app) = &state.app_handle {
-                            // 查一下这条消息的 ID
-                            let msg_id = crate::db::get_latest_msg_id_by_file(
-                                &state.pool,
-                                &sender_id,
-                                &final_file_name,
-                            )
-                            .await;
-                            #[cfg(feature = "desktop")]
-                            use tauri::Emitter;
-                        let sender_name = state.peer_manager.get_all_peers().iter()
-                            .find(|p| p.id == sender_id)
-                            .map(|p| p.name.clone())
-                            .unwrap_or_default();
-                            let _ = app.emit(
-                            "new-message",
-                            serde_json::json!({
-                                "id": msg_id,
-                                "from_id": sender_id,
-                                "from_name": sender_name,
-                                "msg_type": "file",
-                                "file_status": "accepted",
-                                "file_path": final_path.to_str().unwrap_or(""),
-                                "file_size": file_size,
-                                "content": final_file_name,
-                                "file_name": final_file_name,
-                                "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
-                            }),
-                        );
-                        }
+                        // update_received_file_complete 已提交后才发布文件完成事件。
+                        state.event_bus.publish(crate::core_events::CoreEvent::FileTransferCompleted(full_msg));
                     }
                     Err(e) => eprintln!("[Web Server] ✗ 更新文件状态失败: {}", e),
                 }

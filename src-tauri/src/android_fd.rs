@@ -683,7 +683,11 @@ pub extern "system" fn Java_com_lanchat_app_MainActivity_nativeOnSafFileSelected
         uri_str, name_str, size_val
     );
 
-    if let Some(app) = crate::APP_HANDLE.get() {
+    if let Some(app) = crate::CURRENT_APP_HANDLE
+        .get()
+        .and_then(|handle| handle.read().ok())
+        .and_then(|handle| handle.clone())
+    {
         let payload = serde_json::json!({
             "uri": uri_str,
             "name": name_str,
@@ -692,7 +696,7 @@ pub extern "system" fn Java_com_lanchat_app_MainActivity_nativeOnSafFileSelected
         let _ = app.emit("saf-file-selected", payload);
         println!("[JNI-Callback] ✓ 已通过 AppHandle 广播 saf-file-selected 事件");
     } else {
-        eprintln!("[JNI-Callback] 错误：全局 APP_HANDLE 尚未初始化！");
+        eprintln!("[JNI-Callback] 错误：当前 UI 句柄尚未初始化！");
     }
 }
 

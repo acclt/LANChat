@@ -3,16 +3,96 @@
 pub mod commands;
 
 #[cfg(feature = "desktop")]
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "desktop")]
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 #[cfg(feature = "desktop")]
 use tauri::AppHandle;
 
-/// 全局 AppHandle 缓存，供 JNI 回调发射 Tauri 事件
+/// 可替换的当前 UI 句柄，仅供 Activity 相关桥接使用；网络核心不持有它。
 #[cfg(feature = "desktop")]
-pub static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+pub static CURRENT_APP_HANDLE: OnceLock<RwLock<Option<AppHandle>>> = OnceLock::new();
+#[cfg(feature = "desktop")]
+struct UiEventBridge {
+    cancelled: Arc<AtomicBool>,
+    thread: std::thread::JoinHandle<()>,
+}
+
+#[cfg(feature = "desktop")]
+static UI_EVENT_BRIDGE: OnceLock<Mutex<Option<UiEventBridge>>> = OnceLock::new();
+
+#[cfg(feature = "desktop")]
+fn ui_event_bridge_slot() -> &'static Mutex<Option<UiEventBridge>> {
+    UI_EVENT_BRIDGE.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(feature = "desktop")]
+pub fn stop_ui_event_bridge() {
+    let existing = ui_event_bridge_slot()
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take());
+    if let Some(existing) = existing {
+        existing.cancelled.store(true, Ordering::Release);
+        core_runtime::CoreRuntime::global()
+            .event_bus()
+            .publish(core_events::CoreEvent::CoreStateChanged(
+                core_runtime::CoreRuntime::global().status(),
+            ));
+        let _ = existing.thread.join();
+    }
+}
+
+#[cfg(feature = "desktop")]
+pub fn start_ui_event_bridge() {
+    let Ok(mut slot) = ui_event_bridge_slot().lock() else {
+        return;
+    };
+    if slot.is_some() {
+        return;
+    }
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let thread_cancelled = cancelled.clone();
+    let mut core_events = core_runtime::CoreRuntime::global().event_bus().subscribe();
+    let thread = std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+        else {
+            return;
+        };
+        runtime.block_on(async move {
+            while !thread_cancelled.load(Ordering::Acquire) {
+                let event = tokio::select! {
+                    event = core_events.recv() => event.ok(),
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => None,
+                };
+                let Some(event) = event else {
+                    continue;
+                };
+                let Some((name, payload)) = event.ui_event() else {
+                    continue;
+                };
+                let Some(ui_handle) = CURRENT_APP_HANDLE
+                    .get()
+                    .and_then(|handle| handle.read().ok())
+                    .and_then(|handle| handle.clone())
+                else {
+                    continue;
+                };
+                use tauri::Emitter;
+                let _ = ui_handle.emit(name, payload);
+            }
+        });
+    });
+    *slot = Some(UiEventBridge { cancelled, thread });
+}
 
 pub mod android_fd;
+pub mod android_service;
 pub mod config_file;
+pub mod core_events;
+pub mod core_runtime;
 pub mod db;
 pub mod models;
 pub mod network;
@@ -77,6 +157,12 @@ pub fn run() {
             commands::clear_notification,
             commands::get_notifications_enabled,
             commands::set_notifications_enabled,
+            commands::get_background_receive_state,
+            commands::retry_background_service,
+            commands::stop_background_receive_and_exit,
+            commands::get_battery_optimization_state,
+            commands::open_battery_optimization_settings,
+            commands::get_notification_permission_state,
             commands::request_permission_on_android,
             commands::get_autostart_enabled,
             commands::set_autostart_enabled,
@@ -90,7 +176,10 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            APP_HANDLE.set(handle.clone()).ok();
+            *CURRENT_APP_HANDLE
+                .get_or_init(|| RwLock::new(None))
+                .write()
+                .expect("UI handle lock poisoned") = Some(handle.clone());
 
             tauri::async_runtime::block_on(async move {
                 println!("[Lib] 正在初始化数据库...");
@@ -125,47 +214,82 @@ pub fn run() {
                     manager: peer_manager.clone(),
                 });
 
+                let core = core_runtime::CoreRuntime::global();
+                core.prepare(pool.clone(), peer_manager.clone());
+                start_ui_event_bridge();
+
                 // 注册 Android 分享状态
                 handle.manage(commands::AndroidShareState::new());
                 handle.manage(commands::TrayFlashState::default());
 
-                let h1 = handle.clone();
+                #[cfg(not(target_os = "android"))]
+                let event_bus = core.event_bus();
+                #[cfg(not(target_os = "android"))]
+                let cancellation = tokio_util::sync::CancellationToken::new();
+                #[cfg(not(target_os = "android"))]
                 let id1 = my_id.clone();
+                #[cfg(not(target_os = "android"))]
                 let name1 = my_name.clone();
+                #[cfg(not(target_os = "android"))]
                 let peer_manager_clone = peer_manager.clone();
+                #[cfg(not(target_os = "android"))]
                 let pool_for_discovery = pool.clone();
+                #[cfg(not(target_os = "android"))]
+                let listener_bus = event_bus.clone();
+                #[cfg(not(target_os = "android"))]
+                let listener_cancellation = cancellation.child_token();
+                #[cfg(not(target_os = "android"))]
                 tokio::spawn(async move {
                     println!("[Lib] 开启监听线程...");
-                    network::discovery::start_listening(
+                    let _ = network::discovery::start_listening(
                         port,
                         id1,
                         name1,
-                        Some(h1),
                         peer_manager_clone,
                         pool_for_discovery,
+                        listener_bus,
+                        listener_cancellation,
                     )
                     .await;
                 });
 
+                #[cfg(not(target_os = "android"))]
                 let id2 = my_id.clone();
+                #[cfg(not(target_os = "android"))]
                 let pool2 = pool.clone();
+                #[cfg(not(target_os = "android"))]
+                let announcer_cancellation = cancellation.child_token();
+                #[cfg(not(target_os = "android"))]
                 tokio::spawn(async move {
                     println!("[Lib] 开启广播线程...");
-                    network::discovery::start_announcing(port, id2, pool2).await;
+                    let _ = network::discovery::start_announcing(
+                        port,
+                        id2,
+                        pool2,
+                        announcer_cancellation,
+                    )
+                    .await;
                 });
 
                 // 启动 HTTP 服务器（用于接收文件和 WebSocket 消息）
+                #[cfg(not(target_os = "android"))]
                 let pool_clone = pool.clone();
+                #[cfg(not(target_os = "android"))]
                 let peer_manager_clone = peer_manager.clone();
-                let handle_clone = handle.clone();
+                #[cfg(not(target_os = "android"))]
+                let server_bus = event_bus.clone();
+                #[cfg(not(target_os = "android"))]
+                let server_cancellation = cancellation.child_token();
+                #[cfg(not(target_os = "android"))]
                 tokio::spawn(async move {
                     println!("[Lib] 启动 HTTP 服务器在端口 {}...", port);
-                    web_server::start_server(
+                    let _ = web_server::start_server(
                         port,
                         port,
                         pool_clone,
                         peer_manager_clone,
-                        Some(handle_clone),
+                        server_bus,
+                        server_cancellation,
                     )
                     .await;
                 });

@@ -7,8 +7,10 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.util.Base64
 import android.util.Size
 import android.graphics.Bitmap
@@ -20,6 +22,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.Keep
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -33,6 +36,7 @@ private const val ACTION_INTENT_KEY = "NotificationUserAction"
 class MainActivity : TauriActivity() {
     // ─── JNI：Rust 侧的回调 ───
     private external fun nativeOnSafFileSelected(uri: String, name: String, size: Long)
+    private external fun nativeSetUiVisibility(visible: Boolean)
 
     private var pendingSharedFiles: List<SharedFileInfo>? = null
     private var webView: WebView? = null
@@ -80,7 +84,7 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        
+
         // 开启 WebView 调试（方便 adb logcat 看到 JS console 输出）
         android.webkit.WebView.setWebContentsDebuggingEnabled(true)
         
@@ -89,6 +93,49 @@ class MainActivity : TauriActivity() {
         
         // 检测冷启动是否来自通知点击
         checkNotificationLaunch(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        nativeSetUiVisibility(true)
+        // nativeSetUiVisibility 成功返回，证明本进程的 Rust 库已由可见 Activity 加载。
+        // 只有这里签发的单次令牌可以激活 Service；Service-only 重建没有这个资格。
+        LanChatForegroundService.startVisibleUserSession(this)
+    }
+
+    override fun onStop() {
+        nativeSetUiVisibility(false)
+        super.onStop()
+    }
+
+    @Keep
+    fun retryBackgroundService() {
+        LanChatForegroundService.retryVisibleUserSession(this)
+    }
+
+    @Keep
+    fun stopBackgroundReceiveAndExit() {
+        LanChatForegroundService.stopVisibleUserSession(this)
+        finishAndRemoveTask()
+    }
+
+    @Keep
+    fun getBatteryOptimizationState(): String {
+        val manager = getSystemService(PowerManager::class.java)
+        return if (manager.isIgnoringBatteryOptimizations(packageName)) "unrestricted" else "optimized"
+    }
+
+    @Keep
+    fun openBatteryOptimizationSettings() {
+        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+    }
+
+    @Keep
+    fun getNotificationPermissionState(): String {
+        return if (Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) "granted" else "denied"
     }
 
     /**
@@ -272,6 +319,10 @@ class MainActivity : TauriActivity() {
 
     private fun checkNotificationLaunch(intent: Intent?) {
         if (intent == null) return
+        intent.getStringExtra(LanChatForegroundService.EXTRA_PEER_ID)?.let { peerId ->
+            window.decorView.postDelayed({ notifyPeerOpened(peerId) }, 1000)
+            return
+        }
         val action = intent.getStringExtra(ACTION_INTENT_KEY)
         if (action == "tap") {
             println("[MainActivity] 冷启动来自通知点击")
@@ -369,6 +420,7 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onDestroy() {
+        nativeSetUiVisibility(false)
         super.onDestroy()
         // 注销广播接收器
         shareReceiver?.let {
@@ -400,6 +452,11 @@ class MainActivity : TauriActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         
+        intent.getStringExtra(LanChatForegroundService.EXTRA_PEER_ID)?.let { peerId ->
+            notifyPeerOpened(peerId)
+            return
+        }
+
         // 检测通知点击：NotificationUserAction == "tap" 表示通知被点击
         val action = intent.getStringExtra(ACTION_INTENT_KEY)
         if (action == "tap") {
@@ -427,6 +484,14 @@ class MainActivity : TauriActivity() {
                     window.dispatchEvent(new CustomEvent('notification-tapped', {detail: {fromId: fromId}}));
                 }
             })();
+        """.trimIndent())
+    }
+
+    private fun notifyPeerOpened(peerId: String) {
+        notifyWebViewWithRetry(0, """
+            window.dispatchEvent(new CustomEvent('notification-tapped', {
+                detail: {fromId: ${JSONObject.quote(peerId)}}
+            }));
         """.trimIndent())
     }
     

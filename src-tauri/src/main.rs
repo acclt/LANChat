@@ -103,6 +103,12 @@ fn main() {
             lanchat::commands::request_file,
             lanchat::commands::get_notifications_enabled,
             lanchat::commands::set_notifications_enabled,
+            lanchat::commands::get_background_receive_state,
+            lanchat::commands::retry_background_service,
+            lanchat::commands::stop_background_receive_and_exit,
+            lanchat::commands::get_battery_optimization_state,
+            lanchat::commands::open_battery_optimization_settings,
+            lanchat::commands::get_notification_permission_state,
             lanchat::commands::open_saf_picker,
             lanchat::commands::open_saf_multi_picker,
             lanchat::commands::load_android_media_images,
@@ -278,39 +284,23 @@ fn main() {
             });
             handle.manage(lanchat::commands::AndroidShareState::new());
 
-            // 在 Tokio runtime 上下文中启动后台线程
+            // 桌面应用生命周期持有同一 CoreRuntime；网络层不直接持有 AppHandle。
+            let core = lanchat::core_runtime::CoreRuntime::global();
+            core.prepare(pool.clone(), peer_manager.clone());
             tauri::async_runtime::block_on(async {
-                let h1 = handle.clone();
-                let id1 = my_id.clone();
-                let name1 = my_name.clone();
-                let peer_manager_clone = peer_manager.clone();
-                let pool_for_discovery = pool.clone();
+                let event_bus = core.event_bus();
+                let mut ui_events = event_bus.subscribe();
+                let ui_handle = handle.clone();
                 tokio::spawn(async move {
-                    println!("[Main] 开启监听线程...");
-                    lanchat::network::discovery::start_listening(
-                        port, id1, name1, Some(h1), peer_manager_clone, pool_for_discovery,
-                    )
-                    .await;
-                });
-
-                let id2 = my_id.clone();
-                let pool2 = pool.clone();
-                tokio::spawn(async move {
-                    println!("[Main] 开启广播线程...");
-                    lanchat::network::discovery::start_announcing(port, id2, pool2).await;
-                });
-
-                let pool_clone = pool.clone();
-                let peer_manager_clone = peer_manager.clone();
-                let handle_clone = handle.clone();
-                tokio::spawn(async move {
-                    println!("[Main] 启动 HTTP 服务器在端口 {}...", port);
-                    lanchat::web_server::start_server(
-                        port, port, pool_clone, peer_manager_clone, Some(handle_clone),
-                    )
-                    .await;
+                    while let Ok(event) = ui_events.recv().await {
+                        if let Some((name, payload)) = event.ui_event() {
+                            let _ = ui_handle.emit(name, payload);
+                        }
+                    }
                 });
             });
+            core.start_with_port(std::path::PathBuf::new(), Some(port))
+                .map_err(std::io::Error::other)?;
 
             Ok(())
         })

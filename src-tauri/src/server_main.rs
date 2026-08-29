@@ -58,11 +58,17 @@ async fn main() {
     }
 
     // Step 5: 以 port 启动服务
+    let event_bus = lanchat::core_events::CoreEventBus::default();
+    let cancellation = tokio_util::sync::CancellationToken::new();
     // 1. 启动 Web 服务 (TCP)
     let pool_clone = pool.clone();
     let peer_manager_clone = peer_manager.clone();
+    let server_bus = event_bus.clone();
+    let server_cancellation = cancellation.child_token();
     tokio::spawn(async move {
-        lanchat::web_server::start_server(port, port, pool_clone, peer_manager_clone).await;
+        let _ = lanchat::web_server::start_server(
+            port, port, pool_clone, peer_manager_clone, server_bus, server_cancellation,
+        ).await;
     });
 
     // 2. 启动 UDP 监听
@@ -70,13 +76,17 @@ async fn main() {
     let listen_name = my_name.clone();
     let peer_manager_clone = peer_manager.clone();
     let pool_for_discovery = pool.clone();
+    let listener_bus = event_bus.clone();
+    let listener_cancellation = cancellation.child_token();
     tokio::spawn(async move {
-        lanchat::network::discovery::start_listening(
+        let _ = lanchat::network::discovery::start_listening(
             port,
             listen_id,
             listen_name,
             peer_manager_clone,
             pool_for_discovery,
+            listener_bus,
+            listener_cancellation,
         )
         .await;
     });
@@ -84,8 +94,11 @@ async fn main() {
     // 3. 启动 UDP 广播
     let announce_id = my_id.clone();
     let announce_pool = pool.clone();
+    let announcer_cancellation = cancellation.child_token();
     tokio::spawn(async move {
-        lanchat::network::discovery::start_announcing(port, announce_id, announce_pool).await;
+        let _ = lanchat::network::discovery::start_announcing(
+            port, announce_id, announce_pool, announcer_cancellation,
+        ).await;
     });
 
     println!("[Server Main] ========================================");

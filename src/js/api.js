@@ -1064,6 +1064,9 @@ async function showNotification(title, body, extra = {}) {
     try { localStorage.setItem("pendingNotificationFromId", extra.from_id); } catch (_) {}
   }
   if (window.__TAURI__) {
+    // Android 通知由 Foreground Service 的 AndroidEventBridge 生成，避免 WebView
+    // 不存在时漏通知，也避免前台 JS 与后台 Service 重复通知。
+    if (navigator.userAgent.includes("Android")) return;
     // Tauri 端：先检查通知开关（用缓存避免每次都调 invoke）
     if (window._notificationsEnabled === undefined) {
       try {

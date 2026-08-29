@@ -1,12 +1,9 @@
 // 消息发送和接收模块
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_util::sync::CancellationToken;
 
-#[cfg(feature = "desktop")]
-use tauri::{AppHandle, Emitter};
-
-#[cfg(not(feature = "desktop"))]
-type AppHandle = (); 
+use crate::core_events::{CoreEvent, CoreEventBus};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextMessage {
@@ -189,26 +186,31 @@ pub async fn send_json_via_ws(peer_addr: &str, json: &str) -> Result<(), String>
 pub async fn start_message_server(
     port: u16,
     db_pool: sqlx::Pool<sqlx::Sqlite>,
-    #[cfg(feature = "desktop")] app_handle: Option<tauri::AppHandle>,
-) {
+    #[allow(unused_variables)] event_bus: CoreEventBus,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
-        .expect("无法绑定消息服务器端口");
+        .map_err(|error| format!("无法绑定消息服务器端口: {error}"))?;
 
     println!("[Messaging] 消息服务器启动在端口 {}", port);
 
     loop {
-        match listener.accept().await {
+        let accepted = tokio::select! {
+            _ = cancellation.cancelled() => return Ok(()),
+            accepted = listener.accept() => accepted,
+        };
+        match accepted {
             Ok((stream, addr)) => {
                 println!("[Messaging] 收到来自 {} 的连接", addr);
 
                 let pool = db_pool.clone();
                 #[cfg(feature = "desktop")]
-                let app = app_handle.clone();
+                let connection_bus = event_bus.clone();
 
                 tokio::spawn(async move {
                     #[cfg(feature = "desktop")]
-                    let result = handle_message_connection(stream, pool, app).await;
+                    let result = handle_message_connection(stream, pool, connection_bus).await;
 
                     #[cfg(feature = "web")]
                     let result = handle_message_connection(stream, pool).await;
@@ -230,7 +232,7 @@ pub async fn start_message_server(
 async fn handle_message_connection(
     mut stream: tokio::net::TcpStream,
     db_pool: sqlx::Pool<sqlx::Sqlite>,
-    app_handle: Option<tauri::AppHandle>,
+    event_bus: CoreEventBus,
 ) -> Result<(), String> {
     // 读取消息长度(4字节)
     let mut len_bytes = [0u8; 4];
@@ -297,25 +299,20 @@ async fn handle_message_connection(
     )
     .await?;
 
-    // 发送事件通知前端
-    if let Some(app) = app_handle {
-        let _ = app.emit(
-            "new-message",
-            serde_json::json!({
-                "id": msg_id,
-                "msg_type": message.msg_type,
-                "from_id": message.from_id,
-                "from_name": message.from_name,
-                "content": message.content,
-                "timestamp": message.timestamp,
-            }),
-        );
-    }
+    // 数据库提交成功后才能发布接收事件。
+    event_bus.publish_message(serde_json::json!({
+        "id": msg_id,
+        "msg_type": message.msg_type,
+        "from_id": message.from_id,
+        "from_name": message.from_name,
+        "content": message.content,
+        "timestamp": message.timestamp,
+    }));
 
     Ok(())
 }
 
-// Web 端的消息处理 - 不带 AppHandle
+// Web 端的消息处理 - 使用 CoreEventBus，不依赖 UI 生命周期
 #[cfg(all(feature = "web", not(feature = "desktop")))]
 async fn handle_message_connection(
     mut stream: tokio::net::TcpStream,
@@ -529,7 +526,7 @@ pub async fn resend_pending_messages(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     peer_id: &str,
     peer_addr: &str,
-    #[allow(unused_variables)] app: Option<AppHandle>,
+    event_bus: CoreEventBus,
 ) -> Result<(), String> {
     println!("[Messaging] 检查用户 {} 的挂起消息...", peer_id);
 
@@ -641,15 +638,11 @@ pub async fn resend_pending_messages(
                                     let _ = crate::db::update_file_status_by_id(
                                         pool, msg_id, "offering",
                                     ).await;
-                                    #[cfg(feature = "desktop")]
-                                    if let Some(ref app_handle) = app {
-                                        let update = serde_json::json!({
-                                            "msg_type": "file_status_update",
-                                            "sender_msg_id": msg_id,
-                                            "file_status": "offering",
-                                        });
-                                        let _ = app_handle.emit("new-message", update);
-                                    }
+                                    event_bus.publish_message(serde_json::json!({
+                                        "msg_type": "file_status_update",
+                                        "sender_msg_id": msg_id,
+                                        "file_status": "offering",
+                                    }));
                                     println!(
                                         "[UDP] ✓ 文件消息 {} 已发出 file_offer，等待手动接收",
                                         msg_id
@@ -692,15 +685,11 @@ pub async fn resend_pending_messages(
                                     let _ = crate::db::update_file_status_by_id(
                                         pool, msg_id, "offering",
                                     ).await;
-                                    #[cfg(feature = "desktop")]
-                                    if let Some(ref app_handle) = app {
-                                        let update = serde_json::json!({
-                                            "msg_type": "file_status_update",
-                                            "sender_msg_id": msg_id,
-                                            "file_status": "offering",
-                                        });
-                                        let _ = app_handle.emit("new-message", update);
-                                    }
+                                    event_bus.publish_message(serde_json::json!({
+                                        "msg_type": "file_status_update",
+                                        "sender_msg_id": msg_id,
+                                        "file_status": "offering",
+                                    }));
                                     println!(
                                         "[UDP] ✓ Web端文件消息 {} 已发出 file_offer，等待手动接收",
                                         msg_id
@@ -724,10 +713,9 @@ pub async fn resend_pending_messages(
 
             if !msg_ids_to_mark.is_empty() {
                 crate::db::mark_messages_as_sent(pool, msg_ids_to_mark).await?;
-                #[cfg(feature = "desktop")]
-                if let Some(app_handle) = app {
-                    let _ = app_handle.emit("messages-resent", peer_id.to_string());
-                }
+                event_bus.publish(CoreEvent::MessagesResent {
+                    peer_id: peer_id.to_string(),
+                });
             }
         }
         Err(e) => eprintln!("[Messaging] 握手失败: {}", e),

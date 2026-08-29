@@ -57,6 +57,23 @@
                     </div>
                     <div id="notification-permission-hint" class="setting-hint"></div>
                 </div>
+                <div class="setting-item" id="background-receive-setting" style="display: none;">
+                    <div class="setting-label-row">
+                        <label>后台接收状态:</label>
+                        <span id="background-receive-status">正在检查…</span>
+                    </div>
+                    <div id="background-receive-error" class="setting-hint"></div>
+                    <div class="setting-label-row">
+                        <label>电池优化:</label>
+                        <span id="battery-optimization-status">正在检查…</span>
+                    </div>
+                    <div class="setting-hint">按 Home、切换 App 或锁屏后继续接收；从最近任务划掉 LANChat 会完整退出。</div>
+                    <div class="button-group background-receive-actions">
+                        <button id="retry-background-service-btn" type="button" style="display: none;">重试后台接收</button>
+                        <button id="open-battery-settings-btn" type="button">前往设置为不受限制</button>
+                        <button id="stop-background-service-btn" type="button">停止后台接收并退出</button>
+                    </div>
+                </div>
                 <div class="setting-item" id="close-to-tray-setting">
                     <div class="setting-label-row">
                         <label for="close-to-tray-toggle" data-i18n="close_to_tray_label">点击 X 时最小化到托盘:</label>

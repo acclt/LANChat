@@ -152,20 +152,20 @@ pub async fn init_db_standalone(custom_path: Option<PathBuf>) -> Result<Pool<Sql
 }
 
 // 通用的数据库初始化逻辑
-async fn init_db_with_path(app_dir: PathBuf) -> Result<Pool<Sqlite>, sqlx::Error> {
+pub async fn init_db_with_path(app_dir: PathBuf) -> Result<Pool<Sqlite>, sqlx::Error> {
     println!("[DB] 数据库路径: {:?}", app_dir);
 
     // 确保目录一定存在
     if !app_dir.exists() {
-        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::create_dir_all(&app_dir).map_err(sqlx::Error::Io)?;
     }
 
     let db_path = app_dir.join("lanchat.db");
-    let db_url = format!("sqlite:{}", db_path.to_str().unwrap());
+    let db_url = format!("sqlite:{}", db_path.to_string_lossy());
 
     // 检查文件是否存在，如果不存在，手动创建空文件
     if !db_path.exists() {
-        std::fs::File::create(&db_path).unwrap();
+        std::fs::File::create(&db_path).map_err(sqlx::Error::Io)?;
     }
 
     let pool = SqlitePool::connect(&db_url).await?;
@@ -942,8 +942,8 @@ pub async fn save_network_message(
     let result = sqlx::query(
         "INSERT INTO messages (sender_id, receiver_id, content, msg_type, timestamp) VALUES (?, ?, ?, ?, ?)"
     )
-    .bind(from_id) 
-    .bind(&my_id)            
+    .bind(from_id)
+    .bind(&my_id)
     .bind(content)
     .bind(msg_type)
     .bind(timestamp as i64)
@@ -952,7 +952,7 @@ pub async fn save_network_message(
     .map_err(|e| format!("保存网络消息失败: {}", e))?;
 
     println!("[DB] 接收自网络的消息已保存到数据库");
-    
+
     // 返回生成的数据库行 ID
     Ok(result.last_insert_rowid())
 }
