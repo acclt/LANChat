@@ -1,6 +1,8 @@
 package com.lanchat.app
 
 import android.content.BroadcastReceiver
+import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -18,6 +20,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.webkit.JavascriptInterface
+import android.webkit.MimeTypeMap
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -585,116 +588,78 @@ class MainActivity : TauriActivity() {
         }, delayMs)
     }
 
-    // 打开文件（用对应的应用打开）
+    private data class ExternalFile(val uri: Uri, val mimeType: String)
+
+    private fun resolveExternalFile(filePath: String): ExternalFile {
+        val uri = if (filePath.startsWith("content://")) {
+            Uri.parse(filePath)
+        } else {
+            val file = File(filePath)
+            require(file.isFile) { "文件不存在或不可读取: $filePath" }
+            FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        }
+
+        val extension = (uri.lastPathSegment ?: filePath)
+            .substringAfterLast('.', "")
+            .lowercase()
+        val mimeType = when (extension) {
+            "apk" -> "application/vnd.android.package-archive"
+            else -> contentResolver.getType(uri)
+                ?.takeUnless { it.isBlank() || it == "*/*" }
+                ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+                ?: "application/octet-stream"
+        }
+        return ExternalFile(uri, mimeType)
+    }
+
+    private fun errorResult(action: String, error: Exception): String {
+        val message = when (error) {
+            is ActivityNotFoundException -> "没有找到可处理此文件的应用"
+            is SecurityException -> "文件访问权限已失效，请重新接收或选择该文件"
+            else -> error.message ?: error.javaClass.simpleName
+        }
+        println("[MainActivity] ${action}失败: $message")
+        error.printStackTrace()
+        return "ERROR:$message"
+    }
+
+    // 由 Rust JNI 调用。返回值会一路传回前端，避免原生失败时界面毫无反馈。
     @Keep
-    fun openFile(filePath: String) {
-        try {
-            println("[MainActivity] 准备打开文件: $filePath")
-
-            val uri: Uri
-            val mimeType: String
-
-            if (filePath.startsWith("content://")) {
-                uri = Uri.parse(filePath)
-                mimeType = contentResolver.getType(uri) ?: "*/*"
-                println("[MainActivity] 使用 content URI: $uri")
-            } else {
-                val file = File(filePath)
-                if (!file.exists()) {
-                    println("[MainActivity] 文件不存在: $filePath")
-                    return
-                }
-                uri = FileProvider.getUriForFile(
-                    this,
-                    "${applicationContext.packageName}.fileprovider",
-                    file
-                )
-                mimeType = contentResolver.getType(uri) ?: "*/*"
-                println("[MainActivity] FileProvider URI: $uri")
-            }
-
-            println("[MainActivity] MIME 类型: $mimeType")
-
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mimeType)
+    fun openFile(filePath: String): String {
+        return try {
+            val target = resolveExternalFile(filePath)
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(target.uri, target.mimeType)
+                clipData = ClipData.newUri(contentResolver, "open_file", target.uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-
-            try {
-                startActivity(intent)
-                println("[MainActivity] 打开文件 Intent 已启动")
-            } catch (e: SecurityException) {
-                // content URI 权限过期，降级为 */* 再试一次
-                println("[MainActivity] 权限异常，降级为 */* 重试: ${e.message}")
-                val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "*/*")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(fallbackIntent)
-                println("[MainActivity] 降级打开文件 Intent 已启动")
-            }
-        } catch (e: Exception) {
-            println("[MainActivity] 打开文件失败: ${e.message}")
-            e.printStackTrace()
+            startActivity(Intent.createChooser(viewIntent, "选择应用打开").apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+            println("[MainActivity] 打开文件选择器已启动: ${target.uri}, ${target.mimeType}")
+            "OK"
+        } catch (error: Exception) {
+            errorResult("打开文件", error)
         }
     }
 
-    // 分享文件到其他应用
-    @Keep   // <--- 就是这块免死金牌！告诉混淆器绝对不要动这个函数
-    fun shareFile(filePath: String) {
-        try {
-            println("[MainActivity] 准备分享文件: $filePath")
-            
-            val uri: Uri
-            val mimeType: String
-            
-            if (filePath.startsWith("content://")) {
-                // 已经是 content URI，直接使用
-                uri = Uri.parse(filePath)
-                mimeType = contentResolver.getType(uri) ?: "*/*"
-                println("[MainActivity] 使用 content URI: $uri")
-            } else {
-                // 普通文件路径，使用 FileProvider
-                val file = File(filePath)
-                if (!file.exists()) {
-                    println("[MainActivity] 文件不存在: $filePath")
-                    return
-                }
-                
-                uri = FileProvider.getUriForFile(
-                    this,
-                    "${applicationContext.packageName}.fileprovider",
-                    file
-                )
-                mimeType = contentResolver.getType(uri) ?: "*/*"
-                println("[MainActivity] FileProvider URI: $uri")
-            }
-            
-            println("[MainActivity] MIME 类型: $mimeType")
-            
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = mimeType
-                putExtra(Intent.EXTRA_STREAM, uri)
+    @Keep
+    fun shareFile(filePath: String): String {
+        return try {
+            val target = resolveExternalFile(filePath)
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = target.mimeType
+                putExtra(Intent.EXTRA_STREAM, target.uri)
+                clipData = ClipData.newUri(contentResolver, "share_file", target.uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             }
-
-            // 附加 ClipData，让系统 UI（分享面板缩略图）也能合法访问 URI，消除 SecurityException 日志
-            val clipData = android.content.ClipData.newUri(contentResolver, "share_file", uri)
-            intent.clipData = clipData
-            
-            // 创建分享选择器并授予权限
-            val chooser = Intent.createChooser(intent, "分享文件").apply {
+            startActivity(Intent.createChooser(sendIntent, "分享文件").apply {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            }
-            
-            // 显示分享选择器
-            startActivity(chooser)
-            println("[MainActivity] 分享选择器已启动")
-        } catch (e: Exception) {
-            println("[MainActivity] 分享文件失败: ${e.message}")
-            e.printStackTrace()
+            })
+            println("[MainActivity] 分享选择器已启动: ${target.uri}, ${target.mimeType}")
+            "OK"
+        } catch (error: Exception) {
+            errorResult("分享文件", error)
         }
     }
 }

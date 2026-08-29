@@ -1371,6 +1371,7 @@ function createMessageElement(message, isSent) {
 
   const contentDiv = document.createElement("div");
   contentDiv.className = "message-content";
+  let externalFileActionBtn = null;
 
   // ---- 构建消息主体 ----
   if (message.msg_type === "file") {
@@ -1479,18 +1480,30 @@ function createMessageElement(message, isSent) {
       if (tauri) {
         if (message.file_path) {
           if (navigator.userAgent.includes("Android")) {
-            fileContainer.addEventListener("click", async () => {
+            const openAndroidFile = async () => {
               try {
                 await apiOpenFileInAndroid(message.file_path);
               } catch (e) {
                 alert("打开失败: " + e.message);
               }
+            };
+            fileContainer.setAttribute("role", "button");
+            fileContainer.tabIndex = 0;
+            fileContainer.title = isImage ? "点击查看图片" : "点击选择应用打开";
+            fileContainer.addEventListener("click", openAndroidFile);
+            fileContainer.addEventListener("keydown", (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openAndroidFile();
+              }
             });
             const shareBtn = document.createElement("button");
             shareBtn.className = "file-share-btn";
+            shareBtn.type = "button";
             shareBtn.title = "分享到其他应用";
+            shareBtn.setAttribute("aria-label", "分享到其他应用");
             shareBtn.innerHTML =
-              `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>`;
+              `<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>`;
             shareBtn.addEventListener("click", async (e) => {
               e.stopPropagation();
               try {
@@ -1499,20 +1512,7 @@ function createMessageElement(message, isSent) {
                 alert("分享失败: " + e.message);
               }
             });
-            const row = document.createElement("div");
-            row.className = "file-action-row";
-            if (isSent) {
-              row.appendChild(shareBtn);
-              while (fileContainer.firstChild) {
-                row.appendChild(fileContainer.firstChild);
-              }
-            } else {
-              while (fileContainer.firstChild) {
-                row.appendChild(fileContainer.firstChild);
-              }
-              row.appendChild(shareBtn);
-            }
-            fileContainer.appendChild(row);
+            externalFileActionBtn = shareBtn;
           } else {
             fileContainer.addEventListener(
               "click",
@@ -1762,7 +1762,18 @@ function createMessageElement(message, isSent) {
     });
   }
 
-  messageDiv.appendChild(contentDiv);
+  if (externalFileActionBtn) {
+    const actionLayout = document.createElement("div");
+    actionLayout.className = "file-action-layout";
+    if (isSent) {
+      actionLayout.append(externalFileActionBtn, contentDiv);
+    } else {
+      actionLayout.append(contentDiv, externalFileActionBtn);
+    }
+    messageDiv.appendChild(actionLayout);
+  } else {
+    messageDiv.appendChild(contentDiv);
+  }
   messageDiv.appendChild(timeDiv);
 
   // 多选模式拦截

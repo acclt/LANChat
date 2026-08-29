@@ -1587,26 +1587,20 @@ pub async fn send_file_from_fd(
     }
 }
 
-// 分享文件到其他应用（仅 Android）
 #[cfg(target_os = "android")]
-#[tauri::command]
-pub async fn share_file_to_other_app(
-    #[allow(non_snake_case)] filePath: String,
-) -> Result<(), String> {
-    // 🌟 fd: 路径 → 转为自定义 FdContentProvider 的 URI，零拷贝分享
-    let final_path = if filePath.starts_with("fd:") {
-        let msg_id = &filePath[3..];
+fn normalize_android_external_file_path(file_path: &str) -> String {
+    if let Some(msg_id) = file_path.strip_prefix("fd:") {
         let msg_id_i64: i64 = msg_id.parse().unwrap_or(0);
-        // 从 FD 缓存中获取文件名，让第三方 App 能识别文件类型
         let file_name = crate::android_fd::get_cached_file_name(msg_id_i64)
             .unwrap_or_else(|| "file".to_string());
         format!("content://com.lanchat.app.fdprovider/{msg_id}/{file_name}")
     } else {
-        filePath.clone()
-    };
+        file_path.to_string()
+    }
+}
 
-    println!("[Command] 准备分享文件到其他应用: {}", final_path);
-
+#[cfg(target_os = "android")]
+fn call_android_file_action(method: &str, file_path: &str) -> Result<(), String> {
     use jni::objects::JValue;
 
     let context = ndk_context::android_context();
@@ -1620,19 +1614,45 @@ pub async fn share_file_to_other_app(
     let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
 
     let file_path_jstring = env
-        .new_string(&final_path)
+        .new_string(file_path)
         .map_err(|e| format!("创建字符串失败: {}", e))?;
 
-    env.call_method(
-        activity,
-        "shareFile",
-        "(Ljava/lang/String;)V",
-        &[JValue::Object(&file_path_jstring)],
-    )
-    .map_err(|e| format!("调用 shareFile 失败: {}", e))?;
+    let result = env
+        .call_method(
+            activity,
+            method,
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[JValue::Object(&file_path_jstring)],
+        )
+        .map_err(|e| format!("调用 {method} 失败: {e}"))?
+        .l()
+        .map_err(|e| format!("读取 {method} 返回值失败: {e}"))?;
+    let result = jni::objects::JString::from(result);
+    let result = env
+        .get_string(&result)
+        .map_err(|e| format!("解析 {method} 返回值失败: {e}"))?
+        .to_string_lossy()
+        .into_owned();
 
-    println!("[Command] 分享文件命令已发送到 Android");
+    if let Some(error) = result.strip_prefix("ERROR:") {
+        return Err(error.to_string());
+    }
+    if result != "OK" {
+        return Err(format!("{method} 返回未知结果: {result}"));
+    }
     Ok(())
+}
+
+// 分享文件到其他应用（仅 Android）
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn share_file_to_other_app(
+    #[allow(non_snake_case)] filePath: String,
+) -> Result<(), String> {
+    let final_path = normalize_android_external_file_path(&filePath);
+    println!("[Command] 准备分享文件到其他应用: {}", final_path);
+
+    call_android_file_action("shareFile", &final_path)
 }
 
 // 非 Android 平台的空实现
@@ -1649,34 +1669,9 @@ pub async fn share_file_to_other_app(
 #[cfg(target_os = "android")]
 #[tauri::command]
 pub async fn open_file_in_android(#[allow(non_snake_case)] filePath: String) -> Result<(), String> {
-    println!("[Command] 准备打开文件: {}", filePath);
-
-    use jni::objects::JValue;
-
-    let context = ndk_context::android_context();
-    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
-        .map_err(|e| format!("获取 JavaVM 失败: {}", e))?;
-
-    let mut env = vm
-        .attach_current_thread()
-        .map_err(|e| format!("附加线程失败: {}", e))?;
-
-    let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
-
-    let file_path_jstring = env
-        .new_string(&filePath)
-        .map_err(|e| format!("创建字符串失败: {}", e))?;
-
-    env.call_method(
-        activity,
-        "openFile",
-        "(Ljava/lang/String;)V",
-        &[JValue::Object(&file_path_jstring)],
-    )
-    .map_err(|e| format!("调用 openFile 失败: {}", e))?;
-
-    println!("[Command] 打开文件命令已发送到 Android");
-    Ok(())
+    let final_path = normalize_android_external_file_path(&filePath);
+    println!("[Command] 准备打开文件: {}", final_path);
+    call_android_file_action("openFile", &final_path)
 }
 
 #[cfg(not(target_os = "android"))]
