@@ -21,6 +21,20 @@ pub struct PeerState {
     pub manager: Arc<PeerManager>,
 }
 
+impl PeerState {
+    /// Android 的网络核心可能早于重建后的 Activity/UI 存在。此时 Tauri
+    /// 状态中保存的 manager 只能作为兜底，命令必须优先读取正在运行的
+    /// CoreRuntime 资源，避免实时事件与轮询分别使用两套在线状态。
+    pub fn active_manager(&self) -> Arc<PeerManager> {
+        #[cfg(target_os = "android")]
+        if let Some((_, manager)) = crate::core_runtime::CoreRuntime::global().shared_resources() {
+            return manager;
+        }
+
+        self.manager.clone()
+    }
+}
+
 /// 托盘闪烁状态（仅桌面端）
 pub struct TrayFlashState {
     pub is_flashing: Arc<AtomicBool>,
@@ -157,7 +171,7 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
 
     // 获取接收方的可用内存
     let receiver_memory_mb = if let Some(ps) = peer_state {
-        let peers = ps.manager.get_all_peers();
+        let peers = ps.active_manager().get_all_peers();
         peers
             .iter()
             .find(|p| {
@@ -501,7 +515,7 @@ pub async fn update_my_name(state: State<'_, DbState>, new_name: String) -> Resu
 
 #[tauri::command]
 pub async fn get_peers(state: State<'_, PeerState>) -> Result<Vec<Peer>, String> {
-    Ok(state.manager.get_all_peers())
+    Ok(state.active_manager().get_all_peers())
 }
 
 #[tauri::command]
@@ -518,7 +532,7 @@ pub async fn send_message(
 
     // 提取状态时，顺便把后端内存里最新的 IP 拿出来
     let (is_offline_now, peer_name, backend_addr) = {
-        let peers = peer_state.manager.get_all_peers();
+        let peers = peer_state.active_manager().get_all_peers();
         if let Some(p) = peers.iter().find(|p| p.id == peer_id) {
             (p.is_offline, p.name.clone(), Some(p.addr.clone()))
         } else {
@@ -572,7 +586,7 @@ pub async fn send_message(
             eprintln!("[Command] 发送失败(网络探测): {}. 消息将转入挂起队列。", e);
 
             // 立即更新本地状态，避免下次发送再次空转
-            peer_state.manager.force_mark_offline(&peer_id);
+            peer_state.active_manager().force_mark_offline(&peer_id);
 
             // 保存为挂起
             crate::db::save_text_message_with_status(
@@ -681,7 +695,7 @@ pub async fn send_file(
 
     // ── 检查接收端是否离线 ──
     let is_offline_now = {
-        let peers = peer_state.manager.get_all_peers();
+        let peers = peer_state.active_manager().get_all_peers();
         peers
             .iter()
             .find(|p| p.id == peer_id)
@@ -855,7 +869,12 @@ pub async fn send_file(
             let (is_online, backend_addr) = peer_state
                 .as_ref()
                 .map(|s| {
-                    if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peer_id) {
+                    if let Some(p) = s
+                        .active_manager()
+                        .get_all_peers()
+                        .iter()
+                        .find(|p| p.id == peer_id)
+                    {
                         (!p.is_offline, Some(p.addr.clone()))
                     } else {
                         (false, None)
@@ -898,7 +917,12 @@ pub async fn send_file(
     let (is_online, backend_addr) = peer_state
         .as_ref()
         .map(|s| {
-            if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peer_id) {
+            if let Some(p) = s
+                .active_manager()
+                .get_all_peers()
+                .iter()
+                .find(|p| p.id == peer_id)
+            {
                 (!p.is_offline, Some(p.addr.clone()))
             } else {
                 (false, None)
@@ -1369,7 +1393,7 @@ pub async fn send_file_from_fd(
 
         // ── 检查接收端是否离线 ──
         let is_offline_now = {
-            let peers = peer_state.manager.get_all_peers();
+            let peers = peer_state.active_manager().get_all_peers();
             peers
                 .iter()
                 .find(|p| p.id == peerId)
@@ -1471,7 +1495,12 @@ pub async fn send_file_from_fd(
         let (is_online, backend_addr) = peer_state
             .as_ref()
             .map(|s| {
-                if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peerId) {
+                if let Some(p) = s
+                    .active_manager()
+                    .get_all_peers()
+                    .iter()
+                    .find(|p| p.id == peerId)
+                {
                     (!p.is_offline, Some(p.addr.clone()))
                 } else {
                     (false, None)
@@ -1874,7 +1903,7 @@ pub async fn delete_user_complete(
     crate::db::delete_user_and_history(&state.pool, &my_id, &peer_id).await?;
 
     // 2. 同步删除内存中的用户状态，否则 apiGetPeers 还会返回它
-    peer_state.manager.remove_peer(&peer_id);
+    peer_state.active_manager().remove_peer(&peer_id);
 
     Ok(())
 }
@@ -2082,13 +2111,183 @@ fn get_notification_id(from_id: &str) -> i32 {
     (hasher.finish() & 0x7FFFFFFF) as i32
 }
 
+#[cfg(windows)]
+const WINDOWS_NOTIFICATION_APP_ID: &str = "com.lanchat.app";
+
+/// 便携版 EXE 没有安装器创建的 AppUserModelId。Windows Toast 使用自定义
+/// AppUserModelId 前必须先注册显示名称，否则通知可能既不弹出也不进入通知中心。
+#[cfg(windows)]
+pub fn ensure_windows_notification_identity() -> Result<(), String> {
+    use std::path::PathBuf;
+    use windows::core::{HSTRING, Interface, GUID};
+    use windows::Win32::Foundation::{PROPERTYKEY, RPC_E_CHANGED_MODE};
+    use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
+    use windows::Win32::UI::Shell::{
+        SetCurrentProcessExplicitAppUserModelID, IShellLinkW, ShellLink,
+    };
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    const PKEY_APP_USER_MODEL_ID: PROPERTYKEY = PROPERTYKEY {
+        fmtid: GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3),
+        pid: 5,
+    };
+
+    let current_user = RegKey::predef(HKEY_CURRENT_USER);
+    let path = format!(
+        r"Software\Classes\AppUserModelId\{}",
+        WINDOWS_NOTIFICATION_APP_ID
+    );
+    let (key, _) = current_user
+        .create_subkey(path)
+        .map_err(|error| format!("创建 Windows 通知身份失败: {error}"))?;
+    key.set_value("DisplayName", &"LANChat")
+        .map_err(|error| format!("写入 Windows 通知显示名称失败: {error}"))?;
+    key.set_value("IconBackgroundColor", &"0")
+        .map_err(|error| format!("写入 Windows 通知图标背景失败: {error}"))?;
+
+    let app_id = HSTRING::from(WINDOWS_NOTIFICATION_APP_ID);
+    unsafe { SetCurrentProcessExplicitAppUserModelID(&app_id) }
+        .map_err(|error| format!("设置 Windows 进程通知身份失败: {error}"))?;
+
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("读取当前 LANChat 路径失败: {error}"))?;
+    let working_directory = executable
+        .parent()
+        .map(PathBuf::from)
+        .ok_or_else(|| "LANChat 路径缺少父目录".to_string())?;
+    let app_data = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .ok_or_else(|| "Windows APPDATA 目录不可用".to_string())?;
+    let shortcut = app_data
+        .join("Microsoft")
+        .join("Windows")
+        .join("Start Menu")
+        .join("Programs")
+        .join("LANChat.lnk");
+    if let Some(parent) = shortcut.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("创建开始菜单目录失败: {error}"))?;
+    }
+
+    let com_result = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+    let should_uninitialize = com_result.is_ok();
+    if com_result.is_err() && com_result != RPC_E_CHANGED_MODE {
+        return Err(format!("初始化 Windows Shell 失败: {com_result:?}"));
+    }
+
+    let create_shortcut = || -> windows::core::Result<()> {
+        unsafe {
+            let shell_link: IShellLinkW =
+                CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+            shell_link.SetPath(&HSTRING::from(executable.to_string_lossy().as_ref()))?;
+            shell_link.SetWorkingDirectory(&HSTRING::from(
+                working_directory.to_string_lossy().as_ref(),
+            ))?;
+            shell_link.SetDescription(&HSTRING::from("LANChat 局域网聊天"))?;
+            shell_link.SetIconLocation(
+                &HSTRING::from(executable.to_string_lossy().as_ref()),
+                0,
+            )?;
+
+            let property_store: IPropertyStore = shell_link.cast()?;
+            let app_id_value = PROPVARIANT::from(WINDOWS_NOTIFICATION_APP_ID);
+            property_store.SetValue(&PKEY_APP_USER_MODEL_ID, &app_id_value)?;
+            property_store.Commit()?;
+
+            let persist_file: IPersistFile = shell_link.cast()?;
+            persist_file.Save(&HSTRING::from(shortcut.to_string_lossy().as_ref()), true)?;
+            Ok(())
+        }
+    }();
+
+    if should_uninitialize {
+        unsafe { CoUninitialize() };
+    }
+    create_shortcut.map_err(|error| format!("注册 LANChat 开始菜单通知身份失败: {error}"))?;
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn show_windows_system_notification(title: &str, body: &str) -> Result<(), String> {
+    ensure_windows_notification_identity()?;
+    use tauri_winrt_notification::{Duration, Sound, Toast};
+    Toast::new(WINDOWS_NOTIFICATION_APP_ID)
+        .title(title)
+        .text1(body)
+        .duration(Duration::Short)
+        .sound(Some(Sound::Default))
+        .show()
+        .map_err(|error| format!("Windows 系统通知发送失败: {error}"))
+}
+
+#[cfg(windows)]
+pub fn windows_notification_for_core_event(
+    event: &crate::core_events::CoreEvent,
+) -> Option<(String, String)> {
+    use crate::core_events::CoreEvent;
+
+    let (payload, kind) = match event {
+        CoreEvent::MessageReceived(payload) => (payload, "message"),
+        CoreEvent::FileOfferReceived(payload) => (payload, "file_offer"),
+        CoreEvent::FileTransferCompleted(payload) => (payload, "file_completed"),
+        CoreEvent::CoreError(status) => {
+            return Some((
+                "LANChat 后台接收发生异常".to_string(),
+                status
+                    .last_error_message
+                    .clone()
+                    .unwrap_or_else(|| "点击打开并重试".to_string()),
+            ));
+        }
+        _ => return None,
+    };
+
+    let from_id = payload.get("from_id").and_then(|value| value.as_str())?;
+    if from_id.is_empty() || from_id == "me" {
+        return None;
+    }
+    let title = payload
+        .get("from_name")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("局域网设备")
+        .to_string();
+    let file_name = payload
+        .get("file_name")
+        .or_else(|| payload.get("content"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("未知文件");
+    let body = match kind {
+        "file_offer" => format!("请求发送文件：{file_name}"),
+        "file_completed" => format!("文件接收完成：{file_name}"),
+        _ if payload.get("msg_type").and_then(|value| value.as_str()) == Some("image") => {
+            "[图片]".to_string()
+        }
+        _ => payload
+            .get("content")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("收到一条新消息")
+            .chars()
+            .take(100)
+            .collect(),
+    };
+    Some((title, body))
+}
+
 #[tauri::command]
 pub fn show_notification(
     _app: tauri::AppHandle,
     title: String,
     body: String,
     #[allow(unused_variables)] from_id: String,
-) {
+) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         // Linux 用 notify-send
@@ -2096,11 +2295,18 @@ pub fn show_notification(
             .arg(&title)
             .arg(&body)
             .spawn();
+        return Ok(());
     }
 
-    #[cfg(any(windows, target_os = "macos", target_os = "android"))]
+    #[cfg(windows)]
     {
-        // Windows / macOS / Android 均使用系统原生通知中心。
+        show_windows_system_notification(&title, &body)?;
+        return Ok(());
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    {
+        // macOS / Android 使用 Tauri 的系统原生通知组件。
         use tauri_plugin_notification::NotificationExt;
         let app = _app;
         let mut builder = app.notification().builder().title(&title).body(&body);
@@ -2108,7 +2314,37 @@ pub fn show_notification(
             let notif_id = get_notification_id(&from_id);
             builder = builder.id(notif_id);
         }
-        let _ = builder.show();
+        builder.show().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod notification_tests {
+    use super::windows_notification_for_core_event;
+    use crate::core_events::CoreEvent;
+
+    #[test]
+    fn windows_notification_maps_incoming_text_and_ignores_progress() {
+        let incoming = CoreEvent::MessageReceived(serde_json::json!({
+            "from_id": "phone-id",
+            "from_name": "IQOO",
+            "content": "测试消息",
+            "msg_type": "text"
+        }));
+        assert_eq!(
+            windows_notification_for_core_event(&incoming),
+            Some(("IQOO".to_string(), "测试消息".to_string()))
+        );
+
+        let progress = CoreEvent::FileTransferProgress(serde_json::json!({
+            "from_id": "phone-id",
+            "file_name": "demo.apk"
+        }));
+        assert_eq!(windows_notification_for_core_event(&progress), None);
     }
 }
 

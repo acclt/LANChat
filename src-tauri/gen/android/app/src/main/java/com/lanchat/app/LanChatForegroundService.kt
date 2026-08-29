@@ -293,8 +293,13 @@ class LanChatForegroundService : Service() {
             NotificationChannel(
                 MESSAGE_CHANNEL,
                 "LANChat 消息和文件",
-                NotificationManager.IMPORTANCE_DEFAULT,
-            ).apply { description = "新消息、文件完成和服务错误" },
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "新消息、文件完成和服务错误"
+                enableVibration(true)
+                setShowBadge(true)
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            },
         )
     }
 
@@ -363,6 +368,9 @@ class LanChatForegroundService : Service() {
             .setContentIntent(servicePendingIntent(peerId))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .build()
         runCatching { notificationManager.notify(notificationId, notification) }
             .onFailure { android.util.Log.w(TAG, "消息通知发送失败", it) }
@@ -375,6 +383,8 @@ class LanChatForegroundService : Service() {
             .setContentText(message.ifBlank { "点击打开并重试" })
             .setContentIntent(servicePendingIntent())
             .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
         runCatching { notificationManager.notify(ERROR_NOTIFICATION_ID, notification) }
     }
@@ -480,7 +490,9 @@ class LanChatForegroundService : Service() {
         private var nativeReadyInProcess = false
         private const val TAG = "LanChatService"
         private const val SERVICE_CHANNEL = "lanchat_background_service"
-        private const val MESSAGE_CHANNEL = "lanchat_messages"
+        // Android 渠道的重要性一旦创建就无法由应用升级。使用新 ID 将旧版
+        // IMPORTANCE_DEFAULT 渠道迁移为能显示顶部横幅的高重要性渠道。
+        internal const val MESSAGE_CHANNEL = "lanchat_messages_v2"
         private const val SERVICE_NOTIFICATION_ID = 4100
         private const val ERROR_NOTIFICATION_ID = 9100
         private const val MESSAGE_NOTIFICATION_BASE = 10000

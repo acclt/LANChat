@@ -195,13 +195,16 @@ function updateUserStatus(item, name, addr, isOffline) {
   const nameSpan = item.querySelector(".user-name");
   const addrSpan = item.querySelector(".user-addr");
 
-  if (nameSpan) nameSpan.textContent = name;
-  if (addrSpan) addrSpan.textContent = addr;
-  if (statusSpan) statusSpan.textContent = isOffline ? "OFF" : "";
+  if (nameSpan && nameSpan.textContent !== name) nameSpan.textContent = name;
+  if (addrSpan && addrSpan.textContent !== addr) addrSpan.textContent = addr;
+  const nextStatus = isOffline ? "OFF" : "";
+  if (statusSpan && statusSpan.textContent !== nextStatus) {
+    statusSpan.textContent = nextStatus;
+  }
 
   // 实时更新 DOM 的隐式数据属性
-  item.dataset.name = name;
-  item.dataset.addr = addr;
+  if (item.dataset.name !== name) item.dataset.name = name;
+  if (item.dataset.addr !== addr) item.dataset.addr = addr;
 
   const wasOffline = item.classList.contains("offline");
 

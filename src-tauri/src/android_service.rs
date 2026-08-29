@@ -213,8 +213,6 @@ mod android {
         super::set_ui_visible(visible);
         if visible {
             crate::start_ui_event_bridge();
-        } else {
-            crate::stop_ui_event_bridge();
         }
     }
 }

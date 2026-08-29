@@ -28,6 +28,11 @@ fn main() {
     #[cfg(target_os = "linux")]
     std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
 
+    #[cfg(windows)]
+    if let Err(error) = lanchat::commands::ensure_windows_notification_identity() {
+        eprintln!("[Notification] {error}");
+    }
+
     let args = Args::parse();
 
     let cli_port = args.port;
@@ -291,10 +296,30 @@ fn main() {
                 let event_bus = core.event_bus();
                 let mut ui_events = event_bus.subscribe();
                 let ui_handle = handle.clone();
+                let notification_pool = pool.clone();
                 tokio::spawn(async move {
                     while let Ok(event) = ui_events.recv().await {
                         if let Some((name, payload)) = event.ui_event() {
                             let _ = ui_handle.emit(name, payload);
+                        }
+                        #[cfg(windows)]
+                        if let Some((title, body)) =
+                            lanchat::commands::windows_notification_for_core_event(&event)
+                        {
+                            let window_focused = ui_handle
+                                .get_webview_window("main")
+                                .and_then(|window| window.is_focused().ok())
+                                .unwrap_or(false);
+                            if !window_focused
+                                && lanchat::db::get_notifications_enabled(&notification_pool).await
+                            {
+                                match lanchat::commands::show_windows_system_notification(
+                                    &title, &body,
+                                ) {
+                                    Ok(()) => println!("[Notification] Windows 系统通知已发送"),
+                                    Err(error) => eprintln!("[Notification] {error}"),
+                                }
+                            }
                         }
                     }
                 });

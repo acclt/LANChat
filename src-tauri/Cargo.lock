@@ -2587,12 +2587,15 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
  "tauri-plugin-sql",
+ "tauri-winrt-notification",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
  "tower-http 0.5.2",
  "urlencoding",
  "uuid",
+ "windows 0.61.3",
+ "winreg 0.55.0",
  "wl-clipboard-rs",
 ]
 

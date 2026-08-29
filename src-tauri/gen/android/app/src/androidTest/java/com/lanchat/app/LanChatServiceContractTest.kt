@@ -162,6 +162,7 @@ class LanChatServiceContractTest {
         assertNotEquals(first, different)
         assertTrue(first in 10_000 until 18_000)
         assertNotEquals(4_100, first)
+        assertEquals("lanchat_messages_v2", LanChatForegroundService.MESSAGE_CHANNEL)
     }
 
     @Test

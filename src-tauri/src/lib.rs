@@ -34,11 +34,9 @@ pub fn stop_ui_event_bridge() {
         .and_then(|mut slot| slot.take());
     if let Some(existing) = existing {
         existing.cancelled.store(true, Ordering::Release);
-        core_runtime::CoreRuntime::global()
-            .event_bus()
-            .publish(core_events::CoreEvent::CoreStateChanged(
-                core_runtime::CoreRuntime::global().status(),
-            ));
+        core_runtime::CoreRuntime::global().event_bus().publish(
+            core_events::CoreEvent::CoreStateChanged(core_runtime::CoreRuntime::global().status()),
+        );
         let _ = existing.thread.join();
     }
 }
@@ -70,9 +68,16 @@ pub fn start_ui_event_bridge() {
                 let Some(event) = event else {
                     continue;
                 };
+                if thread_cancelled.load(Ordering::Acquire) {
+                    break;
+                }
                 let Some((name, payload)) = event.ui_event() else {
                     continue;
                 };
+                #[cfg(target_os = "android")]
+                if !android_service::ui_visible() {
+                    continue;
+                }
                 let Some(ui_handle) = CURRENT_APP_HANDLE
                     .get()
                     .and_then(|handle| handle.read().ok())
@@ -183,6 +188,23 @@ pub fn run() {
 
             tauri::async_runtime::block_on(async move {
                 println!("[Lib] 正在初始化数据库...");
+                let core = core_runtime::CoreRuntime::global();
+
+                // Activity/UI 可以在同一 Android 进程内重建，而前台 Service
+                // 与 CoreRuntime 继续运行。优先复用核心已经持有的数据库与
+                // PeerManager，禁止 UI 再创建一套会逐渐过期的设备状态。
+                #[cfg(target_os = "android")]
+                let existing_core_resources = core.shared_resources();
+
+                #[cfg(target_os = "android")]
+                let pool = match existing_core_resources.as_ref() {
+                    Some((pool, _)) => {
+                        println!("[Lib] 复用运行中 CoreRuntime 的数据库连接");
+                        pool.clone()
+                    }
+                    None => db::init_db(&handle).await.expect("DB error"),
+                };
+                #[cfg(not(target_os = "android"))]
                 let pool = db::init_db(&handle).await.expect("DB error");
                 let my_name = db::get_username(&pool)
                     .await
@@ -201,20 +223,34 @@ pub fn run() {
                 println!("[Lib] 我的用户名: {}", my_name);
                 println!("[Lib] 我的 ID: {}", my_id);
 
-                // 创建全局用户管理器
-                let peer_manager = Arc::new(peers::PeerManager::new());
-
-                // 从数据库加载历史用户
-                if let Err(e) = peer_manager.load_from_db(&pool).await {
-                    eprintln!("[Lib] 加载历史用户失败: {}", e);
-                }
+                #[cfg(target_os = "android")]
+                let peer_manager = match existing_core_resources {
+                    Some((_, manager)) => {
+                        println!("[Lib] 复用运行中 CoreRuntime 的 PeerManager");
+                        manager
+                    }
+                    None => {
+                        let manager = Arc::new(peers::PeerManager::new());
+                        if let Err(e) = manager.load_from_db(&pool).await {
+                            eprintln!("[Lib] 加载历史用户失败: {}", e);
+                        }
+                        manager
+                    }
+                };
+                #[cfg(not(target_os = "android"))]
+                let peer_manager = {
+                    let manager = Arc::new(peers::PeerManager::new());
+                    if let Err(e) = manager.load_from_db(&pool).await {
+                        eprintln!("[Lib] 加载历史用户失败: {}", e);
+                    }
+                    manager
+                };
 
                 // 将 PeerManager 注册到 Tauri 状态管理
                 handle.manage(commands::PeerState {
                     manager: peer_manager.clone(),
                 });
 
-                let core = core_runtime::CoreRuntime::global();
                 core.prepare(pool.clone(), peer_manager.clone());
                 start_ui_event_bridge();
 
