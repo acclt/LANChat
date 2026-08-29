@@ -2671,7 +2671,7 @@ function initSettings() {
     openBatterySettingsBtn?.addEventListener("click", () =>
       window.__TAURI__.core.invoke("open_battery_optimization_settings"));
     stopBackgroundServiceBtn?.addEventListener("click", async () => {
-      if (confirm("停止后台接收并退出 LANChat？")) {
+      if (confirm("停止后台接收并退出 LQ Chat？")) {
         await window.__TAURI__.core.invoke("stop_background_receive_and_exit");
       }
     });
@@ -2731,7 +2731,7 @@ function initSettings() {
           initialNotifications = await window.__TAURI__.core.invoke("get_notifications_enabled").catch(() => true);
           notificationToggle.checked = initialNotifications;
           if (isAndroid && typeof Notification !== "undefined" && Notification.permission === "denied") {
-            notificationHint.textContent = "系统通知权限已关闭，请在系统设置中允许 LANChat 通知。";
+            notificationHint.textContent = "系统通知权限已关闭，请在系统设置中允许 LQ Chat 通知。";
           } else {
             notificationHint.textContent = "";
           }
@@ -3082,7 +3082,7 @@ const i18n = {
     choose: "选择",
     auto_download_label: "自动下载:",
     close_to_tray_label: "点击 X 时最小化到托盘:",
-    autostart_label: "开机自动启动 LANChat:",
+    autostart_label: "开机自动启动 LQ Chat:",
     autostart_hint: "自动启动时隐藏到托盘",
     settings_save_restart: "✓ 设置保存成功，需重启生效",
     settings_saved: "✓ 设置保存成功",
@@ -3128,7 +3128,7 @@ const i18n = {
     choose: "Choose",
     auto_download_label: "Auto Download:",
     close_to_tray_label: "Minimize to tray when clicking X:",
-    autostart_label: "Start LANChat when Windows starts:",
+    autostart_label: "Start LQ Chat when Windows starts:",
     autostart_hint: "Starts hidden in the system tray",
     settings_save_restart: "✓ Saved, restart to apply",
     settings_saved: "✓ Saved",

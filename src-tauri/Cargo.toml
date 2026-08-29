@@ -1,6 +1,6 @@
 [package]
 name = "lanchat"
-version = "0.1.5"
+version = "0.18.0"
 edition = "2021"
 default-run = "lanchat"
 

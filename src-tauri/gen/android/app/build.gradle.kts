@@ -14,8 +14,8 @@ val tauriProperties = Properties().apply {
 }
 
 // Android 独立版本号：不跟随桌面端的 Tauri/Cargo 版本。
-val lanchatAndroidVersionName = "0.16"
-val lanchatAndroidVersionCode = 1017
+val lanchatAndroidVersionName = "0.18"
+val lanchatAndroidVersionCode = 1018
 
 android {
     compileSdk = 36

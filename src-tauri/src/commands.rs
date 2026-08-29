@@ -2165,7 +2165,7 @@ pub fn ensure_windows_notification_identity() -> Result<(), String> {
     let (key, _) = current_user
         .create_subkey(path)
         .map_err(|error| format!("创建 Windows 通知身份失败: {error}"))?;
-    key.set_value("DisplayName", &"LANChat")
+    key.set_value("DisplayName", &"LQ Chat")
         .map_err(|error| format!("写入 Windows 通知显示名称失败: {error}"))?;
     key.set_value("IconBackgroundColor", &"0")
         .map_err(|error| format!("写入 Windows 通知图标背景失败: {error}"))?;
@@ -2175,20 +2175,21 @@ pub fn ensure_windows_notification_identity() -> Result<(), String> {
         .map_err(|error| format!("设置 Windows 进程通知身份失败: {error}"))?;
 
     let executable = std::env::current_exe()
-        .map_err(|error| format!("读取当前 LANChat 路径失败: {error}"))?;
+        .map_err(|error| format!("读取当前 LQ Chat 路径失败: {error}"))?;
     let working_directory = executable
         .parent()
         .map(PathBuf::from)
-        .ok_or_else(|| "LANChat 路径缺少父目录".to_string())?;
+        .ok_or_else(|| "LQ Chat 路径缺少父目录".to_string())?;
     let app_data = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .ok_or_else(|| "Windows APPDATA 目录不可用".to_string())?;
-    let shortcut = app_data
+    let shortcut_dir = app_data
         .join("Microsoft")
         .join("Windows")
         .join("Start Menu")
-        .join("Programs")
-        .join("LANChat.lnk");
+        .join("Programs");
+    let shortcut = shortcut_dir.join("LQ Chat.lnk");
+    let legacy_shortcut = shortcut_dir.join("LANChat.lnk");
     if let Some(parent) = shortcut.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("创建开始菜单目录失败: {error}"))?;
@@ -2208,7 +2209,7 @@ pub fn ensure_windows_notification_identity() -> Result<(), String> {
             shell_link.SetWorkingDirectory(&HSTRING::from(
                 working_directory.to_string_lossy().as_ref(),
             ))?;
-            shell_link.SetDescription(&HSTRING::from("LANChat 局域网聊天"))?;
+            shell_link.SetDescription(&HSTRING::from("LQ Chat 局域网聊天"))?;
             shell_link.SetIconLocation(
                 &HSTRING::from(executable.to_string_lossy().as_ref()),
                 0,
@@ -2228,7 +2229,10 @@ pub fn ensure_windows_notification_identity() -> Result<(), String> {
     if should_uninitialize {
         unsafe { CoUninitialize() };
     }
-    create_shortcut.map_err(|error| format!("注册 LANChat 开始菜单通知身份失败: {error}"))?;
+    create_shortcut.map_err(|error| format!("注册 LQ Chat 开始菜单通知身份失败: {error}"))?;
+    if legacy_shortcut != shortcut && legacy_shortcut.is_file() {
+        let _ = std::fs::remove_file(legacy_shortcut);
+    }
     Ok(())
 }
 
@@ -2257,7 +2261,7 @@ pub fn windows_notification_for_core_event(
         CoreEvent::FileTransferCompleted(payload) => (payload, "file_completed"),
         CoreEvent::CoreError(status) => {
             return Some((
-                "LANChat 后台接收发生异常".to_string(),
+                "LQ Chat 后台接收发生异常".to_string(),
                 status
                     .last_error_message
                     .clone()

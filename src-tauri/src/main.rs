@@ -224,7 +224,7 @@ fn main() {
             let _tray = TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("LANChat")
+                .tooltip("LQ Chat")
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {

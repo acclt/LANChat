@@ -281,7 +281,7 @@ class LanChatForegroundService : Service() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
                 SERVICE_CHANNEL,
-                "LANChat 后台接收",
+                "LQ Chat 后台接收",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description = "显示当前后台接收服务状态"
@@ -292,7 +292,7 @@ class LanChatForegroundService : Service() {
         notificationManager.createNotificationChannel(
             NotificationChannel(
                 MESSAGE_CHANNEL,
-                "LANChat 消息和文件",
+                "LQ Chat 消息和文件",
                 NotificationManager.IMPORTANCE_HIGH,
             ).apply {
                 description = "新消息、文件完成和服务错误"
@@ -338,7 +338,7 @@ class LanChatForegroundService : Service() {
     private fun buildServiceNotification(text: String): Notification =
         NotificationCompat.Builder(this, SERVICE_CHANNEL)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("LANChat")
+            .setContentTitle("LQ Chat")
             .setContentText(text)
             .setContentIntent(servicePendingIntent())
             .setOngoing(true)
@@ -379,7 +379,7 @@ class LanChatForegroundService : Service() {
     private fun postErrorNotification(message: String) {
         val notification = NotificationCompat.Builder(this, MESSAGE_CHANNEL)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("LANChat 后台接收发生异常")
+            .setContentTitle("LQ Chat 后台接收发生异常")
             .setContentText(message.ifBlank { "点击打开并重试" })
             .setContentIntent(servicePendingIntent())
             .setAutoCancel(true)
