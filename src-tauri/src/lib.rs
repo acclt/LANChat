@@ -102,6 +102,8 @@ pub mod db;
 pub mod models;
 pub mod network;
 pub mod peers;
+#[cfg(windows)]
+pub mod peer_persistence;
 pub mod utils;
 pub mod web_server;
 

@@ -314,12 +314,18 @@ impl CoreRuntime {
         let supervisor_cancellation = cancellation.clone();
         let pool = prepared.pool;
         let peer_manager = prepared.peer_manager;
+        #[cfg(windows)]
+        peer_manager.begin_presence_session();
         let pool_ownership = prepared.pool_ownership;
         let supervisor_pool = pool.clone();
         let supervisor_peer_manager = peer_manager.clone();
         let event_bus = self.event_bus.clone();
         let supervisor = tokio::spawn(async move {
             let mut tasks = JoinSet::<Result<(), String>>::new();
+            #[cfg(windows)]
+            if let Some(store) = supervisor_peer_manager.persistence() {
+                tasks.spawn(store.run(supervisor_cancellation.child_token()));
+            }
             tasks.spawn(crate::network::discovery::run_listener(
                 udp_listener,
                 port,
@@ -501,11 +507,15 @@ impl CoreRuntime {
         let mut forced = force_requested;
         let mut tasks_stopped = running.is_none();
         let mut resources_released = true;
+        let mut profile_save_error: Option<String> = None;
 
         if let Some(runtime) = runtime {
             let cleanup = runtime.block_on(async move {
                 let mut forced_task_abort = false;
                 let mut stopped = true;
+                let profile_error: Option<String> = None;
+                #[cfg(windows)]
+                let mut profile_error = profile_error;
                 if let Some(mut running) = running {
                     running.cancellation.cancel();
                     if tokio::time::timeout(STOP_TIMEOUT, &mut running.supervisor)
@@ -518,6 +528,14 @@ impl CoreRuntime {
                             tokio::time::timeout(Duration::from_secs(1), &mut running.supervisor)
                                 .await
                                 .is_ok();
+                    }
+                    #[cfg(windows)]
+                    if let Some(store) = running.peer_manager.persistence() {
+                        let status = store.status();
+                        if status.pending_profiles > 0 {
+                            profile_error = Some(status.last_error.unwrap_or_else(||
+                                "停止时仍有设备资料尚未保存".into()));
+                        }
                     }
                     if running.pool_ownership == PoolOwnership::Owned
                         && tokio::time::timeout(DATABASE_CLOSE_TIMEOUT, running.pool.close())
@@ -534,9 +552,10 @@ impl CoreRuntime {
                         forced_task_abort = true;
                     }
                 }
-                (stopped, forced_task_abort)
+                (stopped, forced_task_abort, profile_error)
             });
             forced |= !cleanup.0 || cleanup.1;
+            profile_save_error = cleanup.2;
 
             // Runtime destruction is the final boundary for active Axum connection
             // and file-transfer tasks that are children of the Core session.
@@ -579,6 +598,8 @@ impl CoreRuntime {
             )
         } else if let Err(error) = port_result {
             (Some("PORT_RELEASE_INCOMPLETE".to_string()), Some(error))
+        } else if let Some(error) = profile_save_error {
+            (Some("PEER_PROFILE_SAVE_INCOMPLETE".to_string()), Some(error))
         } else {
             (None, None)
         };
@@ -776,5 +797,62 @@ mod tests {
         assert!(forced.ok);
         assert!(forced.forced);
         assert_eq!(forced.status.state, CoreState::Stopped);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_stop_reports_profile_flush_success_or_failure() {
+        for fail_write in [false, true] {
+            let test_dir = std::env::temp_dir()
+                .join(format!("lanchat-windows-stop-test-{}", uuid::Uuid::new_v4()));
+            let setup_runtime = Runtime::new().unwrap();
+            let pool = setup_runtime
+                .block_on(crate::db::init_db_with_path(test_dir))
+                .unwrap();
+            if fail_write {
+                setup_runtime.block_on(sqlx::query(
+                    "CREATE TRIGGER reject_profile BEFORE INSERT ON users BEGIN SELECT RAISE(ABORT, 'test write failure'); END"
+                ).execute(&pool)).unwrap();
+            }
+            let manager = Arc::new(PeerManager::new());
+            manager.enable_windows_persistence(pool.clone());
+            manager.observe_discovery("peer".into(), "latest name".into(), "127.0.0.1:12345".into(), 4096);
+            let store = manager.persistence().unwrap();
+            let runtime = Runtime::new().unwrap();
+            let cancellation = CancellationToken::new();
+            let worker_cancellation = cancellation.child_token();
+            let supervisor = runtime.spawn(async move {
+                let _ = store.run(worker_cancellation).await;
+            });
+            let core = Box::leak(Box::new(CoreRuntime::new()));
+            {
+                let mut inner = core.inner.lock().unwrap();
+                inner.status.state = CoreState::Running;
+                inner.runtime = Some(runtime);
+                inner.running = Some(RunningCore {
+                    pool: pool.clone(),
+                    peer_manager: manager.clone(),
+                    cancellation,
+                    supervisor,
+                    pool_ownership: PoolOwnership::Shared,
+                });
+            }
+            let report = core.stop_report();
+            assert_eq!(report.ok, !fail_write);
+            assert!(report.tasks_stopped && report.ports_released && report.resources_released);
+            assert!(core.shared_resources().is_none());
+            if fail_write {
+                assert_eq!(report.error_code.as_deref(), Some("PEER_PROFILE_SAVE_INCOMPLETE"));
+                assert_eq!(manager.persistence().unwrap().status().pending_profiles, 1);
+            } else {
+                assert_eq!(manager.persistence().unwrap().status().pending_profiles, 0);
+            }
+            let count: i64 = setup_runtime.block_on(
+                sqlx::query_scalar("SELECT count(*) FROM users WHERE id='peer'").fetch_one(&pool)
+            ).unwrap();
+            assert_eq!(count, if fail_write { 0 } else { 1 });
+            assert!(manager.observe_discovery("later".into(), "ignored".into(), "127.0.0.1:12345".into(), 0).is_none());
+            setup_runtime.block_on(pool.close());
+        }
     }
 }

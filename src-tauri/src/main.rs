@@ -285,6 +285,8 @@ fn main() {
                 }
                 Ok::<(), ()>(())
             });
+            #[cfg(windows)]
+            peer_manager.enable_windows_persistence(pool.clone());
             handle.manage(lanchat::commands::PeerState {
                 manager: peer_manager.clone(),
             });
@@ -330,6 +332,15 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            #[cfg(windows)]
+            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                let report = lanchat::core_runtime::CoreRuntime::global().stop_report();
+                if !report.ok {
+                    eprintln!("[Shutdown] {}", report.error_message.as_deref().unwrap_or("核心停止失败"));
+                }
+            }
+        });
 }

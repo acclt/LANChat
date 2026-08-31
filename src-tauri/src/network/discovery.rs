@@ -164,14 +164,19 @@ pub async fn run_listener(
         let peer_port = parts[4];
         let available_memory_mb = parts[5].parse().unwrap_or(0);
         let peer_addr = format!("{}:{peer_port}", address.ip());
-        let is_new_or_reconnected = peer_manager.add_or_update_with_memory(
+        let Some(is_new_or_reconnected) = peer_manager.observe_discovery(
             peer_id.clone(),
             name.clone(),
             peer_addr.clone(),
             available_memory_mb,
-        );
+        ) else { continue; };
 
-        crate::db::save_or_update_user(
+        #[cfg(not(windows))]
+        let persist_heartbeat = true;
+        #[cfg(windows)]
+        let persist_heartbeat = peer_manager.persistence().is_none();
+        if persist_heartbeat {
+            crate::db::save_or_update_user(
             &pool,
             peer_id.clone(),
             name.clone(),
@@ -180,7 +185,8 @@ pub async fn run_listener(
             available_memory_mb,
         )
         .await
-        .map_err(|error| format!("保存发现设备失败: {error}"))?;
+            .map_err(|error| format!("保存发现设备失败: {error}"))?;
+        }
 
         if is_new_or_reconnected {
             let resend_pool = pool.clone();

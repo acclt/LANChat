@@ -1918,13 +1918,8 @@ pub async fn delete_user_complete(
 ) -> Result<(), String> {
     let my_id = crate::db::get_user_id(&state.pool).await?;
 
-    // 1. 删除数据库记录
-    crate::db::delete_user_and_history(&state.pool, &my_id, &peer_id).await?;
-
-    // 2. 同步删除内存中的用户状态，否则 apiGetPeers 还会返回它
-    peer_state.active_manager().remove_peer(&peer_id);
-
-    Ok(())
+    peer_state.active_manager()
+        .delete_user_and_history(&state.pool, &my_id, &peer_id).await
 }
 
 // ── 自定义 IP 命令 ──
@@ -1988,8 +1983,19 @@ pub async fn set_notifications_enabled(
 
 #[tauri::command]
 pub fn get_background_receive_state() -> serde_json::Value {
-    serde_json::to_value(crate::core_runtime::CoreRuntime::global().status())
-        .unwrap_or_else(|_| serde_json::json!({"state": "ERROR"}))
+    let value = serde_json::to_value(crate::core_runtime::CoreRuntime::global().status())
+        .unwrap_or_else(|_| serde_json::json!({"state": "ERROR"}));
+    #[cfg(windows)]
+    let value = {
+        let mut value = value;
+        if let Some((_, manager)) = crate::core_runtime::CoreRuntime::global().shared_resources() {
+            if let Some(store) = manager.persistence() {
+                value["peer_persistence"] = serde_json::json!(store.status());
+            }
+        }
+        value
+    };
+    value
 }
 
 #[cfg(target_os = "android")]

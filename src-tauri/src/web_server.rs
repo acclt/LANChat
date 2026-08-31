@@ -2833,11 +2833,8 @@ async fn delete_user_http(
         }
     };
 
-    match crate::db::delete_user_and_history(&state.pool, &my_id, &payload.peer_id).await {
+    match state.peer_manager.delete_user_and_history(&state.pool, &my_id, &payload.peer_id).await {
         Ok(_) => {
-            // 同步删除 Web Server 内存中的用户状态，防止轮询再次下发
-            state.peer_manager.remove_peer(&payload.peer_id);
-
             (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
         }
         Err(e) => (
