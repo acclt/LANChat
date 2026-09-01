@@ -276,6 +276,9 @@ pub async fn init_db_with_path(app_dir: PathBuf) -> Result<Pool<Sqlite>, sqlx::E
     .execute(&pool)
     .await?;
 
+    // Notification history is a separate seven-day store and never participates in chat resend.
+    crate::notification_history::initialize(&pool).await?;
+
     // 初始化配置 (如果没有用户名则生成一个)
     let user_exists = sqlx::query("SELECT value FROM settings WHERE key = 'username'")
         .fetch_optional(&pool)

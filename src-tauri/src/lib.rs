@@ -101,9 +101,16 @@ pub mod core_runtime;
 pub mod db;
 pub mod models;
 pub mod network;
-pub mod peers;
+#[cfg(target_os = "android")]
+pub mod notification_android;
+pub mod notification_history;
+pub mod notification_icon;
+pub mod notification_sync;
+#[cfg(all(windows, feature = "desktop"))]
+pub mod notification_windows;
 #[cfg(windows)]
 pub mod peer_persistence;
+pub mod peers;
 pub mod utils;
 pub mod web_server;
 
@@ -125,6 +132,12 @@ pub fn run() {
 
     builder
         .invoke_handler(tauri::generate_handler![
+            notification_sync::notification_settings,
+            notification_sync::notification_records,
+            notification_sync::notification_record,
+            notification_sync::notification_pending_activation,
+            notification_sync::notification_action,
+            notification_sync::notification_test,
             commands::close_android_fd,
             commands::get_my_name,
             commands::get_my_id,

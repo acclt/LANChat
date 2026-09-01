@@ -169,7 +169,9 @@ pub async fn run_listener(
             name.clone(),
             peer_addr.clone(),
             available_memory_mb,
-        ) else { continue; };
+        ) else {
+            continue;
+        };
 
         #[cfg(not(windows))]
         let persist_heartbeat = true;
@@ -177,14 +179,14 @@ pub async fn run_listener(
         let persist_heartbeat = peer_manager.persistence().is_none();
         if persist_heartbeat {
             crate::db::save_or_update_user(
-            &pool,
-            peer_id.clone(),
-            name.clone(),
-            peer_addr.clone(),
-            false,
-            available_memory_mb,
-        )
-        .await
+                &pool,
+                peer_id.clone(),
+                name.clone(),
+                peer_addr.clone(),
+                false,
+                available_memory_mb,
+            )
+            .await
             .map_err(|error| format!("保存发现设备失败: {error}"))?;
         }
 

@@ -1,0 +1,556 @@
+/* Scoped additions: no changes to core chat/file interactions or other desktops. */
+.notification-enabled {
+  --ns-accent: #8d55e5;
+  --ns-ink: #172033;
+  --ns-muted: #737a8b;
+  --ns-line: #e9e5f1;
+}
+.notification-enabled [hidden] {
+  display: none !important;
+}
+/* Keep the listening status after the added cards instead of floating over them. */
+body.android-app.notification-enabled .android-listening {
+  position: static;
+  flex-shrink: 0;
+  margin: 0 20px calc(16px + env(safe-area-inset-bottom));
+  line-height: 1.5;
+}
+.ns-chat-group,
+.ns-group {
+  margin: 0 20px 16px;
+  background: #fff;
+  border: 1px solid var(--ns-line);
+  border-radius: 17px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.ns-chat-group > summary {
+  padding: 15px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ns-ink);
+}
+body.notification-enabled #user-list {
+  padding: 0;
+}
+.ns-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  gap: 8px;
+  border-bottom: 1px solid var(--ns-line);
+}
+.ns-button,
+.ns-text-button,
+.ns-device,
+.ns-disclosure {
+  font: inherit;
+  cursor: pointer;
+  box-shadow: none;
+  transform: none;
+}
+.ns-button {
+  border: 1px solid var(--ns-line);
+  color: var(--ns-accent);
+  background: #f7f3fe;
+  border-radius: 10px;
+  padding: 10px 15px;
+}
+.ns-text-button,
+.ns-disclosure {
+  padding: 6px 2px;
+  background: transparent;
+  border: 0;
+  color: var(--ns-accent);
+  border-radius: 5px;
+}
+.ns-disclosure {
+  color: var(--ns-ink);
+  font-size: 14px;
+  font-weight: 650;
+  text-align: left;
+}
+.ns-device {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 14px;
+  background: #fff;
+  color: var(--ns-ink);
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--ns-line);
+  text-align: left;
+}
+.ns-device:last-child {
+  border-bottom: 0;
+}
+.ns-device:hover {
+  background: #faf8ff;
+}
+.ns-device.selected {
+  background: #f0e8fb;
+  box-shadow: inset 3px 0 var(--ns-accent);
+}
+.ns-device-copy {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.ns-name {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ns-address {
+  color: var(--ns-muted);
+  font-size: 11px;
+  user-select: text;
+}
+.ns-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 4px 7px;
+  border-radius: 20px;
+  background: #f0f0f4;
+  color: #7d8290;
+}
+.ns-badge.online {
+  background: #e8f8f2;
+  color: #138d67;
+}
+.ns-empty-small,
+.ns-hint {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ns-muted);
+  margin: 14px;
+}
+.ns-welcome {
+  display: none;
+}
+.ns-detail {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #f8f7fc;
+  position: relative;
+  overflow: hidden;
+}
+.ns-detail-header {
+  padding: 20px 24px;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid var(--ns-line);
+  flex-shrink: 0;
+}
+.ns-detail-header > div {
+  flex: 1;
+  min-width: 0;
+}
+.ns-detail-title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ns-ink);
+}
+.ns-detail-status {
+  font-size: 12px;
+  margin: 0;
+  color: var(--ns-muted);
+}
+.ns-cards {
+  padding: 24px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  overflow-anchor: none;
+}
+.ns-card {
+  max-width: 900px;
+  margin: 4px auto 26px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  color: var(--ns-ink);
+  user-select: text;
+}
+.ns-app-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding-top: 3px;
+  text-align: center;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ns-muted);
+}
+.ns-app {
+  color: var(--ns-ink);
+  font-size: 12px;
+  font-weight: 500;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.ns-app-icon { width: 48px; height: 48px; border-radius: 13px; overflow: hidden; display: grid; place-items: center; background: #eee7fa; color: var(--ns-accent); flex-shrink: 0; }
+.ns-app-icon img { width: 100%; height: 100%; object-fit: contain; }
+.ns-icon-fallback { font-size: 22px; font-weight: 500; }
+.ns-time { font-size: 11px; color: var(--ns-muted); white-space: nowrap; }
+.ns-notification-copy { min-width: 0; }
+.ns-content-box { padding: 15px 18px; min-height: 90px; background: #fff; border: 1px solid var(--ns-line); border-radius: 4px 16px 16px 16px; box-shadow: 0 3px 9px #2f1a6310; }
+.ns-title {
+  font-size: 16px;
+  margin: 0 2px 9px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ns-body {
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ns-card.expanded .ns-body {
+  -webkit-line-clamp: unset;
+  display: block;
+}
+.ns-result {
+  display: block;
+  color: var(--ns-muted);
+  margin-top: 8px;
+}
+.ns-result:empty { display: none; }
+.ns-more {
+  font-size: 12px;
+}
+.ns-footer {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 12px;
+  text-align: center;
+  color: var(--ns-muted);
+  border-top: 1px solid var(--ns-line);
+}
+.ns-new {
+  position: absolute;
+  top: 88px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 4px 12px #44336618;
+}
+.ns-empty {
+  padding: 50px 20px;
+  text-align: center;
+  color: var(--ns-muted);
+  font-size: 14px;
+  line-height: 1.8;
+}
+.ns-dialog {
+  width: min(580px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  border: 1px solid var(--ns-line);
+  border-radius: 20px;
+  padding: 0;
+  color: var(--ns-ink);
+  background: #fff;
+  box-shadow: 0 20px 80px #30204d30;
+}
+.ns-dialog::backdrop {
+  background: #21183866;
+}
+.ns-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 1;
+  border-bottom: 1px solid var(--ns-line);
+}
+.ns-dialog-header h2 {
+  font-size: 18px;
+  margin: 0;
+}
+.ns-settings-content {
+  padding: 8px 24px 14px;
+  display: grid;
+  gap: 10px;
+}
+.ns-settings-content h3 {
+  margin: 18px 0 0;
+  font-size: 16px;
+}
+.ns-settings-content h4 {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--ns-muted);
+}
+.ns-check-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  min-height: 48px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ns-line);
+  font-size: 14px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.ns-check-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ns-accent);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.ns-check-row input:disabled {
+  cursor: wait;
+}
+.ns-save-status {
+  font-size: 12px;
+  padding: 0 24px 14px;
+  min-height: 18px;
+  color: var(--ns-accent);
+}
+.ns-target-options {
+  max-height: 240px;
+  overflow: auto;
+  padding: 0 4px;
+}
+.ns-app-options {
+  padding: 0 24px 20px;
+}
+.ns-app-search {
+  box-sizing: border-box;
+  width: calc(100% - 48px);
+  margin: 14px 24px;
+  padding: 10px;
+  border: 1px solid var(--ns-line);
+  border-radius: 10px;
+  color: var(--ns-ink);
+  background: #faf9fd;
+}
+.ns-settings-content .ns-hint {
+  margin: 0;
+}
+.notification-enabled
+  :is(
+    .ns-button,
+    .ns-text-button,
+    .ns-disclosure,
+    .ns-device,
+    input,
+    summary
+  ):focus-visible {
+  outline: 2px solid var(--ns-accent);
+  outline-offset: -2px;
+}
+body.windows-app .main-content,
+body.windows-app.chat-open .main-content {
+  padding: 0;
+  display: flex;
+  gap: 0;
+}
+body.windows-app .user-list-container,
+body.windows-app.chat-open .user-list-container {
+  flex: 0 0 300px;
+  width: 300px;
+  max-width: 300px;
+  margin: 0;
+  border: 0;
+  border-right: 1px solid var(--ns-line);
+  border-radius: 0;
+  overflow: auto;
+}
+body.windows-app .android-home {
+  padding: 20px 16px 0;
+}
+.windows-app .android-brand-row {
+  margin-bottom: 18px;
+}
+.windows-app .android-brand-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  font-size: 23px;
+}
+.windows-app .android-brand-copy strong {
+  font-size: 21px;
+}
+.windows-app .android-device-card {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+}
+.windows-app .android-card-title {
+  font-size: 12px;
+  padding-bottom: 8px;
+}
+.windows-app .android-info-row {
+  padding: 10px 0;
+  gap: 6px;
+}
+.windows-app .android-info-row strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.windows-app .android-info-row > span {
+  font-size: 11px;
+}
+.windows-app .android-add-device {
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  border-radius: 13px;
+}
+.windows-app .android-device-section {
+  padding: 0 0 12px;
+}
+.windows-app .android-device-section strong {
+  font-size: 17px;
+}
+.windows-app .android-device-section span {
+  font-size: 11px;
+}
+.windows-app .ns-chat-group,
+.windows-app .ns-group {
+  margin: 0 12px 12px;
+}
+.windows-app #user-list li {
+  padding: 13px 14px;
+}
+.windows-app #user-list .user-name {
+  font-size: 14px;
+}
+.windows-app .android-listening {
+  font-size: 11px;
+}
+.windows-app .chat-container {
+  flex: 1;
+  min-width: 0;
+}
+.windows-app .ns-welcome {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px;
+  background: radial-gradient(ellipse at 50% 40%, #f0e8fb, #faf9fd 65%);
+}
+.windows-app .ns-welcome h2 {
+  font-size: 26px;
+  letter-spacing: -0.5px;
+  color: var(--ns-ink);
+  margin: 14px 0;
+}
+.ns-welcome-mark {
+  display: grid;
+  place-items: center;
+  width: 70px;
+  height: 70px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #b887f4, #7b41db);
+  font-size: 36px;
+  color: white;
+  box-shadow: 0 10px 30px #8d55e526;
+}
+.ns-eyebrow {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--ns-accent);
+  margin: 24px 0 0;
+}
+.ns-welcome-hint {
+  max-width: 350px;
+  font-size: 14px;
+  color: var(--ns-muted);
+  line-height: 1.8;
+  margin: 0 0 24px;
+}
+.windows-app.chat-open .ns-welcome,
+.windows-app.notification-open .ns-welcome {
+  display: none;
+}
+@media (max-width: 959px) {
+  body.windows-app .user-list-container,
+  body.windows-app.chat-open .user-list-container {
+    flex: 1;
+    width: 100%;
+    max-width: none;
+    border: 0;
+  }
+  body.windows-app .ns-welcome {
+    display: none;
+  }
+  body.windows-app.chat-open .user-list-container,
+  body.windows-app.notification-open .user-list-container {
+    display: none;
+  }
+  .ns-detail-header {
+    padding: 16px;
+    gap: 12px;
+  }
+  .ns-cards {
+    padding: 16px;
+  }
+  .ns-card {
+    padding: 0;
+  }
+}
+@media (max-width: 380px) {
+  .ns-card { grid-template-columns: 54px minmax(0,1fr); gap: 10px; }
+  .ns-content-box { padding: 13px; }
+  .ns-cards { padding: 14px 10px; }
+}
+body.android-app.notification-open .user-list-container {
+  display: none;
+}
+body.android-app.notification-open .ns-detail {
+  width: 100%;
+  height: 100%;
+}
+body.android-app .ns-detail-header {
+  padding-top: max(16px, env(safe-area-inset-top));
+}
+body.android-app .ns-detail-title {
+  font-size: 16px;
+}
+body.android-app .ns-footer {
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+body.android-app .ns-dialog {
+  max-height: calc(100dvh - 80px);
+}
+
+body.windows-app .android-info-row {
+  min-height: 38px;
+  box-sizing: border-box;
+  padding: 8px 0;
+}
+body.windows-app .android-device-card {
+  box-shadow: none;
+}

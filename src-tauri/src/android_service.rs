@@ -167,6 +167,7 @@ mod android {
                     let Some(event) = event else {
                         continue;
                     };
+                    crate::notification_sync::on_state_event(&event);
                     let notifications_enabled = match CoreRuntime::global().shared_resources() {
                         Some((pool, _)) => crate::db::get_notifications_enabled(&pool).await,
                         None => false,

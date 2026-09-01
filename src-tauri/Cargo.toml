@@ -1,6 +1,6 @@
 [package]
 name = "lanchat"
-version = "0.18.0"
+version = "0.2.0"
 edition = "2021"
 default-run = "lanchat"
 
@@ -21,6 +21,7 @@ required-features = ["web"]
 
 [features]
 default = ["desktop"]
+custom-protocol = ["tauri/custom-protocol"]
 desktop = ["tauri", "tauri-plugin-shell", "tauri-plugin-fs", "tauri-plugin-dialog", "tauri-plugin-sql", "tauri-plugin-log", "tauri-plugin-single-instance", "tauri-plugin-opener", "tauri-plugin-notification", "tauri-plugin-autostart", "tauri-build", "sysinfo", "clipboard-rs", "wl-clipboard-rs"]
 web = ["sysinfo"]
 
@@ -55,6 +56,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 uuid = { version = "1.0", features = ["v4"] }
 rand = "0.8"
 mime_guess = "2.0.5"
+base64 = "0.22"
+png = "0.17"
+sha2 = "0.10"
 socket2 = { version = "0.5", features = ["all"] }
 directories = "5.0"
 dirs = "5.0"
@@ -74,6 +78,8 @@ tauri-plugin-autostart = { version = "2.5.1", optional = true }
 tauri-winrt-notification = "0.7.2"
 winreg = "0.55"
 windows = { version = "0.61.3", features = [
+    "Data_Xml_Dom",
+    "UI_Notifications",
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",

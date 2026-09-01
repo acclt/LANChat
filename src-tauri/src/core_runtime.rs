@@ -131,6 +131,19 @@ impl CoreRuntime {
         }
     }
 
+    /// Read-only access to the current session; does not start or extend its lifetime.
+    pub fn notification_session(&self) -> Option<(tokio::runtime::Handle, CancellationToken, u64)> {
+        let inner = self.inner.lock().ok()?;
+        if inner.status.state != CoreState::Running {
+            return None;
+        }
+        Some((
+            inner.runtime.as_ref()?.handle().clone(),
+            inner.running.as_ref()?.cancellation.child_token(),
+            inner.status.generation,
+        ))
+    }
+
     pub fn shared_resources(&self) -> Option<(Pool<Sqlite>, Arc<PeerManager>)> {
         let inner = self.inner.lock().expect("core mutex poisoned");
         inner
@@ -533,8 +546,11 @@ impl CoreRuntime {
                     if let Some(store) = running.peer_manager.persistence() {
                         let status = store.status();
                         if status.pending_profiles > 0 {
-                            profile_error = Some(status.last_error.unwrap_or_else(||
-                                "停止时仍有设备资料尚未保存".into()));
+                            profile_error = Some(
+                                status
+                                    .last_error
+                                    .unwrap_or_else(|| "停止时仍有设备资料尚未保存".into()),
+                            );
                         }
                     }
                     if running.pool_ownership == PoolOwnership::Owned
@@ -599,7 +615,10 @@ impl CoreRuntime {
         } else if let Err(error) = port_result {
             (Some("PORT_RELEASE_INCOMPLETE".to_string()), Some(error))
         } else if let Some(error) = profile_save_error {
-            (Some("PEER_PROFILE_SAVE_INCOMPLETE".to_string()), Some(error))
+            (
+                Some("PEER_PROFILE_SAVE_INCOMPLETE".to_string()),
+                Some(error),
+            )
         } else {
             (None, None)
         };
@@ -803,8 +822,10 @@ mod tests {
     #[test]
     fn windows_stop_reports_profile_flush_success_or_failure() {
         for fail_write in [false, true] {
-            let test_dir = std::env::temp_dir()
-                .join(format!("lanchat-windows-stop-test-{}", uuid::Uuid::new_v4()));
+            let test_dir = std::env::temp_dir().join(format!(
+                "lanchat-windows-stop-test-{}",
+                uuid::Uuid::new_v4()
+            ));
             let setup_runtime = Runtime::new().unwrap();
             let pool = setup_runtime
                 .block_on(crate::db::init_db_with_path(test_dir))
@@ -816,7 +837,12 @@ mod tests {
             }
             let manager = Arc::new(PeerManager::new());
             manager.enable_windows_persistence(pool.clone());
-            manager.observe_discovery("peer".into(), "latest name".into(), "127.0.0.1:12345".into(), 4096);
+            manager.observe_discovery(
+                "peer".into(),
+                "latest name".into(),
+                "127.0.0.1:12345".into(),
+                4096,
+            );
             let store = manager.persistence().unwrap();
             let runtime = Runtime::new().unwrap();
             let cancellation = CancellationToken::new();
@@ -842,16 +868,29 @@ mod tests {
             assert!(report.tasks_stopped && report.ports_released && report.resources_released);
             assert!(core.shared_resources().is_none());
             if fail_write {
-                assert_eq!(report.error_code.as_deref(), Some("PEER_PROFILE_SAVE_INCOMPLETE"));
+                assert_eq!(
+                    report.error_code.as_deref(),
+                    Some("PEER_PROFILE_SAVE_INCOMPLETE")
+                );
                 assert_eq!(manager.persistence().unwrap().status().pending_profiles, 1);
             } else {
                 assert_eq!(manager.persistence().unwrap().status().pending_profiles, 0);
             }
-            let count: i64 = setup_runtime.block_on(
-                sqlx::query_scalar("SELECT count(*) FROM users WHERE id='peer'").fetch_one(&pool)
-            ).unwrap();
+            let count: i64 = setup_runtime
+                .block_on(
+                    sqlx::query_scalar("SELECT count(*) FROM users WHERE id='peer'")
+                        .fetch_one(&pool),
+                )
+                .unwrap();
             assert_eq!(count, if fail_write { 0 } else { 1 });
-            assert!(manager.observe_discovery("later".into(), "ignored".into(), "127.0.0.1:12345".into(), 0).is_none());
+            assert!(manager
+                .observe_discovery(
+                    "later".into(),
+                    "ignored".into(),
+                    "127.0.0.1:12345".into(),
+                    0
+                )
+                .is_none());
             setup_runtime.block_on(pool.close());
         }
     }

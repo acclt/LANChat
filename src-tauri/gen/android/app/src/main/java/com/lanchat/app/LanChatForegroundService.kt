@@ -118,6 +118,8 @@ class LanChatForegroundService : Service() {
     }
 
     private fun rejectUnexpectedStart(startId: Int, reason: String) {
+        notificationSessionActive = false
+        SyncedNotificationPublisher.clear()
         invalidatePersistedSession(this)
         acceptedSessionToken = null
         jniReadyForSession = false
@@ -144,6 +146,8 @@ class LanChatForegroundService : Service() {
 
     private fun applyCoreResult(response: JSONObject) {
         val status = response.optJSONObject("status")
+        notificationSessionActive = status?.optString("state") == "RUNNING" && jniReadyForSession && !exiting.get()
+        if (!notificationSessionActive) SyncedNotificationPublisher.clear()
         when (status?.optString("state")) {
             "RUNNING" -> {
                 updateServiceNotification("已准备好发送和接收消息与文件")
@@ -169,6 +173,7 @@ class LanChatForegroundService : Service() {
                 val type = event.getString("type")
                 val payload = event.optJSONObject("payload") ?: JSONObject()
                 when (type) {
+                    "notification_received" -> SyncedNotificationPublisher.receive(this, payload)
                     "core_state_changed", "core_error" -> applyCoreResult(
                         JSONObject().put("ok", type != "core_error").put("status", payload)
                     )
@@ -204,6 +209,8 @@ class LanChatForegroundService : Service() {
     }
 
     private fun beginExit() {
+        notificationSessionActive = false
+        SyncedNotificationPublisher.clear()
         invalidatePersistedSession(this)
         if (!exiting.compareAndSet(false, true)) return
         coreStartRequested.set(false)
@@ -488,6 +495,8 @@ class LanChatForegroundService : Service() {
         private const val SESSION_TOKEN = "token"
         @Volatile
         private var nativeReadyInProcess = false
+        @Volatile private var notificationSessionActive = false
+        fun notificationSessionReady(): Boolean = nativeReadyInProcess && notificationSessionActive
         private const val TAG = "LanChatService"
         private const val SERVICE_CHANNEL = "lanchat_background_service"
         // Android 渠道的重要性一旦创建就无法由应用升级。使用新 ID 将旧版

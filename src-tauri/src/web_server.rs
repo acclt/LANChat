@@ -908,9 +908,18 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
 
     // 订阅广播频道并转发给此 WebSocket 客户端
     let mut broadcast_rx: broadcast::Receiver<String> = state.ws_broadcast.subscribe();
+    let (direct_tx, mut direct_rx) = tokio::sync::mpsc::channel::<String>(1);
     let forward_handle = tokio::spawn(async move {
         loop {
-            match broadcast_rx.recv().await {
+            let broadcast_message = tokio::select! {
+                direct = direct_rx.recv() => {
+                    let Some(direct) = direct else { break; };
+                    if sender.send(Message::Text(direct)).await.is_err() { break; }
+                    continue;
+                }
+                message = broadcast_rx.recv() => message,
+            };
+            match broadcast_message {
                 Ok(msg) => {
                     if sender.send(Message::Text(msg.into())).await.is_err() {
                         break;
@@ -928,10 +937,27 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
     while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Text(text)) => {
-                println!("[WebSocket] 收到文本消息: {}", text);
+                // Do not log raw frames: notification bodies may contain private data.
 
                 match serde_json::from_str::<serde_json::Value>(&text) {
                     Ok(val) => {
+                        let notification_kind = val.get("msg_type").and_then(|v| v.as_str());
+                        if notification_kind == Some("notification") {
+                            let result = crate::notification_sync::receive(
+                                val,
+                                text.len(),
+                                &state.pool,
+                                &state.peer_manager,
+                            )
+                            .await;
+                            if direct_tx.send(result.to_string()).await.is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                        if notification_kind == Some("notification_result") {
+                            continue;
+                        }
                         let stream_id = val
                             .get("stream_id")
                             .and_then(|v| v.as_str())
@@ -2027,12 +2053,8 @@ async fn upload_file_http(
                 );
 
                 let (stored_path, stored_status, save_error) =
-                    resolve_received_file_destination(
-                        &state.pool,
-                        &final_path,
-                        &final_file_name,
-                    )
-                    .await;
+                    resolve_received_file_destination(&state.pool, &final_path, &final_file_name)
+                        .await;
                 let final_path_string = final_path.to_string_lossy().into_owned();
 
                 match crate::db::update_file_status_by_path(
@@ -2252,13 +2274,9 @@ async fn accept_file_http(
         resolve_received_file_destination(&state.pool, &final_path, &file_name).await;
 
     // 更新数据库状态
-    if let Err(e) = crate::db::update_file_status_by_path(
-        &state.pool,
-        &temp_path,
-        &stored_path,
-        &stored_status,
-    )
-    .await
+    if let Err(e) =
+        crate::db::update_file_status_by_path(&state.pool, &temp_path, &stored_path, &stored_status)
+            .await
     {
         println!("[Web Server] ✗ 更新数据库失败: {}", e);
         return (
@@ -2302,6 +2320,32 @@ async fn download_file_http(
     .bind(&file_id)
     .fetch_optional(&state.pool)
     .await;
+
+    // A received SAF document is already identified by the existing message lookup.
+    // Read only that stored URI through the existing permission-aware Android bridge;
+    // never treat a content URI as a filesystem path or accept an arbitrary URI here.
+    #[cfg(target_os = "android")]
+    if let Ok(Some(uri)) = &file_path_result {
+        if uri.starts_with("content://") {
+            let file = match crate::android_fd::AndroidFile::from_content_uri(uri) {
+                Ok(file) => tokio::fs::File::from_std(file.into_file()),
+                Err(_) => {
+                    return Response::builder()
+                        .status(StatusCode::FORBIDDEN)
+                        .body(Body::from("文件不可访问或目录权限已失效"))
+                        .unwrap();
+                }
+            };
+            return Response::builder()
+                .header(
+                    header::CONTENT_TYPE,
+                    mime_guess::from_path(uri).first_or_octet_stream().as_ref(),
+                )
+                .header(header::CONTENT_DISPOSITION, "inline")
+                .body(Body::from_stream(tokio_util::io::ReaderStream::new(file)))
+                .unwrap();
+        }
+    }
 
     let file_path = match file_path_result {
         Ok(Some(path)) => {
@@ -2833,10 +2877,12 @@ async fn delete_user_http(
         }
     };
 
-    match state.peer_manager.delete_user_and_history(&state.pool, &my_id, &payload.peer_id).await {
-        Ok(_) => {
-            (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
-        }
+    match state
+        .peer_manager
+        .delete_user_and_history(&state.pool, &my_id, &payload.peer_id)
+        .await
+    {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),

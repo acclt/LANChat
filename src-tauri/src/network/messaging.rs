@@ -5,6 +5,51 @@ use tokio_util::sync::CancellationToken;
 
 use crate::core_events::{CoreEvent, CoreEventBus};
 
+/// One request to the existing endpoint. The caller owns the total deadline.
+pub async fn send_notification_once(
+    addr: &str,
+    notification: &crate::notification_sync::Notification,
+) -> Result<(), String> {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws"))
+        .await
+        .map_err(|_| "connect_failed")?;
+    socket
+        .send(Message::Text(
+            serde_json::to_string(notification).map_err(|_| "invalid")?,
+        ))
+        .await
+        .map_err(|_| "send_failed")?;
+    while let Some(frame) = socket.next().await {
+        match frame.map_err(|_| "receive_failed")? {
+            Message::Text(text) if text.len() <= crate::notification_sync::MAX_FRAME => {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if value["msg_type"] == "notification_result"
+                        && value["event_id"] == notification.event_id
+                        && value["target_device_id"] == notification.target_device_id
+                    {
+                        return if value["status"] == "success" {
+                            Ok(())
+                        } else {
+                            Err("rejected".into())
+                        };
+                    }
+                }
+            }
+            Message::Ping(payload) => {
+                socket
+                    .send(Message::Pong(payload))
+                    .await
+                    .map_err(|_| "send_failed")?;
+            }
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
+    Err("disconnected".into())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextMessage {
     pub msg_type: String,  // "text"

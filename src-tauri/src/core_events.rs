@@ -40,6 +40,8 @@ pub enum CoreEvent {
     CoreStateChanged(CoreStatus),
     PeerDiscovered(serde_json::Value),
     MessageReceived(serde_json::Value),
+    NotificationReceived(serde_json::Value),
+    NotificationRecordsChanged,
     FileOfferReceived(serde_json::Value),
     FileTransferStarted(serde_json::Value),
     FileTransferProgress(serde_json::Value),
@@ -51,6 +53,10 @@ pub enum CoreEvent {
 impl CoreEvent {
     pub fn ui_event(&self) -> Option<(&'static str, serde_json::Value)> {
         match self {
+            Self::NotificationReceived(_) => None,
+            Self::NotificationRecordsChanged => {
+                Some(("notification-records-changed", serde_json::Value::Null))
+            }
             Self::CoreStateChanged(status) | Self::CoreError(status) => {
                 serde_json::to_value(status)
                     .ok()

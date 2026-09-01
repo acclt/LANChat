@@ -14,19 +14,25 @@ val tauriProperties = Properties().apply {
 }
 
 // Android 独立版本号：不跟随桌面端的 Tauri/Cargo 版本。
-val lanchatAndroidVersionName = "0.18"
-val lanchatAndroidVersionCode = 1018
+val lanchatAndroidVersionName = "0.2"
+val lanchatAndroidVersionCode = 1024
+// Opt-in device contract tests must not replace the user's installed application or its data.
+val lanchatAcceptanceBuild = providers.gradleProperty("lanchatAcceptance").orNull == "true"
 
 android {
     compileSdk = 36
     namespace = "com.lanchat.app"
+    if (lanchatAcceptanceBuild) {
+        sourceSets.getByName("debug").res.srcDir("src/acceptance/res")
+    }
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "true"
-        applicationId = "com.lanchat.app"
+        applicationId = if (lanchatAcceptanceBuild) "com.lanchat.app.acceptance" else "com.lanchat.app"
         minSdk = 24
         targetSdk = 36
         versionCode = lanchatAndroidVersionCode
         versionName = lanchatAndroidVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
         getByName("debug") {

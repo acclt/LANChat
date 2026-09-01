@@ -25,7 +25,8 @@ async fn main() {
     } else {
         // 读配置文件的 db_path
         let cfg = lanchat::config_file::read_config();
-        cfg.db_path.map(|p| lanchat::config_file::resolve_db_dir(&p))
+        cfg.db_path
+            .map(|p| lanchat::config_file::resolve_db_dir(&p))
     };
 
     // Step 3: 打开数据库
@@ -47,7 +48,9 @@ async fn main() {
     println!("[Server Main] 我的 ID: {}", my_id);
 
     // Step 4: 若 --port 没传，读配置文件取 port
-    let port: u16 = args.port.unwrap_or_else(|| lanchat::config_file::get_port_from_config().unwrap_or(8888));
+    let port: u16 = args
+        .port
+        .unwrap_or_else(|| lanchat::config_file::get_port_from_config().unwrap_or(8888));
 
     // 创建全局用户管理器
     let peer_manager = Arc::new(PeerManager::new());
@@ -67,8 +70,14 @@ async fn main() {
     let server_cancellation = cancellation.child_token();
     tokio::spawn(async move {
         let _ = lanchat::web_server::start_server(
-            port, port, pool_clone, peer_manager_clone, server_bus, server_cancellation,
-        ).await;
+            port,
+            port,
+            pool_clone,
+            peer_manager_clone,
+            server_bus,
+            server_cancellation,
+        )
+        .await;
     });
 
     // 2. 启动 UDP 监听
@@ -97,8 +106,12 @@ async fn main() {
     let announcer_cancellation = cancellation.child_token();
     tokio::spawn(async move {
         let _ = lanchat::network::discovery::start_announcing(
-            port, announce_id, announce_pool, announcer_cancellation,
-        ).await;
+            port,
+            announce_id,
+            announce_pool,
+            announcer_cancellation,
+        )
+        .await;
     });
 
     println!("[Server Main] ========================================");

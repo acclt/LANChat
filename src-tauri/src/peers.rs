@@ -74,11 +74,16 @@ impl PeerManager {
         addr: String,
         available_memory_mb: u64,
     ) -> bool {
-        self.observe_discovery(id, name, addr, available_memory_mb).unwrap_or(false)
+        self.observe_discovery(id, name, addr, available_memory_mb)
+            .unwrap_or(false)
     }
 
     pub fn observe_discovery(
-        &self, id: String, name: String, addr: String, available_memory_mb: u64,
+        &self,
+        id: String,
+        name: String,
+        addr: String,
+        available_memory_mb: u64,
     ) -> Option<bool> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -89,7 +94,9 @@ impl PeerManager {
 
         #[cfg(windows)]
         if let Some(store) = self.persistence() {
-            if !store.observe(&id, &name, &addr) { return None; }
+            if !store.observe(&id, &name, &addr) {
+                return None;
+            }
         }
 
         if let Some(peer) = peers.get_mut(&id) {
@@ -158,10 +165,14 @@ impl PeerManager {
             #[cfg(windows)]
             let time_since_seen = if self.persistence().is_some() {
                 now.saturating_sub(peer.last_seen)
-            } else { now - peer.last_seen };
+            } else {
+                now - peer.last_seen
+            };
             let stale = time_since_seen > 5;
             #[cfg(windows)]
-            let stale = self.persistence().map_or(stale, |store| store.is_stale(&peer.id));
+            let stale = self
+                .persistence()
+                .map_or(stale, |store| store.is_stale(&peer.id));
             if stale && !peer.is_offline {
                 println!(
                     "[PeerManager] 用户离线: {} ({}) - {}秒未见",
@@ -184,7 +195,9 @@ impl PeerManager {
     // 获取所有在线用户（过滤掉离线的）
     pub fn get_active_peers(&self) -> Vec<Peer> {
         #[cfg(windows)]
-        if self.persistence().is_some() { self.mark_stale_as_offline(); }
+        if self.persistence().is_some() {
+            self.mark_stale_as_offline();
+        }
         let peers = self.peers.read().unwrap();
         peers.values().filter(|p| !p.is_offline).cloned().collect()
     }
@@ -193,7 +206,9 @@ impl PeerManager {
     pub fn enable_windows_persistence(&self, pool: sqlx::Pool<sqlx::Sqlite>) {
         let mut peers = self.peers.write().unwrap();
         let store = Arc::new(crate::peer_persistence::PeerPersistence::new(
-            pool, &peers.values().cloned().collect::<Vec<_>>()));
+            pool,
+            &peers.values().cloned().collect::<Vec<_>>(),
+        ));
         for peer in peers.values_mut() {
             peer.is_offline = true;
             peer.last_seen = 0;
@@ -221,22 +236,40 @@ impl PeerManager {
     }
 
     #[cfg(windows)]
-    pub(crate) fn begin_profile_delete(&self, store: &crate::peer_persistence::PeerPersistence, id: &str) {
+    pub(crate) fn begin_profile_delete(
+        &self,
+        store: &crate::peer_persistence::PeerPersistence,
+        id: &str,
+    ) {
         let _peers = self.peers.write().unwrap();
         store.suppress(id);
     }
 
     #[cfg(windows)]
-    pub(crate) fn end_profile_delete(&self, store: &crate::peer_persistence::PeerPersistence, id: &str, success: bool) {
+    pub(crate) fn end_profile_delete(
+        &self,
+        store: &crate::peer_persistence::PeerPersistence,
+        id: &str,
+        success: bool,
+    ) {
         let mut peers = self.peers.write().unwrap();
-        if success { peers.remove(id); }
+        if success {
+            peers.remove(id);
+        }
         store.finish_delete(id, success);
     }
 
-    pub async fn delete_user_and_history(self: &Arc<Self>, pool: &sqlx::Pool<sqlx::Sqlite>, my_id: &str, peer_id: &str) -> Result<(), String> {
+    pub async fn delete_user_and_history(
+        self: &Arc<Self>,
+        pool: &sqlx::Pool<sqlx::Sqlite>,
+        my_id: &str,
+        peer_id: &str,
+    ) -> Result<(), String> {
         #[cfg(windows)]
         if let Some(store) = self.persistence() {
-            return store.delete(self.clone(), my_id.to_owned(), peer_id.to_owned()).await;
+            return store
+                .delete(self.clone(), my_id.to_owned(), peer_id.to_owned())
+                .await;
         }
         crate::db::delete_user_and_history(pool, my_id, peer_id).await?;
         self.remove_peer(peer_id);

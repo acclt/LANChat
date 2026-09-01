@@ -112,6 +112,14 @@ async function addUserToList(id, name, addr, isOffline = false) {
   li.dataset.id = id;
   li.dataset.name = name;
   li.dataset.addr = addr;
+  if (document.body.classList.contains("windows-app")) {
+    li.tabIndex = 0;
+    li.setAttribute("role", "button");
+    li.title = name;
+    li.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); li.click(); }
+    });
+  }
   li.innerHTML = `
         <span class="user-name">${name}</span>
         <span class="user-addr">${addr}</span>
@@ -673,6 +681,7 @@ function initAndroidAttachmentPicker() {
 
 // 打开聊天
 function openChat(peer) {
+  window.NotificationUI?.leave();
   const chatContainer = document.getElementById("chat-container");
   if (!chatContainer) return;
 

@@ -62,7 +62,8 @@ impl From<Message> for MessageResponse {
         if msg.msg_type == "file" {
             response.file_name = Some(msg.content.clone()); // content 存储的是文件名
             response.file_status = msg.file_status.clone();
-            response.sender_msg_id = msg.sender_msg_id
+            response.sender_msg_id = msg
+                .sender_msg_id
                 .as_ref()
                 .and_then(|s| s.parse::<i64>().ok());
 

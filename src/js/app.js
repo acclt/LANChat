@@ -47,6 +47,7 @@ async function renderPage() {
 
   // 初始化聊天功能
   initChat();
+  await window.NotificationUI?.init({androidApp, desktopPreview});
 
   if (previewMode) {
     const summary = document.getElementById("android-peer-summary");
@@ -197,6 +198,7 @@ async function startPeerPolling() {
   const updatePeerList = async () => {
     const peers = await apiGetPeers();
     if (!peers) return;
+    window.NotificationUI?.onPeers(peers);
 
     const apiPeerIds = new Set(peers.map((p) => p.id));
 

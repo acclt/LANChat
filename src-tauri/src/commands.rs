@@ -1918,8 +1918,10 @@ pub async fn delete_user_complete(
 ) -> Result<(), String> {
     let my_id = crate::db::get_user_id(&state.pool).await?;
 
-    peer_state.active_manager()
-        .delete_user_and_history(&state.pool, &my_id, &peer_id).await
+    peer_state
+        .active_manager()
+        .delete_user_and_history(&state.pool, &my_id, &peer_id)
+        .await
 }
 
 // ── 自定义 IP 命令 ──
@@ -2144,7 +2146,7 @@ const WINDOWS_NOTIFICATION_APP_ID: &str = "com.lanchat.app";
 #[cfg(windows)]
 pub fn ensure_windows_notification_identity() -> Result<(), String> {
     use std::path::PathBuf;
-    use windows::core::{HSTRING, Interface, GUID};
+    use windows::core::{Interface, GUID, HSTRING};
     use windows::Win32::Foundation::{PROPERTYKEY, RPC_E_CHANGED_MODE};
     use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
     use windows::Win32::System::Com::{
@@ -2153,7 +2155,7 @@ pub fn ensure_windows_notification_identity() -> Result<(), String> {
     };
     use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
     use windows::Win32::UI::Shell::{
-        SetCurrentProcessExplicitAppUserModelID, IShellLinkW, ShellLink,
+        IShellLinkW, SetCurrentProcessExplicitAppUserModelID, ShellLink,
     };
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
@@ -2180,8 +2182,8 @@ pub fn ensure_windows_notification_identity() -> Result<(), String> {
     unsafe { SetCurrentProcessExplicitAppUserModelID(&app_id) }
         .map_err(|error| format!("设置 Windows 进程通知身份失败: {error}"))?;
 
-    let executable = std::env::current_exe()
-        .map_err(|error| format!("读取当前 LQ Chat 路径失败: {error}"))?;
+    let executable =
+        std::env::current_exe().map_err(|error| format!("读取当前 LQ Chat 路径失败: {error}"))?;
     let working_directory = executable
         .parent()
         .map(PathBuf::from)
@@ -2209,17 +2211,13 @@ pub fn ensure_windows_notification_identity() -> Result<(), String> {
 
     let create_shortcut = || -> windows::core::Result<()> {
         unsafe {
-            let shell_link: IShellLinkW =
-                CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+            let shell_link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
             shell_link.SetPath(&HSTRING::from(executable.to_string_lossy().as_ref()))?;
             shell_link.SetWorkingDirectory(&HSTRING::from(
                 working_directory.to_string_lossy().as_ref(),
             ))?;
             shell_link.SetDescription(&HSTRING::from("LQ Chat 局域网聊天"))?;
-            shell_link.SetIconLocation(
-                &HSTRING::from(executable.to_string_lossy().as_ref()),
-                0,
-            )?;
+            shell_link.SetIconLocation(&HSTRING::from(executable.to_string_lossy().as_ref()), 0)?;
 
             let property_store: IPropertyStore = shell_link.cast()?;
             let app_id_value = PROPVARIANT::from(WINDOWS_NOTIFICATION_APP_ID);

@@ -2555,9 +2555,10 @@ dependencies = [
 
 [[package]]
 name = "lanchat"
-version = "0.18.0"
+version = "0.2.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chrono",
  "clap",
  "clipboard-rs",
@@ -2568,11 +2569,13 @@ dependencies = [
  "log",
  "mime_guess",
  "ndk-context",
+ "png 0.17.16",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "rust-embed",
  "serde",
  "serde_json",
+ "sha2",
  "socket2 0.5.10",
  "sqlx",
  "sysinfo",

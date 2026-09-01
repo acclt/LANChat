@@ -39,6 +39,9 @@ private const val NOTIFICATION_OBJ_INTENT_KEY = "LocalNotficationObject"
 private const val ACTION_INTENT_KEY = "NotificationUserAction"
 
 class MainActivity : TauriActivity() {
+    @Keep
+    fun notificationSettings(input: String): String = NotificationSyncSettings.command(this, input)
+
     // ─── JNI：Rust 侧的回调 ───
     private external fun nativeOnSafFileSelected(uri: String, name: String, size: Long)
     private external fun nativeSetUiVisibility(visible: Boolean)
@@ -355,6 +358,11 @@ class MainActivity : TauriActivity() {
 
     private fun checkNotificationLaunch(intent: Intent?) {
         if (intent == null) return
+        val sourceDeviceId = intent.getStringExtra(SyncedNotificationPublisher.EXTRA_SOURCE_DEVICE_ID)
+        if (!sourceDeviceId.isNullOrBlank() && intent.hasExtra(SyncedNotificationPublisher.EXTRA_HISTORY_RECORD_ID)) {
+            notifySyncedNotificationClicked(intent)
+            return
+        }
         intent.getStringExtra(LanChatForegroundService.EXTRA_PEER_ID)?.let { peerId ->
             window.decorView.postDelayed({ notifyPeerOpened(peerId) }, 1000)
             return
@@ -488,6 +496,12 @@ class MainActivity : TauriActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         
+        val sourceDeviceId = intent.getStringExtra(SyncedNotificationPublisher.EXTRA_SOURCE_DEVICE_ID)
+        if (!sourceDeviceId.isNullOrBlank() && intent.hasExtra(SyncedNotificationPublisher.EXTRA_HISTORY_RECORD_ID)) {
+            notifySyncedNotificationClicked(intent)
+            return
+        }
+
         intent.getStringExtra(LanChatForegroundService.EXTRA_PEER_ID)?.let { peerId ->
             notifyPeerOpened(peerId)
             return
@@ -521,6 +535,16 @@ class MainActivity : TauriActivity() {
                 }
             })();
         """.trimIndent())
+    }
+
+    private fun notifySyncedNotificationClicked(intent: Intent) {
+        val detail = JSONObject().apply {
+            put("recordId", intent.getStringExtra(SyncedNotificationPublisher.EXTRA_HISTORY_RECORD_ID).orEmpty())
+            put("sourceDeviceId", intent.getStringExtra(SyncedNotificationPublisher.EXTRA_SOURCE_DEVICE_ID).orEmpty())
+            put("package", intent.getStringExtra(SyncedNotificationPublisher.EXTRA_NOTIFICATION_PACKAGE).orEmpty())
+            put("notificationKey", intent.getStringExtra(SyncedNotificationPublisher.EXTRA_NOTIFICATION_KEY).orEmpty())
+        }
+        notifyWebViewWithRetry(0, "window.dispatchEvent(new CustomEvent('synced-notification-tapped', {detail: $detail}));")
     }
 
     private fun dispatchObjectEvent(name: String, payload: JSONObject) {
