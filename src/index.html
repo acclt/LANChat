@@ -4,7 +4,8 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
         <link rel="stylesheet" href="css/style.css">
-        <title>LANChat</title>
+        <link rel="stylesheet" href="css/notification-sync.css">
+        <title>LQ Chat</title>
     </head>
     <body>
         <div id="edit-name-panel" class="edit-panel" style="display: none;">
@@ -57,6 +58,23 @@
                     </div>
                     <div id="notification-permission-hint" class="setting-hint"></div>
                 </div>
+                <div class="setting-item" id="background-receive-setting" style="display: none;">
+                    <div class="setting-label-row">
+                        <label>后台接收状态:</label>
+                        <span id="background-receive-status">正在检查…</span>
+                    </div>
+                    <div id="background-receive-error" class="setting-hint"></div>
+                    <div class="setting-label-row">
+                        <label>电池优化:</label>
+                        <span id="battery-optimization-status">正在检查…</span>
+                    </div>
+                    <div class="setting-hint">按 Home、切换 App 或锁屏后继续接收；从最近任务划掉 LQ Chat 会完整退出。</div>
+                    <div class="button-group background-receive-actions">
+                        <button id="retry-background-service-btn" type="button" style="display: none;">重试后台接收</button>
+                        <button id="open-battery-settings-btn" type="button">前往设置为不受限制</button>
+                        <button id="stop-background-service-btn" type="button">停止后台接收并退出</button>
+                    </div>
+                </div>
                 <div class="setting-item" id="close-to-tray-setting">
                     <div class="setting-label-row">
                         <label for="close-to-tray-toggle" data-i18n="close_to_tray_label">点击 X 时最小化到托盘:</label>
@@ -68,7 +86,7 @@
                 </div>
                 <div class="setting-item" id="autostart-setting">
                     <div class="setting-label-row">
-                        <label for="autostart-toggle" data-i18n="autostart_label">开机自动启动 LANChat:</label>
+                        <label for="autostart-toggle" data-i18n="autostart_label">开机自动启动 LQ Chat:</label>
                         <label class="toggle-switch">
                             <input type="checkbox" id="autostart-toggle">
                             <span class="toggle-slider"></span>
@@ -135,32 +153,6 @@
                 <div id="theme-error-msg" class="error-msg"></div>
             </div>
         </div>
-        <div id="android-path-panel"
-             class="android-path-panel"
-             style="display: none">
-            <h2>选择下载路径</h2>
-            <div class="android-path-content">
-                <div class="path-option" data-path="/storage/emulated/0/Download/LANChat">
-                    <div class="path-name">下载文件夹</div>
-                    <div class="path-value">/storage/emulated/0/Download/LANChat</div>
-                </div>
-                <div class="path-option" data-path="/storage/emulated/0/Documents/LANChat">
-                    <div class="path-name">文档文件夹</div>
-                    <div class="path-value">/storage/emulated/0/Documents/LANChat</div>
-                </div>
-                <div class="path-option" data-path="/storage/emulated/0/LANChat">
-                    <div class="path-name">根目录</div>
-                    <div class="path-value">/storage/emulated/0/LANChat</div>
-                </div>
-                <div class="custom-path-input">
-                    <input type="text" id="custom-path-input" placeholder="或输入自定义路径...">
-                    <button id="use-custom-path-btn">使用</button>
-                </div>
-                <div class="button-group">
-                    <button id="cancel-android-path-btn">取消</button>
-                </div>
-            </div>
-        </div>
         <div class="container">
             <div class="main-content">
                 <div class="user-list-container">
@@ -168,7 +160,7 @@
                         <div class="android-brand-row">
                             <div class="android-brand-mark">L</div>
                             <div class="android-brand-copy">
-                                <strong>LANChat</strong>
+                                <strong>LQ Chat</strong>
                                 <span>局域网聊天</span>
                             </div>
                             <button id="android-settings-btn" class="android-icon-btn" type="button" aria-label="设置" title="设置">⚙</button>
@@ -263,6 +255,7 @@
         <!-- 引入 JS -->
         <script src="js/api.js"></script>
         <script src="js/ui.js"></script>
+        <script src="js/notification-sync.js"></script>
         <script src="js/app.js"></script>
     </body>
 </html>

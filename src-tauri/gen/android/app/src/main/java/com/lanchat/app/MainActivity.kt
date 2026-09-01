@@ -1,29 +1,37 @@
 package com.lanchat.app
 
 import android.content.BroadcastReceiver
+import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.MediaStore
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.util.Base64
 import android.util.Size
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.webkit.JavascriptInterface
+import android.webkit.MimeTypeMap
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.Keep
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.ByteArrayOutputStream
+import java.io.FileNotFoundException
 
 // 通知 Intent 的 Key 常量（来自 tauri-plugin-notification）
 private const val NOTIFICATION_INTENT_KEY = "NotificationId"
@@ -31,8 +39,12 @@ private const val NOTIFICATION_OBJ_INTENT_KEY = "LocalNotficationObject"
 private const val ACTION_INTENT_KEY = "NotificationUserAction"
 
 class MainActivity : TauriActivity() {
+    @Keep
+    fun notificationSettings(input: String): String = NotificationSyncSettings.command(this, input)
+
     // ─── JNI：Rust 侧的回调 ───
     private external fun nativeOnSafFileSelected(uri: String, name: String, size: Long)
+    private external fun nativeSetUiVisibility(visible: Boolean)
 
     private var pendingSharedFiles: List<SharedFileInfo>? = null
     private var webView: WebView? = null
@@ -63,6 +75,31 @@ class MainActivity : TauriActivity() {
         dispatchJsonEvent("android-files-selected", result)
     }
 
+    private val downloadDirectoryPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                contentResolver.takePersistableUriPermission(uri, takeFlags)
+                val treeName = runCatching {
+                    DocumentsContract.getTreeDocumentId(uri)
+                        .substringAfter(':')
+                        .ifBlank { "已选择的文件夹" }
+                }.getOrDefault("已选择的文件夹")
+                dispatchObjectEvent("android-download-directory-selected", JSONObject().apply {
+                    put("uri", uri.toString())
+                    put("label", treeName)
+                })
+            } catch (error: Exception) {
+                dispatchObjectEvent("android-download-directory-error", JSONObject().apply {
+                    put("message", error.message ?: "无法取得文件夹写入权限")
+                })
+            }
+        }
+    }
+
     private val mediaPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -80,7 +117,8 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        
+        AndroidDownloadStore.initialize(applicationContext)
+
         // 开启 WebView 调试（方便 adb logcat 看到 JS console 输出）
         android.webkit.WebView.setWebContentsDebuggingEnabled(true)
         
@@ -89,6 +127,49 @@ class MainActivity : TauriActivity() {
         
         // 检测冷启动是否来自通知点击
         checkNotificationLaunch(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        nativeSetUiVisibility(true)
+        // nativeSetUiVisibility 成功返回，证明本进程的 Rust 库已由可见 Activity 加载。
+        // 只有这里签发的单次令牌可以激活 Service；Service-only 重建没有这个资格。
+        LanChatForegroundService.startVisibleUserSession(this)
+    }
+
+    override fun onStop() {
+        nativeSetUiVisibility(false)
+        super.onStop()
+    }
+
+    @Keep
+    fun retryBackgroundService() {
+        LanChatForegroundService.retryVisibleUserSession(this)
+    }
+
+    @Keep
+    fun stopBackgroundReceiveAndExit() {
+        LanChatForegroundService.stopVisibleUserSession(this)
+        finishAndRemoveTask()
+    }
+
+    @Keep
+    fun getBatteryOptimizationState(): String {
+        val manager = getSystemService(PowerManager::class.java)
+        return if (manager.isIgnoringBatteryOptimizations(packageName)) "unrestricted" else "optimized"
+    }
+
+    @Keep
+    fun openBatteryOptimizationSettings() {
+        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+    }
+
+    @Keep
+    fun getNotificationPermissionState(): String {
+        return if (Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) "granted" else "denied"
     }
 
     /**
@@ -103,6 +184,11 @@ class MainActivity : TauriActivity() {
     @Keep
     fun launchSafMultiFilePicker() {
         runOnUiThread { safMultiPickerLauncher.launch(arrayOf("*/*")) }
+    }
+
+    @Keep
+    fun launchDownloadDirectoryPicker() {
+        runOnUiThread { downloadDirectoryPickerLauncher.launch(null) }
     }
 
     @Keep
@@ -272,6 +358,15 @@ class MainActivity : TauriActivity() {
 
     private fun checkNotificationLaunch(intent: Intent?) {
         if (intent == null) return
+        val sourceDeviceId = intent.getStringExtra(SyncedNotificationPublisher.EXTRA_SOURCE_DEVICE_ID)
+        if (!sourceDeviceId.isNullOrBlank() && intent.hasExtra(SyncedNotificationPublisher.EXTRA_HISTORY_RECORD_ID)) {
+            notifySyncedNotificationClicked(intent)
+            return
+        }
+        intent.getStringExtra(LanChatForegroundService.EXTRA_PEER_ID)?.let { peerId ->
+            window.decorView.postDelayed({ notifyPeerOpened(peerId) }, 1000)
+            return
+        }
         val action = intent.getStringExtra(ACTION_INTENT_KEY)
         if (action == "tap") {
             println("[MainActivity] 冷启动来自通知点击")
@@ -369,6 +464,7 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onDestroy() {
+        nativeSetUiVisibility(false)
         super.onDestroy()
         // 注销广播接收器
         shareReceiver?.let {
@@ -400,6 +496,17 @@ class MainActivity : TauriActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         
+        val sourceDeviceId = intent.getStringExtra(SyncedNotificationPublisher.EXTRA_SOURCE_DEVICE_ID)
+        if (!sourceDeviceId.isNullOrBlank() && intent.hasExtra(SyncedNotificationPublisher.EXTRA_HISTORY_RECORD_ID)) {
+            notifySyncedNotificationClicked(intent)
+            return
+        }
+
+        intent.getStringExtra(LanChatForegroundService.EXTRA_PEER_ID)?.let { peerId ->
+            notifyPeerOpened(peerId)
+            return
+        }
+
         // 检测通知点击：NotificationUserAction == "tap" 表示通知被点击
         val action = intent.getStringExtra(ACTION_INTENT_KEY)
         if (action == "tap") {
@@ -427,6 +534,34 @@ class MainActivity : TauriActivity() {
                     window.dispatchEvent(new CustomEvent('notification-tapped', {detail: {fromId: fromId}}));
                 }
             })();
+        """.trimIndent())
+    }
+
+    private fun notifySyncedNotificationClicked(intent: Intent) {
+        val detail = JSONObject().apply {
+            put("recordId", intent.getStringExtra(SyncedNotificationPublisher.EXTRA_HISTORY_RECORD_ID).orEmpty())
+            put("sourceDeviceId", intent.getStringExtra(SyncedNotificationPublisher.EXTRA_SOURCE_DEVICE_ID).orEmpty())
+            put("package", intent.getStringExtra(SyncedNotificationPublisher.EXTRA_NOTIFICATION_PACKAGE).orEmpty())
+            put("notificationKey", intent.getStringExtra(SyncedNotificationPublisher.EXTRA_NOTIFICATION_KEY).orEmpty())
+        }
+        notifyWebViewWithRetry(0, "window.dispatchEvent(new CustomEvent('synced-notification-tapped', {detail: $detail}));")
+    }
+
+    private fun dispatchObjectEvent(name: String, payload: JSONObject) {
+        if (webView == null) webView = findWebView(window.decorView)
+        runOnUiThread {
+            webView?.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent(${JSONObject.quote(name)}, {detail: $payload}));",
+                null
+            )
+        }
+    }
+
+    private fun notifyPeerOpened(peerId: String) {
+        notifyWebViewWithRetry(0, """
+            window.dispatchEvent(new CustomEvent('notification-tapped', {
+                detail: {fromId: ${JSONObject.quote(peerId)}}
+            }));
         """.trimIndent())
     }
     
@@ -478,116 +613,122 @@ class MainActivity : TauriActivity() {
         }, delayMs)
     }
 
-    // 打开文件（用对应的应用打开）
+    private data class ExternalFile(val uri: Uri, val mimeType: String)
+
+    private fun storedReceivedFileUri(file: File): Uri? {
+        val receivedRoot = File(applicationInfo.dataDir, "received_files").canonicalFile
+        val canonicalFile = file.canonicalFile
+        if (canonicalFile.parentFile != receivedRoot) return null
+        return Uri.Builder()
+            .scheme("content")
+            .authority("$packageName.fdprovider")
+            .appendPath("stored")
+            .appendPath(canonicalFile.name)
+            .build()
+    }
+
+    private fun resolveExternalFile(filePath: String): ExternalFile {
+        val uri = if (filePath.startsWith("content://")) {
+            Uri.parse(filePath)
+        } else {
+            val file = File(filePath).canonicalFile
+            require(file.isFile) { "文件不存在或不可读取: $filePath" }
+            storedReceivedFileUri(file)
+                ?: FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        }
+
+        val extension = (uri.lastPathSegment ?: filePath)
+            .substringAfterLast('.', "")
+            .lowercase()
+        val mimeType = when (extension) {
+            "apk" -> "application/vnd.android.package-archive"
+            else -> contentResolver.getType(uri)
+                ?.takeUnless { it.isBlank() || it == "*/*" }
+                ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+                ?: "application/octet-stream"
+        }
+        return ExternalFile(uri, mimeType)
+    }
+
+    private fun ensureExternalFileReadable(target: ExternalFile) {
+        val descriptor = contentResolver.openAssetFileDescriptor(target.uri, "r")
+            ?: throw FileNotFoundException("文件已删除或无法读取")
+        descriptor.use { /* 只做存在性和权限预检，实际读取由目标应用完成。 */ }
+    }
+
+    private fun errorResult(action: String, error: Exception): String {
+        val message = when (error) {
+            is ActivityNotFoundException -> "没有找到可处理此文件的应用"
+            is FileNotFoundException -> "文件已删除或无法读取"
+            is SecurityException -> "文件访问权限已失效，请重新接收或选择该文件"
+            else -> error.message ?: error.javaClass.simpleName
+        }
+        println("[MainActivity] ${action}失败: $message")
+        error.printStackTrace()
+        return "ERROR:$message"
+    }
+
+    // 由 Rust JNI 调用。返回值会一路传回前端，避免原生失败时界面毫无反馈。
     @Keep
-    fun openFile(filePath: String) {
-        try {
-            println("[MainActivity] 准备打开文件: $filePath")
-
-            val uri: Uri
-            val mimeType: String
-
-            if (filePath.startsWith("content://")) {
-                uri = Uri.parse(filePath)
-                mimeType = contentResolver.getType(uri) ?: "*/*"
-                println("[MainActivity] 使用 content URI: $uri")
-            } else {
-                val file = File(filePath)
-                if (!file.exists()) {
-                    println("[MainActivity] 文件不存在: $filePath")
-                    return
-                }
-                uri = FileProvider.getUriForFile(
-                    this,
-                    "${applicationContext.packageName}.fileprovider",
-                    file
-                )
-                mimeType = contentResolver.getType(uri) ?: "*/*"
-                println("[MainActivity] FileProvider URI: $uri")
-            }
-
-            println("[MainActivity] MIME 类型: $mimeType")
-
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mimeType)
+    fun openFile(filePath: String): String {
+        return try {
+            val target = resolveExternalFile(filePath)
+            ensureExternalFileReadable(target)
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(target.uri, target.mimeType)
+                clipData = ClipData.newUri(contentResolver, "open_file", target.uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-
-            try {
-                startActivity(intent)
-                println("[MainActivity] 打开文件 Intent 已启动")
-            } catch (e: SecurityException) {
-                // content URI 权限过期，降级为 */* 再试一次
-                println("[MainActivity] 权限异常，降级为 */* 重试: ${e.message}")
-                val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "*/*")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(fallbackIntent)
-                println("[MainActivity] 降级打开文件 Intent 已启动")
-            }
-        } catch (e: Exception) {
-            println("[MainActivity] 打开文件失败: ${e.message}")
-            e.printStackTrace()
+            startActivity(Intent.createChooser(viewIntent, "选择应用打开").apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+            println("[MainActivity] 打开文件选择器已启动: ${target.uri}, ${target.mimeType}")
+            "OK"
+        } catch (error: Exception) {
+            errorResult("打开文件", error)
         }
     }
 
-    // 分享文件到其他应用
-    @Keep   // <--- 就是这块免死金牌！告诉混淆器绝对不要动这个函数
-    fun shareFile(filePath: String) {
-        try {
-            println("[MainActivity] 准备分享文件: $filePath")
-            
-            val uri: Uri
-            val mimeType: String
-            
-            if (filePath.startsWith("content://")) {
-                // 已经是 content URI，直接使用
-                uri = Uri.parse(filePath)
-                mimeType = contentResolver.getType(uri) ?: "*/*"
-                println("[MainActivity] 使用 content URI: $uri")
-            } else {
-                // 普通文件路径，使用 FileProvider
-                val file = File(filePath)
-                if (!file.exists()) {
-                    println("[MainActivity] 文件不存在: $filePath")
-                    return
-                }
-                
-                uri = FileProvider.getUriForFile(
-                    this,
-                    "${applicationContext.packageName}.fileprovider",
-                    file
-                )
-                mimeType = contentResolver.getType(uri) ?: "*/*"
-                println("[MainActivity] FileProvider URI: $uri")
-            }
-            
-            println("[MainActivity] MIME 类型: $mimeType")
-            
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = mimeType
-                putExtra(Intent.EXTRA_STREAM, uri)
+    @Keep
+    fun shareFile(filePath: String): String {
+        return try {
+            val target = resolveExternalFile(filePath)
+            ensureExternalFileReadable(target)
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = target.mimeType
+                putExtra(Intent.EXTRA_STREAM, target.uri)
+                clipData = ClipData.newUri(contentResolver, "share_file", target.uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             }
+            startActivity(Intent.createChooser(sendIntent, "分享文件").apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+            println("[MainActivity] 分享选择器已启动: ${target.uri}, ${target.mimeType}")
+            "OK"
+        } catch (error: Exception) {
+            errorResult("分享文件", error)
+        }
+    }
 
-            // 附加 ClipData，让系统 UI（分享面板缩略图）也能合法访问 URI，消除 SecurityException 日志
-            val clipData = android.content.ClipData.newUri(contentResolver, "share_file", uri)
-            intent.clipData = clipData
-            
-            // 创建分享选择器并授予权限
-            val chooser = Intent.createChooser(intent, "分享文件").apply {
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+    @Keep
+    fun getFileState(filePath: String): String {
+        return try {
+            val target = resolveExternalFile(filePath)
+            ensureExternalFileReadable(target)
+            "AVAILABLE"
+        } catch (_: FileNotFoundException) {
+            "DELETED"
+        } catch (error: IllegalArgumentException) {
+            val localFileExists = !filePath.startsWith("content://") && File(filePath).isFile
+            if (localFileExists) {
+                "PROVIDER_ERROR:${error.message ?: "文件共享配置错误"}"
+            } else {
+                "DELETED"
             }
-            
-            // 显示分享选择器
-            startActivity(chooser)
-            println("[MainActivity] 分享选择器已启动")
-        } catch (e: Exception) {
-            println("[MainActivity] 分享文件失败: ${e.message}")
-            e.printStackTrace()
+        } catch (_: SecurityException) {
+            "INACCESSIBLE"
+        } catch (error: Exception) {
+            "ERROR:${error.message ?: error.javaClass.simpleName}"
         }
     }
 }

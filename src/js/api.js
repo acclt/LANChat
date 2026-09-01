@@ -1,5 +1,14 @@
 // 防御性获取 Tauri 接口
 const getTauri = () => window.__TAURI__;
+const getErrorMessage = (error) => {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  try {
+    return JSON.stringify(error) || "未知错误";
+  } catch (_) {
+    return String(error ?? "未知错误");
+  }
+};
 
 async function apiGetMyName() {
   const tauri = getTauri();
@@ -135,7 +144,7 @@ async function apiGetDefaultDownloadPath() {
       return await tauri.core.invoke("get_default_download_path");
     } catch (e) {
       console.error("[JS-API] 获取默认路径失败:", e);
-      return "/storage/emulated/0/Download/LANChat";
+      return "";
     }
   } else {
     return "/tmp/lanchat";
@@ -453,7 +462,7 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
       }
     } catch (e) {
       console.error("[JS-API] 文件发送失败:", e);
-      throw new Error("发送失败: " + e.message);
+      throw new Error("发送失败: " + getErrorMessage(e));
     }
   } else {
     // Web 端 - 通过 HTTP 上传（使用分块协议）
@@ -659,7 +668,7 @@ async function apiSendFile(peerId, peerAddr, file, filePath) {
       };
     } catch (e) {
       console.error("[JS-API] 文件上传失败:", e);
-      throw new Error("上传失败: " + e.message);
+      throw new Error("上传失败: " + getErrorMessage(e));
     }
   }
 }
@@ -887,6 +896,21 @@ async function apiOpenFileInAndroid(filePath) {
   }
 }
 
+// 检查 Android 文件是否仍可读取（系统目录 URI、应用目录和 FD 路径均支持）
+async function apiGetAndroidFileState(filePath) {
+  const tauri = getTauri();
+  if (!tauri || !navigator.userAgent.includes("Android")) {
+    return "NOT_APPLICABLE";
+  }
+
+  try {
+    return await tauri.core.invoke("get_android_file_state", { filePath });
+  } catch (e) {
+    console.error("[JS-API] 检查 Android 文件状态失败:", e);
+    return "ERROR";
+  }
+}
+
 // 批量删除消息
 async function apiDeleteMessages(msgIds) {
   const tauri = getTauri();
@@ -1064,6 +1088,9 @@ async function showNotification(title, body, extra = {}) {
     try { localStorage.setItem("pendingNotificationFromId", extra.from_id); } catch (_) {}
   }
   if (window.__TAURI__) {
+    // Android 与 Windows 的通知都由核心事件层生成，避免 WebView 不存在时
+    // 漏通知，也避免前端与后台重复发送同一条系统通知。
+    if (navigator.userAgent.includes("Android") || navigator.userAgent.includes("Windows")) return;
     // Tauri 端：先检查通知开关（用缓存避免每次都调 invoke）
     if (window._notificationsEnabled === undefined) {
       try {

@@ -151,6 +151,36 @@ description = "Allows setting notification enabled state"
 commands.allow = ["set_notifications_enabled"]
 
 [[permission]]
+identifier = "allow-get-background-receive-state"
+description = "Allows reading the Android background receive Core state"
+commands.allow = ["get_background_receive_state"]
+
+[[permission]]
+identifier = "allow-retry-background-service"
+description = "Allows an explicit user retry of the Android background service"
+commands.allow = ["retry_background_service"]
+
+[[permission]]
+identifier = "allow-stop-background-receive-and-exit"
+description = "Allows the user to stop background receiving and exit"
+commands.allow = ["stop_background_receive_and_exit"]
+
+[[permission]]
+identifier = "allow-get-battery-optimization-state"
+description = "Allows reading the Android battery optimization state"
+commands.allow = ["get_battery_optimization_state"]
+
+[[permission]]
+identifier = "allow-open-battery-optimization-settings"
+description = "Allows opening Android battery optimization settings"
+commands.allow = ["open_battery_optimization_settings"]
+
+[[permission]]
+identifier = "allow-get-notification-permission-state"
+description = "Allows reading Android notification permission state"
+commands.allow = ["get_notification_permission_state"]
+
+[[permission]]
 identifier = "allow-start-tray-flash"
 description = "Allows starting tray icon flashing for unread messages"
 commands.allow = ["start_tray_flash"]

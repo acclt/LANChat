@@ -17,12 +17,16 @@ pub struct Peer {
 // 全局在线用户列表
 pub struct PeerManager {
     peers: Arc<RwLock<HashMap<String, Peer>>>, // key 是 UUID
+    #[cfg(windows)]
+    persistence: RwLock<Option<Arc<crate::peer_persistence::PeerPersistence>>>,
 }
 
 impl PeerManager {
     pub fn new() -> Self {
         Self {
             peers: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(windows)]
+            persistence: RwLock::new(None),
         }
     }
 
@@ -70,12 +74,30 @@ impl PeerManager {
         addr: String,
         available_memory_mb: u64,
     ) -> bool {
+        self.observe_discovery(id, name, addr, available_memory_mb)
+            .unwrap_or(false)
+    }
+
+    pub fn observe_discovery(
+        &self,
+        id: String,
+        name: String,
+        addr: String,
+        available_memory_mb: u64,
+    ) -> Option<bool> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
         let mut peers = self.peers.write().unwrap();
+
+        #[cfg(windows)]
+        if let Some(store) = self.persistence() {
+            if !store.observe(&id, &name, &addr) {
+                return None;
+            }
+        }
 
         if let Some(peer) = peers.get_mut(&id) {
             // 已存在,更新信息
@@ -92,9 +114,9 @@ impl PeerManager {
                     "[PeerManager] 用户重新上线: {} ({}) - 可用内存: {} MB",
                     peer.name, peer.id, available_memory_mb
                 );
-                return true; // 重新上线，返回 true
+                return Some(true); // 重新上线，返回 true
             }
-            return false; // 只是更新，返回 false
+            return Some(false); // 只是更新，返回 false
         } else {
             // 新用户
             let peer = Peer {
@@ -110,7 +132,7 @@ impl PeerManager {
                 name, id, available_memory_mb
             );
             peers.insert(id, peer);
-            return true; // 新用户，返回 true
+            return Some(true); // 新用户，返回 true
         }
     }
 
@@ -138,8 +160,20 @@ impl PeerManager {
 
         // 标记超过 5 秒未见的用户为离线
         for peer in peers.values_mut() {
+            #[cfg(not(windows))]
             let time_since_seen = now - peer.last_seen;
-            if time_since_seen > 5 && !peer.is_offline {
+            #[cfg(windows)]
+            let time_since_seen = if self.persistence().is_some() {
+                now.saturating_sub(peer.last_seen)
+            } else {
+                now - peer.last_seen
+            };
+            let stale = time_since_seen > 5;
+            #[cfg(windows)]
+            let stale = self
+                .persistence()
+                .map_or(stale, |store| store.is_stale(&peer.id));
+            if stale && !peer.is_offline {
                 println!(
                     "[PeerManager] 用户离线: {} ({}) - {}秒未见",
                     peer.name, peer.id, time_since_seen
@@ -160,8 +194,86 @@ impl PeerManager {
 
     // 获取所有在线用户（过滤掉离线的）
     pub fn get_active_peers(&self) -> Vec<Peer> {
+        #[cfg(windows)]
+        if self.persistence().is_some() {
+            self.mark_stale_as_offline();
+        }
         let peers = self.peers.read().unwrap();
         peers.values().filter(|p| !p.is_offline).cloned().collect()
+    }
+
+    #[cfg(windows)]
+    pub fn enable_windows_persistence(&self, pool: sqlx::Pool<sqlx::Sqlite>) {
+        let mut peers = self.peers.write().unwrap();
+        let store = Arc::new(crate::peer_persistence::PeerPersistence::new(
+            pool,
+            &peers.values().cloned().collect::<Vec<_>>(),
+        ));
+        for peer in peers.values_mut() {
+            peer.is_offline = true;
+            peer.last_seen = 0;
+            peer.available_memory_mb = 0;
+        }
+        *self.persistence.write().unwrap() = Some(store);
+    }
+
+    #[cfg(windows)]
+    pub fn persistence(&self) -> Option<Arc<crate::peer_persistence::PeerPersistence>> {
+        self.persistence.read().unwrap().clone()
+    }
+
+    #[cfg(windows)]
+    pub fn begin_presence_session(&self) {
+        let mut peers = self.peers.write().unwrap();
+        if let Some(store) = self.persistence() {
+            store.start_session();
+            for peer in peers.values_mut() {
+                peer.is_offline = true;
+                peer.last_seen = 0;
+                peer.available_memory_mb = 0;
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn begin_profile_delete(
+        &self,
+        store: &crate::peer_persistence::PeerPersistence,
+        id: &str,
+    ) {
+        let _peers = self.peers.write().unwrap();
+        store.suppress(id);
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn end_profile_delete(
+        &self,
+        store: &crate::peer_persistence::PeerPersistence,
+        id: &str,
+        success: bool,
+    ) {
+        let mut peers = self.peers.write().unwrap();
+        if success {
+            peers.remove(id);
+        }
+        store.finish_delete(id, success);
+    }
+
+    pub async fn delete_user_and_history(
+        self: &Arc<Self>,
+        pool: &sqlx::Pool<sqlx::Sqlite>,
+        my_id: &str,
+        peer_id: &str,
+    ) -> Result<(), String> {
+        #[cfg(windows)]
+        if let Some(store) = self.persistence() {
+            return store
+                .delete(self.clone(), my_id.to_owned(), peer_id.to_owned())
+                .await;
+        }
+        crate::db::delete_user_and_history(pool, my_id, peer_id).await?;
+        self.remove_peer(peer_id);
+        Ok(())
     }
 }
 

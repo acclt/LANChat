@@ -15,7 +15,12 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { db_path: None, port: None, lang: None, close_to_tray: None }
+        Config {
+            db_path: None,
+            port: None,
+            lang: None,
+            close_to_tray: None,
+        }
     }
 }
 
@@ -26,7 +31,11 @@ impl Default for Config {
 /// Android: /data/data/com.lanchat.app/.config/lanchat/config.json
 fn config_path() -> PathBuf {
     dirs::config_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".config"))
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".config")
+        })
         .join("lanchat")
         .join("config.json")
 }
@@ -38,15 +47,13 @@ pub fn read_config() -> Config {
         return Config::default();
     }
     match std::fs::File::open(&path) {
-        Ok(file) => {
-            match serde_json::from_reader(file) {
-                Ok(cfg) => cfg,
-                Err(e) => {
-                    eprintln!("[Config] 解析 config.json 失败: {e}，使用默认值");
-                    Config::default()
-                }
+        Ok(file) => match serde_json::from_reader(file) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                eprintln!("[Config] 解析 config.json 失败: {e}，使用默认值");
+                Config::default()
             }
-        }
+        },
         Err(e) => {
             eprintln!("[Config] 读取 config.json 失败: {e}，使用默认值");
             Config::default()
@@ -61,7 +68,8 @@ pub fn write_config(config: &Config) -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|e| format!("create config dir failed: {e}"))?;
     }
     let tmp_path = path.with_extension("json.tmp");
-    let file = std::fs::File::create(&tmp_path).map_err(|e| format!("create temp file failed: {e}"))?;
+    let file =
+        std::fs::File::create(&tmp_path).map_err(|e| format!("create temp file failed: {e}"))?;
     serde_json::to_writer_pretty(&file, config)
         .map_err(|e| format!("serialize config failed: {e}"))?;
     std::fs::rename(&tmp_path, &path).map_err(|e| format!("rename config file failed: {e}"))?;

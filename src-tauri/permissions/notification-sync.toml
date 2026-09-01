@@ -1,0 +1,19 @@
+[[permission]]
+identifier = "allow-notification-settings"
+description = "Allows the local UI to read and update notification sync settings"
+commands.allow = ["notification_settings"]
+
+[[permission]]
+identifier = "allow-notification-records"
+description = "Allows the local UI to read seven-day notification history"
+commands.allow = ["notification_records", "notification_record", "notification_pending_activation"]
+
+[[permission]]
+identifier = "allow-notification-action"
+description = "Allows notification application selection and system settings actions"
+commands.allow = ["notification_action"]
+
+[[permission]]
+identifier = "allow-notification-test"
+description = "Allows a user-requested synthetic notification using the existing send path"
+commands.allow = ["notification_test"]

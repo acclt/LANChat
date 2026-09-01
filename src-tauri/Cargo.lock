@@ -2555,9 +2555,10 @@ dependencies = [
 
 [[package]]
 name = "lanchat"
-version = "0.1.5"
+version = "0.2.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chrono",
  "clap",
  "clipboard-rs",
@@ -2568,11 +2569,13 @@ dependencies = [
  "log",
  "mime_guess",
  "ndk-context",
+ "png 0.17.16",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "rust-embed",
  "serde",
  "serde_json",
+ "sha2",
  "socket2 0.5.10",
  "sqlx",
  "sysinfo",
@@ -2587,12 +2590,15 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
  "tauri-plugin-sql",
+ "tauri-winrt-notification",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
  "tower-http 0.5.2",
  "urlencoding",
  "uuid",
+ "windows 0.61.3",
+ "winreg 0.55.0",
  "wl-clipboard-rs",
 ]
 
@@ -6026,6 +6032,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

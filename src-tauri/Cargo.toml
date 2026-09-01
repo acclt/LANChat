@@ -1,6 +1,6 @@
 [package]
 name = "lanchat"
-version = "0.1.5"
+version = "0.2.0"
 edition = "2021"
 default-run = "lanchat"
 
@@ -21,6 +21,7 @@ required-features = ["web"]
 
 [features]
 default = ["desktop"]
+custom-protocol = ["tauri/custom-protocol"]
 desktop = ["tauri", "tauri-plugin-shell", "tauri-plugin-fs", "tauri-plugin-dialog", "tauri-plugin-sql", "tauri-plugin-log", "tauri-plugin-single-instance", "tauri-plugin-opener", "tauri-plugin-notification", "tauri-plugin-autostart", "tauri-build", "sysinfo", "clipboard-rs", "wl-clipboard-rs"]
 web = ["sysinfo"]
 
@@ -48,13 +49,16 @@ clap = { version = "4.4", features = ["derive"] }
 rust-embed = "8.0"
 # 工具 - 两端都需要
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "time", "sync", "macros", "fs", "io-util"] }
-tokio-util = { version = "0.7", features = ["io"] }
+tokio-util = { version = "0.7", features = ["io", "rt"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1.0", features = ["v4"] }
 rand = "0.8"
 mime_guess = "2.0.5"
+base64 = "0.22"
+png = "0.17"
+sha2 = "0.10"
 socket2 = { version = "0.5", features = ["all"] }
 directories = "5.0"
 dirs = "5.0"
@@ -71,6 +75,18 @@ tauri-plugin-opener = { version = "2.0", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 tauri-plugin-autostart = { version = "2.5.1", optional = true }
+tauri-winrt-notification = "0.7.2"
+winreg = "0.55"
+windows = { version = "0.61.3", features = [
+    "Data_Xml_Dom",
+    "UI_Notifications",
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+] }
 
 # 非 Android 平台：使用 native-tls 和剪贴板
 [target.'cfg(not(target_os = "android"))'.dependencies]

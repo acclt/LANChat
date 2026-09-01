@@ -15,8 +15,10 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::fs;
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
 
+use crate::core_events::CoreEventBus;
 use crate::peers::PeerManager;
 
 // 全局媒体 Token（仅 Android 使用）
@@ -60,8 +62,7 @@ pub struct AppState {
     pub peer_manager: Arc<PeerManager>,
     pub media_token: String,
     pub ws_broadcast: broadcast::Sender<String>,
-    #[cfg(feature = "desktop")]
-    pub app_handle: Option<tauri::AppHandle>,
+    pub event_bus: CoreEventBus,
 }
 
 pub async fn start_server(
@@ -69,15 +70,37 @@ pub async fn start_server(
     _udp_port: u16,
     pool: Pool<Sqlite>,
     peer_manager: Arc<PeerManager>,
-    #[cfg(feature = "desktop")] app_handle: Option<tauri::AppHandle>,
-) {
+    event_bus: CoreEventBus,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
+    let listener = bind_server(port).await.map_err(|error| error.to_string())?;
+    run_server(listener, pool, peer_manager, event_bus, cancellation).await
+}
+
+pub async fn bind_server(port: u16) -> std::io::Result<tokio::net::TcpListener> {
+    tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await
+}
+
+pub async fn run_server(
+    listener: tokio::net::TcpListener,
+    pool: Pool<Sqlite>,
+    peer_manager: Arc<PeerManager>,
+    event_bus: CoreEventBus,
+    cancellation: CancellationToken,
+) -> Result<(), String> {
+    let port = listener
+        .local_addr()
+        .map_err(|error| error.to_string())?
+        .port();
     let media_token = uuid::Uuid::new_v4().to_string();
     println!("[Web Server] 媒体访问 Token: {}", media_token);
 
     // 将 token 存入全局，供 Tauri command 读取（仅 Android）
     #[cfg(target_os = "android")]
     {
-        let mut guard = MEDIA_TOKEN.lock().unwrap();
+        let mut guard = MEDIA_TOKEN
+            .lock()
+            .map_err(|_| "媒体 Token 锁已损坏".to_string())?;
         *guard = media_token.clone();
     }
 
@@ -88,8 +111,7 @@ pub async fn start_server(
         peer_manager,
         media_token,
         ws_broadcast,
-        #[cfg(feature = "desktop")]
-        app_handle,
+        event_bus,
     });
 
     // 配置 CORS - 允许所有来源（局域网内部使用）
@@ -140,11 +162,11 @@ pub async fn start_server(
         .with_state(state)
         .into_make_service_with_connect_info::<SocketAddr>();
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
-        .await
-        .unwrap();
     println!("[Web Server] 启动在端口 {} (无文件大小限制)", port);
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(cancellation.cancelled_owned())
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn get_name_http(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -196,7 +218,9 @@ async fn get_settings_http(State(state): State<Arc<AppState>>) -> impl IntoRespo
 
     let cfg = crate::config_file::read_config();
     let close_to_tray = cfg.close_to_tray.unwrap_or(true);
-    let db_path = cfg.db_path.unwrap_or_else(crate::config_file::get_default_db_path);
+    let db_path = cfg
+        .db_path
+        .unwrap_or_else(crate::config_file::get_default_db_path);
 
     let auto_download = crate::db::get_auto_download(&state.pool).await;
 
@@ -234,7 +258,13 @@ async fn update_settings_http(
         let port_num: u16 = match p.parse() {
             Ok(n) if n > 0 => n,
             _ => {
-                return (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "invalid port".to_string() })).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "invalid port".to_string(),
+                    }),
+                )
+                    .into_response();
             }
         };
         if let Err(e) = crate::config_file::save_port_to_config(port_num) {
@@ -282,7 +312,11 @@ struct SetLanguageRequest {
 async fn set_language_http(Json(payload): Json<SetLanguageRequest>) -> impl IntoResponse {
     match crate::config_file::save_lang_to_config(&payload.lang) {
         Ok(()) => Json(serde_json::json!({ "success": true })).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -337,9 +371,16 @@ async fn offer_file_http(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<OfferFileRequest>,
 ) -> impl IntoResponse {
-    println!("[Web Server] file_offer: {} -> {}", payload.file_name, payload.peer_addr);
-    let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
-    let my_name = crate::db::get_username(&state.pool).await.unwrap_or_default();
+    println!(
+        "[Web Server] file_offer: {} -> {}",
+        payload.file_name, payload.peer_addr
+    );
+    let my_id = crate::db::get_user_id(&state.pool)
+        .await
+        .unwrap_or_default();
+    let my_name = crate::db::get_username(&state.pool)
+        .await
+        .unwrap_or_default();
     let offer = serde_json::json!({
         "msg_type": "file_offer",
         "from_id": my_id,
@@ -348,11 +389,16 @@ async fn offer_file_http(
         "file_size": payload.file_size,
         "sender_msg_id": payload.sender_msg_id,
     });
-    match crate::network::messaging::send_json_via_ws(&payload.peer_addr, &offer.to_string()).await {
+    match crate::network::messaging::send_json_via_ws(&payload.peer_addr, &offer.to_string()).await
+    {
         Ok(_) => Json(serde_json::json!({"success": true})).into_response(),
-        Err(e) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
-            "error": format!("发送 file_offer 失败: {}", e)
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": format!("发送 file_offer 失败: {}", e)
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -367,7 +413,10 @@ async fn start_send_http(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<StartSendRequest>,
 ) -> impl IntoResponse {
-    println!("[手动下载] HTTP请求开始发送文件: msg_id={}, 接收端={}", payload.sender_msg_id, payload.receiver_addr);
+    println!(
+        "[手动下载] HTTP请求开始发送文件: msg_id={}, 接收端={}",
+        payload.sender_msg_id, payload.receiver_addr
+    );
 
     // 查询发送端 DB 中的文件记录
     match crate::db::get_sender_file_by_msg_id(&state.pool, payload.sender_msg_id).await {
@@ -383,11 +432,7 @@ async fn start_send_http(
                         "receiver_addr": payload.receiver_addr,
                     });
                     let _ = state.ws_broadcast.send(start_evt.to_string());
-                    #[cfg(feature = "desktop")]
-                    if let Some(ref app) = state.app_handle {
-                        use tauri::Emitter;
-                        let _ = app.emit("new-message", start_evt);
-                    }
+                    state.event_bus.publish_message(start_evt);
                     // 通知发送端前端显示上传中
                     let upload_notice = serde_json::json!({
                         "msg_type": "file_status_update",
@@ -395,14 +440,14 @@ async fn start_send_http(
                         "file_status": "uploading",
                     });
                     let _ = state.ws_broadcast.send(upload_notice.to_string());
-                    #[cfg(feature = "desktop")]
-                    if let Some(ref app) = state.app_handle {
-                        use tauri::Emitter;
-                        let _ = app.emit("new-message", upload_notice);
-                    }
-                    return (StatusCode::OK, Json(serde_json::json!({
-                        "success": true, "status": "notifying_browser"
-                    }))).into_response();
+                    state.event_bus.publish_message(upload_notice);
+                    return (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "success": true, "status": "notifying_browser"
+                        })),
+                    )
+                        .into_response();
                 }
                 // 文件丢失 → 通知接收端
                 let notice = serde_json::json!({
@@ -412,20 +457,29 @@ async fn start_send_http(
                 let _ = crate::network::messaging::send_json_via_ws(
                     &payload.receiver_addr,
                     &notice.to_string(),
-                ).await;
-                return (StatusCode::NOT_FOUND, Json(serde_json::json!({
-                    "error": "文件不存在",
-                    "not_found": true,
-                }))).into_response();
+                )
+                .await;
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({
+                        "error": "文件不存在",
+                        "not_found": true,
+                    })),
+                )
+                    .into_response();
             }
 
             // 文件存在，开始上传
             let file = match tokio::fs::File::open(&file_path).await {
                 Ok(f) => f,
                 Err(e) => {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
-                        "error": format!("打开文件失败: {}", e)
-                    }))).into_response();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "error": format!("打开文件失败: {}", e)
+                        })),
+                    )
+                        .into_response();
                 }
             };
 
@@ -436,11 +490,7 @@ async fn start_send_http(
                 "file_status": "uploading",
             });
             let _ = state.ws_broadcast.send(upload_notice.to_string());
-            #[cfg(feature = "desktop")]
-            if let Some(ref app) = state.app_handle {
-                use tauri::Emitter;
-                let _ = app.emit("new-message", upload_notice);
-            }
+            state.event_bus.publish_message(upload_notice);
 
             // 调用同步的上传函数
             let _ = state.pool.clone();
@@ -452,8 +502,7 @@ async fn start_send_http(
 
             let sm_id = payload.sender_msg_id;
             let ws_tx = state.ws_broadcast.clone();
-            #[cfg(feature = "desktop")]
-            let app_clone = state.app_handle.clone();
+            let event_bus = state.event_bus.clone();
             tokio::spawn(async move {
                 upload_to_receiver(
                     &pool,
@@ -463,8 +512,9 @@ async fn start_send_http(
                     &fpath,
                     file,
                     sm_id,
-                    #[cfg(feature = "desktop")] app_clone.clone(),
-                ).await;
+                    event_bus.clone(),
+                )
+                .await;
                 // 上传完成 → 更新发送端 DB 状态
                 let _ = crate::db::update_file_status_by_id(&pool, sm_id, "sent").await;
                 // 通知发送端前端更新 UI
@@ -474,21 +524,23 @@ async fn start_send_http(
                     "file_status": "sent",
                 });
                 let _ = ws_tx.send(update.to_string());
-                #[cfg(feature = "desktop")]
-                if let Some(ref app_ref) = app_clone {
-                    use tauri::Emitter;
-                    let _ = app_ref.emit("new-message", update);
-                }
+                event_bus.publish_message(update);
             });
 
-            (StatusCode::OK, Json(serde_json::json!({"success": true, "status": "sending"}))).into_response()
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"success": true, "status": "sending"})),
+            )
+                .into_response()
         }
-        Err(e) => {
-            (StatusCode::NOT_FOUND, Json(serde_json::json!({
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
                 "error": format!("查询文件记录失败: {}", e),
                 "not_found": true,
-            }))).into_response()
-        }
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -501,7 +553,7 @@ async fn upload_to_receiver(
     _file_path: &str,
     file: tokio::fs::File,
     _sender_msg_id: i64,
-    #[cfg(feature = "desktop")] _app: Option<tauri::AppHandle>,
+    event_bus: CoreEventBus,
 ) {
     // 获取自己的 ID
     let my_id = crate::db::get_user_id(_pool).await.unwrap_or_default();
@@ -518,7 +570,13 @@ async fn upload_to_receiver(
     let mut chunk_index = 0usize;
     let mut offset: usize = 0;
     let start_time = std::time::Instant::now();
-    let client = reqwest::Client::new();
+    let client = match crate::network::lan_http_client(None) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("[WebServer] 无法创建局域网 HTTP 客户端: {error}");
+            return;
+        }
+    };
     let upload_url = format!("http://{}/api/upload", peer_addr);
 
     loop {
@@ -531,17 +589,25 @@ async fn upload_to_receiver(
                 Err(_) => break,
             };
             bytes_read += n;
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
         }
-        if bytes_read == 0 { break; }
+        if bytes_read == 0 {
+            break;
+        }
         buf.truncate(bytes_read);
 
         let speed_mb_s = if chunk_index > 0 {
             let elapsed = start_time.elapsed().as_secs_f64();
             if elapsed > 0.0 {
                 (offset as f64 / (1024.0 * 1024.0)) / elapsed
-            } else { 0.0 }
-        } else { 0.0 };
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
 
         let form = reqwest::multipart::Form::new()
             .text("peer_id", my_id.clone())
@@ -551,7 +617,12 @@ async fn upload_to_receiver(
             .text("chunk_total", total_chunks.to_string())
             .text("sender_msg_id", _sender_msg_id.to_string())
             .text("speed_mb_s", format!("{:.1}", speed_mb_s))
-            .part("chunk", reqwest::multipart::Part::bytes(buf).mime_str("application/octet-stream").unwrap());
+            .part(
+                "chunk",
+                reqwest::multipart::Part::bytes(buf)
+                    .mime_str("application/octet-stream")
+                    .unwrap(),
+            );
 
         if let Ok(resp) = client.post(&upload_url).multipart(form).send().await {
             if resp.status().is_success() {
@@ -564,16 +635,14 @@ async fn upload_to_receiver(
         // 发送进度到发送端前端
         let elapsed = start_time.elapsed().as_secs_f64();
         if elapsed > 0.0 {
-            #[cfg(feature = "desktop")]
-            if let Some(ref app_ref) = _app {
-                use tauri::Emitter;
-                let speed = offset as f64 / (1024.0 * 1024.0) / elapsed;
-                let _ = app_ref.emit("upload_progress", serde_json::json!({
+            let speed = offset as f64 / (1024.0 * 1024.0) / elapsed;
+            event_bus.publish(crate::core_events::CoreEvent::FileTransferProgress(
+                serde_json::json!({
                     "file_name": _file_name,
                     "speed_mb_s": speed,
                     "sender_msg_id": _sender_msg_id,
-                }));
-            }
+                }),
+            ));
         }
     }
 
@@ -591,9 +660,14 @@ async fn request_file_http(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RequestFilePayload>,
 ) -> impl IntoResponse {
-    println!("[手动下载] 接收端请求文件: msg_id={}, 发送端地址={}", payload.sender_msg_id, payload.sender_addr);
+    println!(
+        "[手动下载] 接收端请求文件: msg_id={}, 发送端地址={}",
+        payload.sender_msg_id, payload.sender_addr
+    );
 
-    let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
+    let my_id = crate::db::get_user_id(&state.pool)
+        .await
+        .unwrap_or_default();
 
     let req_msg = serde_json::json!({
         "msg_type": "file_request",
@@ -601,11 +675,17 @@ async fn request_file_http(
         "from_id": my_id,
     });
 
-    match crate::network::messaging::send_json_via_ws(&payload.sender_addr, &req_msg.to_string()).await {
+    match crate::network::messaging::send_json_via_ws(&payload.sender_addr, &req_msg.to_string())
+        .await
+    {
         Ok(_) => Json(serde_json::json!({"success": true})).into_response(),
-        Err(e) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
-            "error": format!("发送 file_request 失败: {}", e)
-        }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": format!("发送 file_request 失败: {}", e)
+            })),
+        )
+            .into_response(),
     }
 }
 
@@ -691,7 +771,10 @@ async fn send_message_http(
             is_online = true;
             // 发现 IP 不一致，强行改写前端的请求载荷！
             if p.addr != payload.peer_addr {
-                println!("[Web Server] 🛡️ 拦截到过期 Web 请求 IP，后端强行纠正: {} -> {}", payload.peer_addr, p.addr);
+                println!(
+                    "[Web Server] 🛡️ 拦截到过期 Web 请求 IP，后端强行纠正: {} -> {}",
+                    payload.peer_addr, p.addr
+                );
                 payload.peer_addr = p.addr.clone();
             }
         }
@@ -825,9 +908,18 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
 
     // 订阅广播频道并转发给此 WebSocket 客户端
     let mut broadcast_rx: broadcast::Receiver<String> = state.ws_broadcast.subscribe();
+    let (direct_tx, mut direct_rx) = tokio::sync::mpsc::channel::<String>(1);
     let forward_handle = tokio::spawn(async move {
         loop {
-            match broadcast_rx.recv().await {
+            let broadcast_message = tokio::select! {
+                direct = direct_rx.recv() => {
+                    let Some(direct) = direct else { break; };
+                    if sender.send(Message::Text(direct)).await.is_err() { break; }
+                    continue;
+                }
+                message = broadcast_rx.recv() => message,
+            };
+            match broadcast_message {
                 Ok(msg) => {
                     if sender.send(Message::Text(msg.into())).await.is_err() {
                         break;
@@ -845,67 +937,117 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
     while let Some(msg) = receiver.next().await {
         match msg {
             Ok(Message::Text(text)) => {
-                println!("[WebSocket] 收到文本消息: {}", text);
+                // Do not log raw frames: notification bodies may contain private data.
 
                 match serde_json::from_str::<serde_json::Value>(&text) {
                     Ok(val) => {
-                        let stream_id = val.get("stream_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-                        let stream_final = val.get("stream_final").and_then(|v| v.as_bool()).unwrap_or(true);
-                        let msg_type = val.get("msg_type").and_then(|v| v.as_str()).unwrap_or("text").to_string();
+                        let notification_kind = val.get("msg_type").and_then(|v| v.as_str());
+                        if notification_kind == Some("notification") {
+                            let result = crate::notification_sync::receive(
+                                val,
+                                text.len(),
+                                &state.pool,
+                                &state.peer_manager,
+                            )
+                            .await;
+                            if direct_tx.send(result.to_string()).await.is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                        if notification_kind == Some("notification_result") {
+                            continue;
+                        }
+                        let stream_id = val
+                            .get("stream_id")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let stream_final = val
+                            .get("stream_final")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true);
+                        let msg_type = val
+                            .get("msg_type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("text")
+                            .to_string();
 
                         if let Some(ref sid) = stream_id {
                             // ── 流式消息 ──
                             // 构建广播消息（保留原字段，统一注入 is_streaming）
                             let mut broadcast_val = val.clone();
                             if let Some(obj) = broadcast_val.as_object_mut() {
-                                obj.insert("is_streaming".to_string(), serde_json::json!(!stream_final));
+                                obj.insert(
+                                    "is_streaming".to_string(),
+                                    serde_json::json!(!stream_final),
+                                );
                                 obj.remove("stream_final");
                             }
                             let broadcast_msg = broadcast_val.to_string();
 
                             // 流式消息不存 DB（除了 text 类型的 stream_final）
                             if stream_final && msg_type == "text" {
-                                if let Ok(message) = serde_json::from_value::<crate::network::messaging::TextMessage>(val.clone()) {
+                                if let Ok(message) = serde_json::from_value::<
+                                    crate::network::messaging::TextMessage,
+                                >(val.clone())
+                                {
                                     match save_message_to_db(&state.pool, &message).await {
                                         Ok(msg_id) => {
-                                            println!("[WebSocket] 流式完成: {} (id={})", message.content.chars().take(40).collect::<String>(), msg_id);
+                                            println!(
+                                                "[WebSocket] 流式完成: {} (id={})",
+                                                message
+                                                    .content
+                                                    .chars()
+                                                    .take(40)
+                                                    .collect::<String>(),
+                                                msg_id
+                                            );
                                             // 重新广播（带 id）
                                             let mut final_val = val.clone();
                                             if let Some(obj) = final_val.as_object_mut() {
-                                                obj.insert("id".to_string(), serde_json::json!(msg_id));
-                                                obj.insert("is_streaming".to_string(), serde_json::json!(false));
+                                                obj.insert(
+                                                    "id".to_string(),
+                                                    serde_json::json!(msg_id),
+                                                );
+                                                obj.insert(
+                                                    "is_streaming".to_string(),
+                                                    serde_json::json!(false),
+                                                );
                                                 obj.remove("stream_final");
                                             }
                                             let final_msg = final_val.to_string();
                                             let _ = state.ws_broadcast.send(final_msg);
-                                            #[cfg(feature = "desktop")]
-                                            if let Some(ref app) = state.app_handle {
-                                                use tauri::Emitter;
-                                                let _ = app.emit("new-message", final_val);
-                                            }
+                                            state.event_bus.publish_message(final_val);
                                         }
-                                        Err(e) => eprintln!("[WebSocket] 保存流式最终消息失败: {}", e)
+                                        Err(e) => {
+                                            eprintln!("[WebSocket] 保存流式最终消息失败: {}", e)
+                                        }
                                     }
                                 }
                             } else {
                                 // 非 final 或非 text 类型：直接广播
                                 println!("[WebSocket] 流式块 ({}, stream={})", msg_type, sid);
                                 let _ = state.ws_broadcast.send(broadcast_msg.clone());
-                                #[cfg(feature = "desktop")]
-                                if let Some(ref app) = state.app_handle {
-                                    use tauri::Emitter;
-                                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&broadcast_msg) {
-                                        let _ = app.emit("new-message", v);
-                                    }
-                                }
+                                // 流式中间块尚未形成数据库提交，不发布 CoreEvent。
                             }
                         } else if msg_type == "file_offer" {
                             // ── 收到文件邀请 ──
-                            let file_name = val.get("file_name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                            let file_size = val.get("file_size").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let file_name = val
+                                .get("file_name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            let file_size =
+                                val.get("file_size").and_then(|v| v.as_u64()).unwrap_or(0);
                             let from_id = val.get("from_id").and_then(|v| v.as_str()).unwrap_or("");
-                            let sender_msg_id = val.get("sender_msg_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                            let from_name = val.get("from_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let sender_msg_id = val
+                                .get("sender_msg_id")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                            let from_name = val
+                                .get("from_name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
 
                             let auto_dl = crate::db::get_auto_download(&state.pool).await;
                             if auto_dl {
@@ -915,18 +1057,26 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                     "sender_msg_id": sender_msg_id,
                                 });
                                 // 需要知道对方的地址来回复，用 from_id 查找 peer
-                                let peer_addr = state.peer_manager.get_all_peers().iter()
+                                let peer_addr = state
+                                    .peer_manager
+                                    .get_all_peers()
+                                    .iter()
                                     .find(|p| p.id == from_id)
                                     .map(|p| p.addr.clone());
                                 if let Some(addr) = peer_addr {
                                     let _ = crate::network::messaging::send_json_via_ws(
-                                        &addr, &accept.to_string(),
-                                    ).await;
+                                        &addr,
+                                        &accept.to_string(),
+                                    )
+                                    .await;
                                 }
                             } else {
                                 // 自动下载关闭 → 创建 offered 记录并通知前端
                                 let timestamp = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs()
+                                    as i64;
                                 if let Ok(msg_id) = crate::db::create_offered_file_record(
                                     &state.pool,
                                     from_id,
@@ -934,7 +1084,9 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                     file_size,
                                     &sender_msg_id.to_string(),
                                     timestamp,
-                                ).await {
+                                )
+                                .await
+                                {
                                     let broadcast_msg = serde_json::json!({
                                         "id": msg_id,
                                         "from_id": from_id,
@@ -947,28 +1099,43 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                         "timestamp": timestamp,
                                     });
                                     let _ = state.ws_broadcast.send(broadcast_msg.to_string());
-                                    #[cfg(feature = "desktop")]
-                                    if let Some(ref app) = state.app_handle {
-                                        use tauri::Emitter;
-                                        let _ = app.emit("new-message", broadcast_msg);
-                                    }
+                                    state.event_bus.publish_message(broadcast_msg);
                                 }
                             }
                         } else if msg_type == "file_accept" {
                             // ── 对方确认接受（auto_download=ON），开始上传 ──
-                            let sender_msg_id = val.get("sender_msg_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                            eprintln!("[WebSocket] 收到 file_accept for msg_id={}, 开始上传", sender_msg_id);
+                            let sender_msg_id = val
+                                .get("sender_msg_id")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                            eprintln!(
+                                "[WebSocket] 收到 file_accept for msg_id={}, 开始上传",
+                                sender_msg_id
+                            );
                             // 更新 DB 状态
-                            let _ = crate::db::update_file_status_by_id(&state.pool, sender_msg_id, "uploading").await;
-
+                            let _ = crate::db::update_file_status_by_id(
+                                &state.pool,
+                                sender_msg_id,
+                                "uploading",
+                            )
+                            .await;
                         } else if msg_type == "file_request" {
                             // ── 对方请求开始发送文件（手动下载） ──
-                            let sender_msg_id = val.get("sender_msg_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let sender_msg_id = val
+                                .get("sender_msg_id")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
                             let from_id = val.get("from_id").and_then(|v| v.as_str()).unwrap_or("");
-                            println!("[手动下载] 发送端收到下载请求: msg_id={}, from={}", sender_msg_id, from_id);
+                            println!(
+                                "[手动下载] 发送端收到下载请求: msg_id={}, from={}",
+                                sender_msg_id, from_id
+                            );
 
                             // 从 peer manager 查找对方地址
-                            let receiver_addr = state.peer_manager.get_all_peers().iter()
+                            let receiver_addr = state
+                                .peer_manager
+                                .get_all_peers()
+                                .iter()
                                 .find(|p| p.id == from_id)
                                 .map(|p| p.addr.clone())
                                 .unwrap_or_default();
@@ -979,23 +1146,24 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                             }
 
                             // 查询发送端文件记录
-                            match crate::db::get_sender_file_by_msg_id(&state.pool, sender_msg_id).await {
+                            match crate::db::get_sender_file_by_msg_id(&state.pool, sender_msg_id)
+                                .await
+                            {
                                 Ok((file_path, fname, fsize)) => {
                                     // 立即更新为 uploading，前端显示「上传中」
                                     let _ = crate::db::update_file_status_by_id(
-                                        &state.pool, sender_msg_id, "uploading",
-                                    ).await;
+                                        &state.pool,
+                                        sender_msg_id,
+                                        "uploading",
+                                    )
+                                    .await;
                                     let update = serde_json::json!({
                                         "msg_type": "file_status_update",
                                         "sender_msg_id": sender_msg_id,
                                         "file_status": "uploading",
                                     });
                                     let _ = state.ws_broadcast.send(update.to_string());
-                                    #[cfg(feature = "desktop")]
-                                    if let Some(ref app) = state.app_handle {
-                                        use tauri::Emitter;
-                                        let _ = app.emit("new-message", update);
-                                    }
+                                    state.event_bus.publish_message(update);
 
                                     if file_path.is_empty() {
                                         // ── Web 端：文件在浏览器中，通知浏览器上传 ──
@@ -1008,11 +1176,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             "receiver_addr": receiver_addr,
                                         });
                                         let _ = state.ws_broadcast.send(start_evt.to_string());
-                                        #[cfg(feature = "desktop")]
-                                        if let Some(ref app) = state.app_handle {
-                                            use tauri::Emitter;
-                                            let _ = app.emit("new-message", start_evt);
-                                        }
+                                        state.event_bus.publish_message(start_evt);
                                     } else if file_path.starts_with("content://") {
                                         // ── Android SAF 文件（URI 已持久化权限） ──
                                         println!("[手动下载] Android content URI 文件: msg_id={}, uri={}", sender_msg_id, file_path);
@@ -1021,37 +1185,46 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             use crate::android_fd::AndroidFile;
                                             match AndroidFile::from_content_uri(&file_path) {
                                                 Ok(af) => {
-                                                    let file = tokio::fs::File::from_std(af.into_file());
+                                                    let file =
+                                                        tokio::fs::File::from_std(af.into_file());
                                                     let pool = state.pool.clone();
                                                     let raddr = receiver_addr.clone();
                                                     let ws_tx = state.ws_broadcast.clone();
-                                                    #[cfg(feature = "desktop")]
-                                                    let app_clone = state.app_handle.clone();
+                                                    let event_bus = state.event_bus.clone();
                                                     let fname2 = fname.clone();
                                                     tokio::spawn(async move {
                                                         upload_to_receiver(
-                                                            &pool, &raddr, &fname2, fsize as usize, &file_path, file,
+                                                            &pool,
+                                                            &raddr,
+                                                            &fname2,
+                                                            fsize as usize,
+                                                            &file_path,
+                                                            file,
                                                             sender_msg_id,
-                                                            #[cfg(feature = "desktop")] app_clone.clone(),
-                                                        ).await;
-                                                        let _ = crate::db::update_file_status_by_id(
-                                                            &pool, sender_msg_id, "sent",
-                                                        ).await;
+                                                            event_bus.clone(),
+                                                        )
+                                                        .await;
+                                                        let _ =
+                                                            crate::db::update_file_status_by_id(
+                                                                &pool,
+                                                                sender_msg_id,
+                                                                "sent",
+                                                            )
+                                                            .await;
                                                         let update = serde_json::json!({
                                                             "msg_type": "file_status_update",
                                                             "sender_msg_id": sender_msg_id,
                                                             "file_status": "sent",
                                                         });
                                                         let _ = ws_tx.send(update.to_string());
-                                                        #[cfg(feature = "desktop")]
-                                                        if let Some(ref app_ref) = app_clone {
-                                                            use tauri::Emitter;
-                                                            let _ = app_ref.emit("new-message", update);
-                                                        }
+                                                        event_bus.publish_message(update);
                                                     });
                                                 }
                                                 Err(e) => {
-                                                    eprintln!("[手动下载] content URI 打开失败: {}", e);
+                                                    eprintln!(
+                                                        "[手动下载] content URI 打开失败: {}",
+                                                        e
+                                                    );
                                                     let notice = serde_json::json!({
                                                         "msg_type": "file_not_found",
                                                         "sender_msg_id": sender_msg_id,
@@ -1072,41 +1245,52 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             let _ = crate::network::messaging::send_json_via_ws(
                                                 &receiver_addr,
                                                 &notice.to_string(),
-                                            ).await;
+                                            )
+                                            .await;
                                         }
                                     } else if file_path.starts_with("fd:") {
                                         // ── Android Share Intent 文件（FD 缓存） ──
-                                        println!("[手动下载] Share Intent FD 缓存文件: msg_id={}", sender_msg_id);
+                                        println!(
+                                            "[手动下载] Share Intent FD 缓存文件: msg_id={}",
+                                            sender_msg_id
+                                        );
                                         #[cfg(target_os = "android")]
                                         {
-                                            match crate::android_fd::duplicate_cached_file(sender_msg_id) {
+                                            match crate::android_fd::duplicate_cached_file(
+                                                sender_msg_id,
+                                            ) {
                                                 Some((file, cached_name, cached_size)) => {
                                                     let pool = state.pool.clone();
                                                     let raddr = receiver_addr.clone();
                                                     let ws_tx = state.ws_broadcast.clone();
-                                                    #[cfg(feature = "desktop")]
-                                                    let app_clone = state.app_handle.clone();
+                                                    let event_bus = state.event_bus.clone();
                                                     let fname2 = cached_name;
                                                     tokio::spawn(async move {
                                                         upload_to_receiver(
-                                                            &pool, &raddr, &fname2, cached_size as usize, &file_path, file,
+                                                            &pool,
+                                                            &raddr,
+                                                            &fname2,
+                                                            cached_size as usize,
+                                                            &file_path,
+                                                            file,
                                                             sender_msg_id,
-                                                            #[cfg(feature = "desktop")] app_clone.clone(),
-                                                        ).await;
-                                                        let _ = crate::db::update_file_status_by_id(
-                                                            &pool, sender_msg_id, "sent",
-                                                        ).await;
+                                                            event_bus.clone(),
+                                                        )
+                                                        .await;
+                                                        let _ =
+                                                            crate::db::update_file_status_by_id(
+                                                                &pool,
+                                                                sender_msg_id,
+                                                                "sent",
+                                                            )
+                                                            .await;
                                                         let update = serde_json::json!({
                                                             "msg_type": "file_status_update",
                                                             "sender_msg_id": sender_msg_id,
                                                             "file_status": "sent",
                                                         });
                                                         let _ = ws_tx.send(update.to_string());
-                                                        #[cfg(feature = "desktop")]
-                                                        if let Some(ref app_ref) = app_clone {
-                                                            use tauri::Emitter;
-                                                            let _ = app_ref.emit("new-message", update);
-                                                        }
+                                                        event_bus.publish_message(update);
                                                     });
                                                 }
                                                 None => {
@@ -1131,11 +1315,15 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                             let _ = crate::network::messaging::send_json_via_ws(
                                                 &receiver_addr,
                                                 &notice.to_string(),
-                                            ).await;
+                                            )
+                                            .await;
                                         }
                                     } else if !std::path::Path::new(&file_path).exists() {
                                         // ── 普通文件不存在 ──
-                                        println!("[手动下载] 文件已丢失: msg_id={}, path={}", sender_msg_id, file_path);
+                                        println!(
+                                            "[手动下载] 文件已丢失: msg_id={}, path={}",
+                                            sender_msg_id, file_path
+                                        );
                                         let notice = serde_json::json!({
                                             "msg_type": "file_not_found",
                                             "sender_msg_id": sender_msg_id,
@@ -1143,7 +1331,8 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                         let _ = crate::network::messaging::send_json_via_ws(
                                             &receiver_addr,
                                             &notice.to_string(),
-                                        ).await;
+                                        )
+                                        .await;
                                     } else {
                                         // ── 普通文件存在，开始上传 ──
                                         println!("[手动下载] 文件存在，开始上传: msg_id={}, file={}, to={}", sender_msg_id, file_path, receiver_addr);
@@ -1152,19 +1341,27 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                 let pool = state.pool.clone();
                                                 let raddr = receiver_addr.clone();
                                                 let ws_tx = state.ws_broadcast.clone();
-                                                #[cfg(feature = "desktop")]
-                                                let app_clone = state.app_handle.clone();
+                                                let event_bus = state.event_bus.clone();
                                                 let fname2 = fname.clone();
                                                 tokio::spawn(async move {
                                                     upload_to_receiver(
-                                                        &pool, &raddr, &fname2, fsize as usize, &file_path, file,
+                                                        &pool,
+                                                        &raddr,
+                                                        &fname2,
+                                                        fsize as usize,
+                                                        &file_path,
+                                                        file,
                                                         sender_msg_id,
-                                                        #[cfg(feature = "desktop")] app_clone.clone(),
-                                                    ).await;
+                                                        event_bus.clone(),
+                                                    )
+                                                    .await;
                                                     // 上传完成 → 更新发送端 DB 状态
                                                     let _ = crate::db::update_file_status_by_id(
-                                                        &pool, sender_msg_id, "sent",
-                                                    ).await;
+                                                        &pool,
+                                                        sender_msg_id,
+                                                        "sent",
+                                                    )
+                                                    .await;
                                                     // 通知发送端前端更新 UI
                                                     let update = serde_json::json!({
                                                         "msg_type": "file_status_update",
@@ -1172,11 +1369,7 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                         "file_status": "sent",
                                                     });
                                                     let _ = ws_tx.send(update.to_string());
-                                                    #[cfg(feature = "desktop")]
-                                                    if let Some(ref app_ref) = app_clone {
-                                                        use tauri::Emitter;
-                                                        let _ = app_ref.emit("new-message", update);
-                                                    }
+                                                    event_bus.publish_message(update);
                                                 });
                                             }
                                             Err(_) => {
@@ -1185,16 +1378,21 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                                     "msg_type": "file_not_found",
                                                     "sender_msg_id": sender_msg_id,
                                                 });
-                                                let _ = crate::network::messaging::send_json_via_ws(
-                                                    &receiver_addr,
-                                                    &notice.to_string(),
-                                                ).await;
+                                                let _ =
+                                                    crate::network::messaging::send_json_via_ws(
+                                                        &receiver_addr,
+                                                        &notice.to_string(),
+                                                    )
+                                                    .await;
                                             }
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    println!("[手动下载] 查询文件记录失败: msg_id={}, err={}", sender_msg_id, e);
+                                    println!(
+                                        "[手动下载] 查询文件记录失败: msg_id={}, err={}",
+                                        sender_msg_id, e
+                                    );
                                     let notice = serde_json::json!({
                                         "msg_type": "file_not_found",
                                         "sender_msg_id": sender_msg_id,
@@ -1202,18 +1400,23 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                     let _ = crate::network::messaging::send_json_via_ws(
                                         &receiver_addr,
                                         &notice.to_string(),
-                                    ).await;
+                                    )
+                                    .await;
                                 }
                             }
                         } else if msg_type == "file_not_found" {
                             // ── 发送端告知文件已丢失 ──
-                            let sender_msg_id = val.get("sender_msg_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let sender_msg_id = val
+                                .get("sender_msg_id")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
                             println!("[WebSocket] 收到 file_not_found: msg_id={}", sender_msg_id);
                             let _ = crate::db::update_file_status_by_sender_msg_id(
                                 &state.pool,
                                 &sender_msg_id.to_string(),
                                 "invalid",
-                            ).await;
+                            )
+                            .await;
 
                             // 通知前端更新状态
                             let update = serde_json::json!({
@@ -1222,50 +1425,43 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                 "file_status": "invalid",
                             });
                             let _ = state.ws_broadcast.send(update.to_string());
-                            #[cfg(feature = "desktop")]
-                            if let Some(ref app) = state.app_handle {
-                                use tauri::Emitter;
-                                let _ = app.emit("new-message", update);
-                            }
+                            state.event_bus.publish_message(update);
                         } else {
                             // ── 非流式消息：尝试作为 TextMessage 存 DB ──
-                            if let Ok(message) = serde_json::from_value::<crate::network::messaging::TextMessage>(val.clone()) {
+                            if let Ok(message) = serde_json::from_value::<
+                                crate::network::messaging::TextMessage,
+                            >(val.clone())
+                            {
                                 match save_message_to_db(&state.pool, &message).await {
                                     Ok(msg_id) => {
-                                        println!("[WebSocket] 消息已保存: {} 说: {} (id={})", message.from_name, message.content, msg_id);
-                                        let broadcast_msg = serde_json::json!({
+                                        println!(
+                                            "[WebSocket] 消息已保存: {} 说: {} (id={})",
+                                            message.from_name, message.content, msg_id
+                                        );
+                                        let broadcast_value = serde_json::json!({
                                             "id": msg_id,
                                             "from_id": message.from_id,
                                             "from_name": message.from_name,
                                             "content": message.content,
                                             "timestamp": message.timestamp,
                                             "msg_type": message.msg_type,
-                                        }).to_string();
-                                        let _ = state.ws_broadcast.send(broadcast_msg);
-                                        #[cfg(feature = "desktop")]
-                                        if let Some(ref app) = state.app_handle {
-                                            use tauri::Emitter;
-                                            let _ = app.emit(
-                                                "new-message",
-                                                serde_json::json!({
-                                                    "id": msg_id,
-                                                    "from_id": message.from_id,
-                                                    "from_name": message.from_name,
-                                                    "content": message.content,
-                                                    "timestamp": message.timestamp,
-                                                    "msg_type": message.msg_type,
-                                                }),
-                                            );
-                                        }
+                                        });
+                                        let _ =
+                                            state.ws_broadcast.send(broadcast_value.to_string());
+                                        // save_message_to_db 已提交后才发布接收事件。
+                                        state.event_bus.publish_message(broadcast_value);
                                     }
-                                    Err(e) => eprintln!("[WebSocket] 保存消息失败: {}", e)
+                                    Err(e) => eprintln!("[WebSocket] 保存消息失败: {}", e),
                                 }
                             } else {
-                                eprintln!("[WebSocket] 无法解析消息: {}", &text[..text.len().min(100)]);
+                                eprintln!(
+                                    "[WebSocket] 无法解析消息: {}",
+                                    &text[..text.len().min(100)]
+                                );
                             }
                         }
                     }
-                    Err(e) => eprintln!("[WebSocket] JSON 解析失败: {}", e)
+                    Err(e) => eprintln!("[WebSocket] JSON 解析失败: {}", e),
                 }
             }
             Ok(Message::Close(_)) => {
@@ -1455,34 +1651,52 @@ async fn upload_file_http(
                     candidate, file_size
                 );
 
+                // 秒传也必须提交真实的最终保存地址，不能丢弃 SAF 导出返回的
+                // content URI。导出失败时保留 staging 文件并明确标记 save_failed。
+                let (stored_path, stored_status, save_error) =
+                    resolve_received_file_destination(&state.pool, &candidate, &file_name).await;
+
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs() as i64;
 
                 // 秒传路径：先检查 offered 记录
-                let instant_path = candidate.to_str().unwrap_or("").to_string();
                 let updated_offered = crate::db::find_and_update_offered_record(
                     &state.pool,
                     &sender_id,
                     &file_name,
-                    &instant_path,
+                    &stored_path,
                 )
                 .await
                 .unwrap_or(None);
 
                 if let Some((existing_id, _)) = updated_offered {
                     // 立即标记为 accepted（文件已完整）
-                    let _ = crate::db::update_file_status_by_id(
-                        &state.pool, existing_id, "accepted",
+                    if let Err(error) = crate::db::update_file_status_by_id(
+                        &state.pool,
+                        existing_id,
+                        &stored_status,
                     )
-                    .await;
+                    .await
+                    {
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: format!("秒传状态提交失败: {error}"),
+                            }),
+                        )
+                            .into_response();
+                    }
                     println!(
-                        "[Web Server] ✓ 秒传: 已更新 offered 记录(ID={}) 为 accepted",
-                        existing_id
+                        "[Web Server] ✓ 秒传: 已更新 offered 记录(ID={}) 为 {}，路径={}",
+                        existing_id, stored_status, stored_path
                     );
 
-                    let sender_name = state.peer_manager.get_all_peers().iter()
+                    let sender_name = state
+                        .peer_manager
+                        .get_all_peers()
+                        .iter()
                         .find(|p| p.id == sender_id)
                         .map(|p| p.name.clone())
                         .unwrap_or_default();
@@ -1494,27 +1708,24 @@ async fn upload_file_http(
                         "from_name": sender_name,
                         "content": file_name,
                         "msg_type": "file",
-                        "file_status": "accepted",
-                        "file_path": instant_path,
+                        "file_status": stored_status,
+                        "file_path": stored_path,
+                        "file_save_error": save_error,
                         "file_size": file_size,
-                        "file_id": instant_path.split('/').last().unwrap_or(&file_name),
+                        "file_id": file_name,
                         "file_name": file_name,
                         "sender_msg_id": sender_msg_id,
                         "timestamp": std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
                     });
                     let _ = state.ws_broadcast.send(full_msg.to_string());
-                    #[cfg(feature = "desktop")]
-                    if let Some(ref app) = state.app_handle {
-                        use tauri::Emitter;
-                        let _ = app.emit("new-message", full_msg);
-                    }
+                    state.event_bus.publish_message(full_msg);
                 } else {
                     match crate::db::create_received_file_record(
                         &state.pool,
                         sender_id.clone(),
                         file_name.clone(),
-                        instant_path.clone(),
+                        stored_path.clone(),
                         file_size,
                         timestamp,
                         &sender_msg_id,
@@ -1523,15 +1734,29 @@ async fn upload_file_http(
                     {
                         Ok(msg_id) => {
                             // 立即标记为 accepted（文件已完整）
-                            let _ = crate::db::update_file_status_by_id(
-                                &state.pool, msg_id, "accepted",
+                            if let Err(error) = crate::db::update_file_status_by_id(
+                                &state.pool,
+                                msg_id,
+                                &stored_status,
                             )
-                            .await;
+                            .await
+                            {
+                                return (
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Json(ErrorResponse {
+                                        error: format!("秒传状态提交失败: {error}"),
+                                    }),
+                                )
+                                    .into_response();
+                            }
                             println!(
-                                "[Web Server] ✓ 秒传记录已创建并标记为 accepted，ID: {}",
-                                msg_id
+                                "[Web Server] ✓ 秒传记录已创建并标记为 {}，ID: {}，路径={}",
+                                stored_status, msg_id, stored_path
                             );
-                            let sender_name = state.peer_manager.get_all_peers().iter()
+                            let sender_name = state
+                                .peer_manager
+                                .get_all_peers()
+                                .iter()
                                 .find(|p| p.id == sender_id)
                                 .map(|p| p.name.clone())
                                 .unwrap_or_default();
@@ -1542,21 +1767,18 @@ async fn upload_file_http(
                                 "from_name": sender_name,
                                 "content": file_name,
                                 "msg_type": "file",
-                                "file_status": "accepted",
-                                "file_path": instant_path,
+                                "file_status": stored_status,
+                                "file_path": stored_path,
+                                "file_save_error": save_error,
                                 "file_size": file_size,
-                                "file_id": instant_path.split('/').last().unwrap_or(&file_name),
+                                "file_id": file_name,
                                 "file_name": file_name,
                                 "sender_msg_id": sender_msg_id,
                                 "timestamp": std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
                             });
                             let _ = state.ws_broadcast.send(full_msg.to_string());
-                            #[cfg(feature = "desktop")]
-                            if let Some(ref app) = state.app_handle {
-                                use tauri::Emitter;
-                                let _ = app.emit("new-message", full_msg);
-                            }
+                            state.event_bus.publish_message(full_msg);
                         }
                         Err(e) => {
                             eprintln!("[Web Server] ✗ 秒传记录创建失败: {}", e);
@@ -1745,9 +1967,7 @@ async fn upload_file_http(
         .unwrap_or(None);
 
         let record_id = if let Some((found_id, _)) = updated_offered {
-            println!(
-                "[Web Server] ✓ 已更新 offered 记录为 downloading，无需新建"
-            );
+            println!("[Web Server] ✓ 已更新 offered 记录为 downloading，无需新建");
             found_id
         } else {
             // 没有 offered 记录 → 新建接收记录（含 sender_msg_id，用于 DOM 查找）
@@ -1777,7 +1997,10 @@ async fn upload_file_http(
         };
 
         // 查询发送者名称
-        let sender_name = state.peer_manager.get_all_peers().iter()
+        let sender_name = state
+            .peer_manager
+            .get_all_peers()
+            .iter()
             .find(|p| p.id == sender_id)
             .map(|p| p.name.clone())
             .unwrap_or_default();
@@ -1797,11 +2020,7 @@ async fn upload_file_http(
                 "timestamp": timestamp,
             });
             let _ = state.ws_broadcast.send(init_msg.to_string());
-            #[cfg(feature = "desktop")]
-            if let Some(ref app) = state.app_handle {
-                use tauri::Emitter;
-                let _ = app.emit("new-message", init_msg);
-            }
+            state.event_bus.publish_message(init_msg);
         }
     }
 
@@ -1815,11 +2034,7 @@ async fn upload_file_http(
             "total": file_size,
         });
         let _ = state.ws_broadcast.send(progress_msg.to_string());
-        #[cfg(feature = "desktop")]
-        if let Some(ref app) = state.app_handle {
-            use tauri::Emitter;
-            let _ = app.emit("new-message", progress_msg);
-        }
+        state.event_bus.publish_message(progress_msg);
     }
 
     // 检查是否是最后一块
@@ -1836,24 +2051,50 @@ async fn upload_file_http(
                     "[Web Server] ✓ 临时文件已重命名为最终文件: {:?}",
                     final_path
                 );
-                match crate::db::update_file_status(&state.pool, &final_file_name, "accepted").await
+
+                let (stored_path, stored_status, save_error) =
+                    resolve_received_file_destination(&state.pool, &final_path, &final_file_name)
+                        .await;
+                let final_path_string = final_path.to_string_lossy().into_owned();
+
+                match crate::db::update_file_status_by_path(
+                    &state.pool,
+                    &final_path_string,
+                    &stored_path,
+                    &stored_status,
+                )
+                .await
                 {
                     Ok(_) => {
-                        println!("[Web Server] ✓ 文件状态已更新为 accepted");
+                        println!(
+                            "[Web Server] ✓ 文件状态已更新为 {}, 路径={}",
+                            stored_status, stored_path
+                        );
 
                         // 通知前端刷新（广播完整消息对象，让前端重新渲染）
                         let msg_id = crate::db::get_latest_msg_id_by_file(
-                            &state.pool, &sender_id, &final_file_name,
-                        ).await.unwrap_or(0);
+                            &state.pool,
+                            &sender_id,
+                            &final_file_name,
+                        )
+                        .await
+                        .unwrap_or(0);
                         let sender_msg_id = crate::db::get_sender_msg_id_by_file(
-                            &state.pool, &sender_id, &final_file_name,
-                        ).await.unwrap_or_default();
+                            &state.pool,
+                            &sender_id,
+                            &final_file_name,
+                        )
+                        .await
+                        .unwrap_or_default();
                         let file_id = std::path::Path::new(&final_file_name)
                             .file_name()
                             .and_then(|s| s.to_str())
                             .unwrap_or(&final_file_name)
                             .to_string();
-                        let sender_name = state.peer_manager.get_all_peers().iter()
+                        let sender_name = state
+                            .peer_manager
+                            .get_all_peers()
+                            .iter()
                             .find(|p| p.id == sender_id)
                             .map(|p| p.name.clone())
                             .unwrap_or_default();
@@ -1863,8 +2104,9 @@ async fn upload_file_http(
                             "from_name": sender_name,
                             "content": final_file_name,
                             "msg_type": "file",
-                            "file_status": "accepted",
-                            "file_path": final_path.to_str().unwrap_or(""),
+                            "file_status": stored_status,
+                            "file_path": stored_path,
+                            "file_save_error": save_error,
                             "file_size": file_size,
                             "file_id": file_id,
                             "file_name": final_file_name,
@@ -1872,37 +2114,10 @@ async fn upload_file_http(
                             "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
                         });
                         let _ = state.ws_broadcast.send(full_msg.to_string());
-                        #[cfg(feature = "desktop")]
-                        if let Some(app) = &state.app_handle {
-                            // 查一下这条消息的 ID
-                            let msg_id = crate::db::get_latest_msg_id_by_file(
-                                &state.pool,
-                                &sender_id,
-                                &final_file_name,
-                            )
-                            .await;
-                            #[cfg(feature = "desktop")]
-                            use tauri::Emitter;
-                        let sender_name = state.peer_manager.get_all_peers().iter()
-                            .find(|p| p.id == sender_id)
-                            .map(|p| p.name.clone())
-                            .unwrap_or_default();
-                            let _ = app.emit(
-                            "new-message",
-                            serde_json::json!({
-                                "id": msg_id,
-                                "from_id": sender_id,
-                                "from_name": sender_name,
-                                "msg_type": "file",
-                                "file_status": "accepted",
-                                "file_path": final_path.to_str().unwrap_or(""),
-                                "file_size": file_size,
-                                "content": final_file_name,
-                                "file_name": final_file_name,
-                                "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
-                            }),
+                        // update_received_file_complete 已提交后才发布文件完成事件。
+                        state.event_bus.publish(
+                            crate::core_events::CoreEvent::FileTransferCompleted(full_msg),
                         );
-                        }
                     }
                     Err(e) => eprintln!("[Web Server] ✗ 更新文件状态失败: {}", e),
                 }
@@ -2001,21 +2216,14 @@ async fn accept_file_http(
             .into_response();
     }
 
-    // 确定最终保存路径
+    // Android 的公开目标可能是 content URI，实际接收/移动仍在应用专属 staging 中完成。
+    #[cfg(target_os = "android")]
+    let final_path = get_download_dir(&state.pool).await.join(&file_name);
+    #[cfg(not(target_os = "android"))]
     let final_path = if let Some(path) = payload.save_path {
         std::path::PathBuf::from(path).join(&file_name)
     } else {
-        let download_path = crate::db::get_download_path(&state.pool)
-            .await
-            .unwrap_or_else(|_| {
-                std::env::temp_dir()
-                    .join("lanchat_downloads")
-                    .to_str()
-                    .unwrap()
-                    .to_string()
-            });
-        println!("[Web Server] 使用默认下载路径: {}", download_path);
-        std::path::PathBuf::from(download_path).join(&file_name)
+        get_download_dir(&state.pool).await.join(&file_name)
     };
 
     println!("[Web Server] 最终路径: {:?}", final_path);
@@ -2062,14 +2270,13 @@ async fn accept_file_http(
         println!("[Web Server] ✓ 文件已移动到目标位置");
     }
 
+    let (stored_path, stored_status, save_error) =
+        resolve_received_file_destination(&state.pool, &final_path, &file_name).await;
+
     // 更新数据库状态
-    if let Err(e) = crate::db::update_file_status_by_path(
-        &state.pool,
-        &temp_path,
-        final_path.to_str().unwrap(),
-        "accepted",
-    )
-    .await
+    if let Err(e) =
+        crate::db::update_file_status_by_path(&state.pool, &temp_path, &stored_path, &stored_status)
+            .await
     {
         println!("[Web Server] ✗ 更新数据库失败: {}", e);
         return (
@@ -2081,10 +2288,15 @@ async fn accept_file_http(
             .into_response();
     }
 
-    println!("[Web Server] ✓ 文件已接受并保存到: {:?}", final_path);
+    println!(
+        "[Web Server] ✓ 文件已接受，状态={}, 保存位置={}",
+        stored_status, stored_path
+    );
     Json(serde_json::json!({
         "success": true,
-        "path": final_path.to_str().unwrap()
+        "path": stored_path,
+        "file_status": stored_status,
+        "file_save_error": save_error,
     }))
     .into_response()
 }
@@ -2108,6 +2320,32 @@ async fn download_file_http(
     .bind(&file_id)
     .fetch_optional(&state.pool)
     .await;
+
+    // A received SAF document is already identified by the existing message lookup.
+    // Read only that stored URI through the existing permission-aware Android bridge;
+    // never treat a content URI as a filesystem path or accept an arbitrary URI here.
+    #[cfg(target_os = "android")]
+    if let Ok(Some(uri)) = &file_path_result {
+        if uri.starts_with("content://") {
+            let file = match crate::android_fd::AndroidFile::from_content_uri(uri) {
+                Ok(file) => tokio::fs::File::from_std(file.into_file()),
+                Err(_) => {
+                    return Response::builder()
+                        .status(StatusCode::FORBIDDEN)
+                        .body(Body::from("文件不可访问或目录权限已失效"))
+                        .unwrap();
+                }
+            };
+            return Response::builder()
+                .header(
+                    header::CONTENT_TYPE,
+                    mime_guess::from_path(uri).first_or_octet_stream().as_ref(),
+                )
+                .header(header::CONTENT_DISPOSITION, "inline")
+                .body(Body::from_stream(tokio_util::io::ReaderStream::new(file)))
+                .unwrap();
+        }
+    }
 
     let file_path = match file_path_result {
         Ok(Some(path)) => {
@@ -2166,12 +2404,67 @@ async fn download_file_http(
 
 // 获取下载目录
 async fn get_download_dir(pool: &Pool<Sqlite>) -> std::path::PathBuf {
-    // 从数据库读取配置
-    match crate::db::get_download_path(pool).await {
+    // Android 返回应用专属 staging 目录；桌面端返回用户配置的下载目录。
+    match crate::db::get_receive_directory(pool).await {
         Ok(path) => std::path::PathBuf::from(path),
         Err(_) => {
             // 默认路径
             std::env::temp_dir().join("lanchat_downloads")
+        }
+    }
+}
+
+async fn export_to_configured_android_directory(
+    pool: &Pool<Sqlite>,
+    source_path: &std::path::Path,
+    file_name: &str,
+) -> Result<Option<String>, String> {
+    #[cfg(target_os = "android")]
+    {
+        let tree_uri = crate::db::get_download_path(pool).await?;
+        if !tree_uri.starts_with("content://") {
+            return Ok(None);
+        }
+
+        let source_path = source_path
+            .to_str()
+            .ok_or_else(|| "接收文件路径不是有效 UTF-8".to_string())?
+            .to_string();
+        let file_name = file_name.to_string();
+        let exported_uri = tokio::task::spawn_blocking(move || {
+            crate::android_fd::export_received_file(&tree_uri, &source_path, &file_name)
+        })
+        .await
+        .map_err(|error| format!("Android 文件导出任务失败: {error}"))??;
+        println!("[Web Server] ✓ 文件已导出到 Android 系统目录: {exported_uri}");
+        Ok(Some(exported_uri))
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (pool, source_path, file_name);
+        Ok(None)
+    }
+}
+
+/// 将接收完成的 staging 文件映射到聊天记录最终应保存的地址。
+/// Android SAF 导出成功时必须持久化系统返回的 content URI；导出失败时保留
+/// staging 文件作为可打开/可分享的兜底，避免传输成功却丢失访问入口。
+async fn resolve_received_file_destination(
+    pool: &Pool<Sqlite>,
+    staging_path: &std::path::Path,
+    file_name: &str,
+) -> (String, String, Option<String>) {
+    let staging_path_string = staging_path.to_string_lossy().into_owned();
+    match export_to_configured_android_directory(pool, staging_path, file_name).await {
+        Ok(Some(exported_uri)) => (exported_uri, "accepted".to_string(), None),
+        Ok(None) => (staging_path_string, "accepted".to_string(), None),
+        Err(error) => {
+            eprintln!(
+                "[Web Server] 文件已接收，但导出到配置目录失败；保留 staging 文件: {}",
+                error
+            );
+            (staging_path_string, "save_failed".to_string(), Some(error))
         }
     }
 }
@@ -2218,16 +2511,14 @@ async fn create_upload_record_http(
     )
     .await
     {
-        Ok(msg_id) => {
-            Json(serde_json::json!({
-                "success": true,
-                "msg_id": msg_id,
-                "is_online": is_online,
-                "file_status": file_status,
-                "status": overall_status,
-            }))
-            .into_response()
-        }
+        Ok(msg_id) => Json(serde_json::json!({
+            "success": true,
+            "msg_id": msg_id,
+            "is_online": is_online,
+            "file_status": file_status,
+            "status": overall_status,
+        }))
+        .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e})),
@@ -2293,9 +2584,7 @@ async fn mark_upload_complete_http(
     );
 
     match crate::db::update_file_status_by_id(&state.pool, payload.msg_id, &payload.status).await {
-        Ok(_) => {
-            Json(serde_json::json!({"success": true})).into_response()
-        }
+        Ok(_) => Json(serde_json::json!({"success": true})).into_response(),
         Err(e) => {
             eprintln!("[Web Server] ✗ 标记上传完成失败: {}", e);
             (
@@ -2588,13 +2877,12 @@ async fn delete_user_http(
         }
     };
 
-    match crate::db::delete_user_and_history(&state.pool, &my_id, &payload.peer_id).await {
-        Ok(_) => {
-            // 同步删除 Web Server 内存中的用户状态，防止轮询再次下发
-            state.peer_manager.remove_peer(&payload.peer_id);
-
-            (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
-        }
+    match state
+        .peer_manager
+        .delete_user_and_history(&state.pool, &my_id, &payload.peer_id)
+        .await
+    {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
@@ -2647,17 +2935,15 @@ async fn serve_media_http(
     if params.uri.starts_with("fd:") {
         let msg_id_str = &params.uri["fd:".len()..];
         match msg_id_str.parse::<i64>() {
-            Ok(msg_id) => {
-                match crate::android_fd::duplicate_cached_file(msg_id) {
-                    Some((f, _name, _size)) => {
-                        tokio_file = f;
-                    }
-                    None => {
-                        println!("[Media] FD 缓存未命中: msg_id={}", msg_id);
-                        return (StatusCode::GONE, "FD cache miss").into_response();
-                    }
+            Ok(msg_id) => match crate::android_fd::duplicate_cached_file(msg_id) {
+                Some((f, _name, _size)) => {
+                    tokio_file = f;
                 }
-            }
+                None => {
+                    println!("[Media] FD 缓存未命中: msg_id={}", msg_id);
+                    return (StatusCode::GONE, "FD cache miss").into_response();
+                }
+            },
             Err(_) => {
                 println!("[Media] 无效的 fd: 路径: {}", params.uri);
                 return (StatusCode::BAD_REQUEST, "Invalid fd: path").into_response();

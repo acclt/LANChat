@@ -112,6 +112,14 @@ async function addUserToList(id, name, addr, isOffline = false) {
   li.dataset.id = id;
   li.dataset.name = name;
   li.dataset.addr = addr;
+  if (document.body.classList.contains("windows-app")) {
+    li.tabIndex = 0;
+    li.setAttribute("role", "button");
+    li.title = name;
+    li.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); li.click(); }
+    });
+  }
   li.innerHTML = `
         <span class="user-name">${name}</span>
         <span class="user-addr">${addr}</span>
@@ -195,13 +203,16 @@ function updateUserStatus(item, name, addr, isOffline) {
   const nameSpan = item.querySelector(".user-name");
   const addrSpan = item.querySelector(".user-addr");
 
-  if (nameSpan) nameSpan.textContent = name;
-  if (addrSpan) addrSpan.textContent = addr;
-  if (statusSpan) statusSpan.textContent = isOffline ? "OFF" : "";
+  if (nameSpan && nameSpan.textContent !== name) nameSpan.textContent = name;
+  if (addrSpan && addrSpan.textContent !== addr) addrSpan.textContent = addr;
+  const nextStatus = isOffline ? "OFF" : "";
+  if (statusSpan && statusSpan.textContent !== nextStatus) {
+    statusSpan.textContent = nextStatus;
+  }
 
   // 实时更新 DOM 的隐式数据属性
-  item.dataset.name = name;
-  item.dataset.addr = addr;
+  if (item.dataset.name !== name) item.dataset.name = name;
+  if (item.dataset.addr !== addr) item.dataset.addr = addr;
 
   const wasOffline = item.classList.contains("offline");
 
@@ -670,6 +681,7 @@ function initAndroidAttachmentPicker() {
 
 // 打开聊天
 function openChat(peer) {
+  window.NotificationUI?.leave();
   const chatContainer = document.getElementById("chat-container");
   if (!chatContainer) return;
 
@@ -1013,6 +1025,85 @@ function isImageFile(fileName) {
   const lowerFileName = fileName.toLowerCase();
 
   return imageExtensions.some((ext) => lowerFileName.endsWith(ext));
+}
+
+// 将 Android SAF 的 content URI 转成用户可理解的保存位置。
+function formatAndroidStoredPath(filePath, fileName) {
+  if (!filePath) return fileName || "未知位置";
+
+  if (filePath.startsWith("fd:")) {
+    return `临时文件/${fileName || "未命名文件"}`;
+  }
+
+  if (filePath.startsWith("content://")) {
+    try {
+      const decoded = decodeURIComponent(filePath);
+      const documentMarker = "/document/";
+      const documentIndex = decoded.lastIndexOf(documentMarker);
+      if (documentIndex >= 0) {
+        const documentId = decoded.slice(documentIndex + documentMarker.length);
+        if (documentId.startsWith("primary:")) {
+          return `内部存储/${documentId.slice("primary:".length)}`;
+        }
+        if (documentId.includes(":")) {
+          const separator = documentId.indexOf(":");
+          const volume = documentId.slice(0, separator);
+          const path = documentId.slice(separator + 1);
+          return `${volume}/${path}`;
+        }
+      }
+      return `系统选定目录/${fileName || "未命名文件"}`;
+    } catch (_) {
+      return `系统选定目录/${fileName || "未命名文件"}`;
+    }
+  }
+
+  return filePath.replaceAll("\\", "/");
+}
+
+function showMessageActionToast(text) {
+  document.querySelector(".message-action-toast")?.remove();
+  const toast = document.createElement("div");
+  toast.className = "message-action-toast";
+  toast.textContent = text;
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 180);
+  }, 1400);
+}
+
+function getActionErrorMessage(error) {
+  if (typeof error === "string") return error;
+  if (error?.message) return error.message;
+  try {
+    return JSON.stringify(error);
+  } catch (_) {
+    return String(error || "未知错误");
+  }
+}
+
+async function copyMessageText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      if (!document.execCommand("copy")) throw new Error("copy failed");
+      textarea.remove();
+    }
+    showMessageActionToast("已复制");
+  } catch (error) {
+    console.error("[UI] 复制消息失败:", error);
+    showMessageActionToast("复制失败");
+  }
 }
 
 // 等待聊天窗口中的所有图片加载完成
@@ -1368,6 +1459,9 @@ function createMessageElement(message, isSent) {
 
   const contentDiv = document.createElement("div");
   contentDiv.className = "message-content";
+  let externalFileActionBtn = null;
+  let refreshAndroidFileState = null;
+  let renderAndroidFileState = null;
 
   // ---- 构建消息主体 ----
   if (message.msg_type === "file") {
@@ -1375,11 +1469,17 @@ function createMessageElement(message, isSent) {
     fileContainer.className = "message-file";
 
     const isImage = isImageFile(message.file_name || message.content);
+    const hasLocalFile = [
+      "sent",
+      "accepted",
+      "offering",
+      "uploading",
+      "pending",
+      "save_failed",
+    ].includes(message.file_status);
     if (
       isImage && message.file_path &&
-      (message.file_status === "sent" || message.file_status === "accepted" ||
-       message.file_status === "offering" || message.file_status === "uploading" ||
-       message.file_status === "pending")
+      hasLocalFile
     ) {
       const imgPreview = document.createElement("div");
       imgPreview.className = "image-preview";
@@ -1424,6 +1524,79 @@ function createMessageElement(message, isSent) {
       fileContainer.appendChild(createFileIcon(message));
     }
     contentDiv.appendChild(fileContainer);
+
+    const isAndroidFile = Boolean(
+      window.__TAURI__ &&
+      navigator.userAgent.includes("Android") &&
+      message.file_path
+    );
+    let androidFileState = "UNKNOWN";
+    if (isAndroidFile) {
+      const saveStateDiv = document.createElement("div");
+      saveStateDiv.className = "file-save-state";
+      saveStateDiv.title = message.file_path;
+      contentDiv.appendChild(saveStateDiv);
+
+      renderAndroidFileState = (state) => {
+        androidFileState = state;
+        saveStateDiv.className = "file-save-state";
+        const storedPath = formatAndroidStoredPath(
+          message.file_path,
+          message.file_name || message.content,
+        );
+
+        const separator = typeof state === "string" ? state.indexOf(":") : -1;
+        const stateType = separator >= 0 ? state.slice(0, separator) : state;
+        const stateDetail = separator >= 0 ? state.slice(separator + 1) : "";
+
+        if (stateType === "DELETED" || message.file_status === "deleted") {
+          saveStateDiv.classList.add("deleted");
+          saveStateDiv.textContent = "文件已删除";
+        } else if (stateType === "INACCESSIBLE") {
+          saveStateDiv.classList.add("inaccessible");
+          saveStateDiv.textContent = "文件不可访问 · 保存权限已失效";
+        } else if (stateType === "PROVIDER_ERROR" || stateType === "ERROR") {
+          saveStateDiv.classList.add("action-error");
+          saveStateDiv.textContent = `文件检查失败：${stateDetail || "无法读取文件状态"}`;
+        } else if (stateType === "OPEN_ERROR") {
+          saveStateDiv.classList.add("action-error");
+          saveStateDiv.textContent = `打开失败：${stateDetail || "未知错误"}`;
+        } else if (stateType === "SHARE_ERROR") {
+          saveStateDiv.classList.add("action-error");
+          saveStateDiv.textContent = `分享失败：${stateDetail || "未知错误"}`;
+        } else if (message.file_status === "save_failed") {
+          saveStateDiv.classList.add("save-failed");
+          saveStateDiv.textContent = `保存失败 · 已保留临时文件：${storedPath}`;
+        } else {
+          saveStateDiv.classList.add("saved");
+          saveStateDiv.textContent = `${isSent ? "文件位置" : "保存到"}：${storedPath}`;
+        }
+      };
+
+      refreshAndroidFileState = async () => {
+        const state = await apiGetAndroidFileState(message.file_path);
+        renderAndroidFileState(state);
+        return state;
+      };
+
+      renderAndroidFileState(message.file_status === "deleted" ? "DELETED" : "UNKNOWN");
+      refreshAndroidFileState().catch((error) => {
+        console.warn("[UI] 检查 Android 文件状态失败:", error);
+      });
+    }
+
+    const ensureAndroidFileAvailable = async () => {
+      if (!isAndroidFile || !refreshAndroidFileState) return true;
+      // 每次操作前重新检查，确保文件被用户从下载目录删除后立即更新为“已删除”。
+      const state = await refreshAndroidFileState();
+      if (state === "AVAILABLE" || state === "NOT_APPLICABLE") return true;
+      if (state === "DELETED") showMessageActionToast("文件已删除");
+      else if (state === "INACCESSIBLE") showMessageActionToast("文件访问权限已失效");
+      else showMessageActionToast(
+        state.includes(":") ? state.slice(state.indexOf(":") + 1) : "无法读取文件",
+      );
+      return false;
+    };
 
     // 文件点击事件
     if (message.file_status === "offered" || message.file_status === "invalid") {
@@ -1470,46 +1643,51 @@ function createMessageElement(message, isSent) {
           console.error("[UI] 请求文件失败:", e.message);
         }
       });
-    } else if (message.file_status === "sent" || message.file_status === "accepted" || message.file_status === "offering" || message.file_status === "uploading" || message.file_status === "pending") {
+    } else if (hasLocalFile) {
       fileContainer.style.cursor = "pointer";
       const tauri = window.__TAURI__;
       if (tauri) {
         if (message.file_path) {
           if (navigator.userAgent.includes("Android")) {
-            fileContainer.addEventListener("click", async () => {
+            const openAndroidFile = async () => {
               try {
+                if (!await ensureAndroidFileAvailable()) return;
                 await apiOpenFileInAndroid(message.file_path);
               } catch (e) {
-                alert("打开失败: " + e.message);
+                const reason = getActionErrorMessage(e);
+                renderAndroidFileState?.(`OPEN_ERROR:${reason}`);
+                alert("打开失败: " + reason);
+              }
+            };
+            fileContainer.setAttribute("role", "button");
+            fileContainer.tabIndex = 0;
+            fileContainer.title = isImage ? "点击查看图片" : "点击选择应用打开";
+            fileContainer.addEventListener("click", openAndroidFile);
+            fileContainer.addEventListener("keydown", (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openAndroidFile();
               }
             });
             const shareBtn = document.createElement("button");
             shareBtn.className = "file-share-btn";
+            shareBtn.type = "button";
             shareBtn.title = "分享到其他应用";
+            shareBtn.setAttribute("aria-label", "分享到其他应用");
             shareBtn.innerHTML =
-              `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>`;
+              `<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>`;
             shareBtn.addEventListener("click", async (e) => {
               e.stopPropagation();
               try {
+                if (!await ensureAndroidFileAvailable()) return;
                 await apiShareFileToOtherApp(message.file_path);
               } catch (e) {
-                alert("分享失败: " + e.message);
+                const reason = getActionErrorMessage(e);
+                renderAndroidFileState?.(`SHARE_ERROR:${reason}`);
+                alert("分享失败: " + reason);
               }
             });
-            const row = document.createElement("div");
-            row.className = "file-action-row";
-            if (isSent) {
-              row.appendChild(shareBtn);
-              while (fileContainer.firstChild) {
-                row.appendChild(fileContainer.firstChild);
-              }
-            } else {
-              while (fileContainer.firstChild) {
-                row.appendChild(fileContainer.firstChild);
-              }
-              row.appendChild(shareBtn);
-            }
-            fileContainer.appendChild(row);
+            externalFileActionBtn = shareBtn;
           } else {
             fileContainer.addEventListener(
               "click",
@@ -1690,6 +1868,22 @@ function createMessageElement(message, isSent) {
     contentDiv.appendChild(textSpan);
   }
 
+  // 普通文本气泡点击即复制；模型选择等交互型消息保持原有行为。
+  if (
+    message.msg_type === "text" &&
+    typeof message.content === "string" &&
+    !message.content.startsWith("[MODEL_LIST]")
+  ) {
+    contentDiv.classList.add("copyable-text-message");
+    contentDiv.title = "点击复制文本";
+    contentDiv.addEventListener("click", (event) => {
+      if (window.selectMode?.active) return;
+      if (event.target.closest("button, a, input, textarea")) return;
+      const visibleText = contentDiv.innerText?.trim() || message.content;
+      copyMessageText(visibleText);
+    });
+  }
+
   // ---- 统一处理纯净版的状态展示 ----
   const statusDiv = document.createElement("div");
 
@@ -1759,7 +1953,18 @@ function createMessageElement(message, isSent) {
     });
   }
 
-  messageDiv.appendChild(contentDiv);
+  if (externalFileActionBtn) {
+    const actionLayout = document.createElement("div");
+    actionLayout.className = "file-action-layout";
+    if (isSent) {
+      actionLayout.append(externalFileActionBtn, contentDiv);
+    } else {
+      actionLayout.append(contentDiv, externalFileActionBtn);
+    }
+    messageDiv.appendChild(actionLayout);
+  } else {
+    messageDiv.appendChild(contentDiv);
+  }
   messageDiv.appendChild(timeDiv);
 
   // 多选模式拦截
@@ -2383,6 +2588,7 @@ function initSettings() {
   let initialNotifications = true;
   let initialCloseToTray = true;
   let initialAutostart = false;
+  let androidDownloadTarget = "";
   const autoDownloadToggle = document.getElementById("auto-download-toggle");
   const notificationToggle = document.getElementById("notification-toggle");
   const notificationHint = document.getElementById("notification-permission-hint");
@@ -2390,6 +2596,13 @@ function initSettings() {
   const closeToTrayToggle = document.getElementById("close-to-tray-toggle");
   const autostartSetting = document.getElementById("autostart-setting");
   const autostartToggle = document.getElementById("autostart-toggle");
+  const backgroundReceiveSetting = document.getElementById("background-receive-setting");
+  const backgroundReceiveStatus = document.getElementById("background-receive-status");
+  const backgroundReceiveError = document.getElementById("background-receive-error");
+  const retryBackgroundServiceBtn = document.getElementById("retry-background-service-btn");
+  const batteryOptimizationStatus = document.getElementById("battery-optimization-status");
+  const openBatterySettingsBtn = document.getElementById("open-battery-settings-btn");
+  const stopBackgroundServiceBtn = document.getElementById("stop-background-service-btn");
 
   // Android 端隐藏数据库路径配置
   const isAndroid = window.__TAURI__ && navigator.userAgent.includes("Android");
@@ -2403,13 +2616,80 @@ function initSettings() {
   if (autostartSetting && !isWindowsDesktop) {
     autostartSetting.style.display = "none";
   }
+  if (backgroundReceiveSetting && isAndroid) {
+    backgroundReceiveSetting.style.display = "block";
+  }
+  if (isAndroid) {
+    downloadPathInput.readOnly = true;
+    downloadPathInput.placeholder = "应用专属存储（默认）";
+  }
+
+  function showAndroidDownloadTarget(target, label = "") {
+    androidDownloadTarget = target || "";
+    downloadPathInput.title = androidDownloadTarget;
+    downloadPathInput.value = androidDownloadTarget.startsWith("content://")
+      ? `系统文件夹：${label || "已授权目录"}`
+      : "应用专属存储（默认）";
+  }
+
+  if (isAndroid) {
+    window.addEventListener("android-download-directory-selected", (event) => {
+      const target = event.detail?.uri || "";
+      if (!target) return;
+      showAndroidDownloadTarget(target, event.detail?.label || "");
+      settingsErrorMsg.textContent = "";
+      settingsSuccessMsg.textContent = "已选择系统文件夹，请点击保存。";
+      settingsSuccessMsg.classList.add("show");
+    });
+    window.addEventListener("android-download-directory-error", (event) => {
+      settingsErrorMsg.textContent = "选择文件夹失败: " +
+        (event.detail?.message || "系统未授予写入权限");
+    });
+  }
+
+  async function refreshBackgroundReceiveState() {
+    if (!isAndroid || !window.__TAURI__) return;
+    try {
+      const state = await window.__TAURI__.core.invoke("get_background_receive_state");
+      const labels = {
+        RUNNING: "● 正在运行",
+        STARTING: "● 正在启动",
+        STOPPING: "○ 正在停止",
+        STOPPED: "○ 已停止",
+        ERROR: "△ 启动失败",
+      };
+      backgroundReceiveStatus.textContent = labels[state.state] || state.state || "未知";
+      backgroundReceiveError.textContent = state.last_error_message || "";
+      retryBackgroundServiceBtn.style.display = state.state === "ERROR" ? "inline-block" : "none";
+      const battery = await window.__TAURI__.core.invoke("get_battery_optimization_state");
+      batteryOptimizationStatus.textContent = battery === "unrestricted" ? "不受限制" : "受系统优化限制";
+      const notification = await window.__TAURI__.core.invoke("get_notification_permission_state");
+      notificationHint.textContent = notification === "granted"
+        ? ""
+        : "系统通知权限已关闭；后台仍可运行，但新消息提醒可能不可见。";
+    } catch (error) {
+      backgroundReceiveError.textContent = "读取后台状态失败: " + error;
+    }
+  }
+
+  if (isAndroid) {
+    retryBackgroundServiceBtn?.addEventListener("click", async () => {
+      await window.__TAURI__.core.invoke("retry_background_service");
+      setTimeout(refreshBackgroundReceiveState, 500);
+    });
+    openBatterySettingsBtn?.addEventListener("click", () =>
+      window.__TAURI__.core.invoke("open_battery_optimization_settings"));
+    stopBackgroundServiceBtn?.addEventListener("click", async () => {
+      if (confirm("停止后台接收并退出 LQ Chat？")) {
+        await window.__TAURI__.core.invoke("stop_background_receive_and_exit");
+      }
+    });
+    window.__TAURI__.event?.listen("core-state-changed", refreshBackgroundReceiveState);
+  }
 
   // 获取默认下载路径
   async function getDefaultDownloadPath() {
     const tauri = window.__TAURI__;
-    if (isAndroid) {
-      return "/storage/emulated/0/Download/LANChat";
-    }
     if (tauri) {
       try {
         return await tauri.core.invoke("get_default_download_path");
@@ -2437,12 +2717,17 @@ function initSettings() {
         const settings = await apiGetSettings();
         const defaultDlPath = await getDefaultDownloadPath();
 
-        downloadPathInput.value = settings.download_path || defaultDlPath;
+        const configuredDownloadPath = settings.download_path || defaultDlPath;
+        if (isAndroid) {
+          showAndroidDownloadTarget(configuredDownloadPath);
+        } else {
+          downloadPathInput.value = configuredDownloadPath;
+        }
         portInput.value = settings.port || "8888";
         initialPort = portInput.value;
         dbPathInput.value = settings.db_path || "";
         initialDbPath = dbPathInput.value;
-        initialDlPath = downloadPathInput.value;
+        initialDlPath = configuredDownloadPath;
         autoDownloadToggle.checked = settings.auto_download !== false;
         initialAutoDl = autoDownloadToggle.checked;
         if (isWindowsDesktop) {
@@ -2455,11 +2740,12 @@ function initSettings() {
           initialNotifications = await window.__TAURI__.core.invoke("get_notifications_enabled").catch(() => true);
           notificationToggle.checked = initialNotifications;
           if (isAndroid && typeof Notification !== "undefined" && Notification.permission === "denied") {
-            notificationHint.textContent = "系统通知权限已关闭，请在系统设置中允许 LANChat 通知。";
+            notificationHint.textContent = "系统通知权限已关闭，请在系统设置中允许 LQ Chat 通知。";
           } else {
             notificationHint.textContent = "";
           }
         }
+        await refreshBackgroundReceiveState();
       } catch (e) {
         settingsErrorMsg.textContent = "加载设置失败: " + e.message;
       }
@@ -2472,8 +2758,12 @@ function initSettings() {
     const tauri = window.__TAURI__;
 
     if (isAndroid) {
-      const androidPathPanel = document.getElementById("android-path-panel");
-      androidPathPanel.style.display = "block";
+      try {
+        settingsErrorMsg.textContent = "";
+        await tauri.core.invoke("request_storage_permission");
+      } catch (e) {
+        settingsErrorMsg.textContent = "打开系统文件夹选择器失败: " + e;
+      }
     } else if (tauri) {
       try {
         const defaultPath = await getDefaultDownloadPath();
@@ -2531,37 +2821,6 @@ function initSettings() {
     }
   });
 
-  // Android 路径选择面板逻辑
-  const androidPathPanel = document.getElementById("android-path-panel");
-  const pathOptions = document.querySelectorAll(".path-option");
-  const customPathInput = document.getElementById("custom-path-input");
-  const useCustomPathBtn = document.getElementById("use-custom-path-btn");
-  const cancelAndroidPathBtn = document.getElementById(
-    "cancel-android-path-btn",
-  );
-
-  pathOptions.forEach((option) => {
-    option.addEventListener("click", () => {
-      const path = option.getAttribute("data-path");
-      downloadPathInput.value = path;
-      androidPathPanel.style.display = "none";
-    });
-  });
-
-  useCustomPathBtn.addEventListener("click", () => {
-    const customPath = customPathInput.value.trim();
-    if (customPath) {
-      downloadPathInput.value = customPath;
-      androidPathPanel.style.display = "none";
-      customPathInput.value = "";
-    }
-  });
-
-  cancelAndroidPathBtn.addEventListener("click", () => {
-    androidPathPanel.style.display = "none";
-    customPathInput.value = "";
-  });
-
   // 保存设置
   saveSettingsBtn.addEventListener("click", async () => {
     try {
@@ -2584,7 +2843,9 @@ function initSettings() {
       }
 
       // 空值恢复默认
-      const dlPath = downloadPathInput.value.trim() || (await getDefaultDownloadPath());
+      const dlPath = isAndroid
+        ? (androidDownloadTarget || (await getDefaultDownloadPath()))
+        : (downloadPathInput.value.trim() || (await getDefaultDownloadPath()));
       const myPort = portInput.value || "8888";
       const myDbPath = dbPathInput.value.trim() || "";
       const autoDl = autoDownloadToggle.checked;
@@ -2830,7 +3091,7 @@ const i18n = {
     choose: "选择",
     auto_download_label: "自动下载:",
     close_to_tray_label: "点击 X 时最小化到托盘:",
-    autostart_label: "开机自动启动 LANChat:",
+    autostart_label: "开机自动启动 LQ Chat:",
     autostart_hint: "自动启动时隐藏到托盘",
     settings_save_restart: "✓ 设置保存成功，需重启生效",
     settings_saved: "✓ 设置保存成功",
@@ -2876,7 +3137,7 @@ const i18n = {
     choose: "Choose",
     auto_download_label: "Auto Download:",
     close_to_tray_label: "Minimize to tray when clicking X:",
-    autostart_label: "Start LANChat when Windows starts:",
+    autostart_label: "Start LQ Chat when Windows starts:",
     autostart_hint: "Starts hidden in the system tray",
     settings_save_restart: "✓ Saved, restart to apply",
     settings_saved: "✓ Saved",

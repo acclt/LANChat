@@ -1,7 +1,7 @@
 // commands.rs - Tauri 命令（桌面端和移动端共享）
+use std::sync::atomic::AtomicBool;
 #[cfg(not(target_os = "android"))]
 use std::sync::atomic::Ordering;
-use std::sync::atomic::AtomicBool;
 
 #[cfg(feature = "desktop")]
 use crate::db::DbState;
@@ -19,6 +19,20 @@ use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(feature = "desktop")]
 pub struct PeerState {
     pub manager: Arc<PeerManager>,
+}
+
+impl PeerState {
+    /// Android 的网络核心可能早于重建后的 Activity/UI 存在。此时 Tauri
+    /// 状态中保存的 manager 只能作为兜底，命令必须优先读取正在运行的
+    /// CoreRuntime 资源，避免实时事件与轮询分别使用两套在线状态。
+    pub fn active_manager(&self) -> Arc<PeerManager> {
+        #[cfg(target_os = "android")]
+        if let Some((_, manager)) = crate::core_runtime::CoreRuntime::global().shared_resources() {
+            return manager;
+        }
+
+        self.manager.clone()
+    }
 }
 
 /// 托盘闪烁状态（仅桌面端）
@@ -157,7 +171,7 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
 
     // 获取接收方的可用内存
     let receiver_memory_mb = if let Some(ps) = peer_state {
-        let peers = ps.manager.get_all_peers();
+        let peers = ps.active_manager().get_all_peers();
         peers
             .iter()
             .find(|p| {
@@ -195,10 +209,7 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
         file_size, adjusted_chunk_size, total_chunks
     );
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .map_err(|e| format!("创建客户端失败: {}", e))?;
+    let client = crate::network::lan_http_client(Some(std::time::Duration::from_secs(300)))?;
 
     let upload_url = format!("http://{}/api/upload", peer_addr);
 
@@ -236,8 +247,12 @@ async fn upload_file_internal<R: tokio::io::AsyncRead + Unpin>(
             let elapsed = start_time.elapsed().as_secs_f64();
             if elapsed > 0.0 {
                 (offset as f64 / (1024.0 * 1024.0)) / elapsed
-            } else { 0.0 }
-        } else { 0.0 };
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
 
         let sender_msg_id_str = message_id.map(|id| id.to_string()).unwrap_or_default();
 
@@ -390,7 +405,8 @@ pub async fn get_my_id(state: State<'_, DbState>) -> Result<String, String> {
 pub async fn get_settings(state: State<'_, DbState>) -> Result<serde_json::Value, String> {
     let download_path = crate::db::get_download_path(&state.pool).await?;
     #[cfg(target_os = "android")]
-    let port = crate::db::get_port(&state.pool).await
+    let port = crate::db::get_port(&state.pool)
+        .await
         .map(|p| p.to_string())
         .unwrap_or_else(|| "8888".to_string());
     #[cfg(not(target_os = "android"))]
@@ -399,7 +415,9 @@ pub async fn get_settings(state: State<'_, DbState>) -> Result<serde_json::Value
         .unwrap_or_else(|| "8888".to_string());
     let cfg = crate::config_file::read_config();
     let close_to_tray = cfg.close_to_tray.unwrap_or(true);
-    let db_path = cfg.db_path.unwrap_or_else(crate::config_file::get_default_db_path);
+    let db_path = cfg
+        .db_path
+        .unwrap_or_else(crate::config_file::get_default_db_path);
     let auto_download = crate::db::get_auto_download(&state.pool).await;
 
     Ok(serde_json::json!({
@@ -448,9 +466,9 @@ pub async fn update_settings(
     if let Some(enabled) = auto_download {
         crate::db::set_auto_download(&state.pool, enabled).await?;
     }
-    if let Some(enabled) = close_to_tray {
+    if let Some(_enabled) = close_to_tray {
         #[cfg(not(target_os = "android"))]
-        crate::config_file::save_close_to_tray_to_config(enabled)?;
+        crate::config_file::save_close_to_tray_to_config(_enabled)?;
     }
 
     Ok(())
@@ -497,7 +515,7 @@ pub async fn update_my_name(state: State<'_, DbState>, new_name: String) -> Resu
 
 #[tauri::command]
 pub async fn get_peers(state: State<'_, PeerState>) -> Result<Vec<Peer>, String> {
-    Ok(state.manager.get_all_peers())
+    Ok(state.active_manager().get_all_peers())
 }
 
 #[tauri::command]
@@ -514,7 +532,7 @@ pub async fn send_message(
 
     // 提取状态时，顺便把后端内存里最新的 IP 拿出来
     let (is_offline_now, peer_name, backend_addr) = {
-        let peers = peer_state.manager.get_all_peers();
+        let peers = peer_state.active_manager().get_all_peers();
         if let Some(p) = peers.iter().find(|p| p.id == peer_id) {
             (p.is_offline, p.name.clone(), Some(p.addr.clone()))
         } else {
@@ -568,7 +586,7 @@ pub async fn send_message(
             eprintln!("[Command] 发送失败(网络探测): {}. 消息将转入挂起队列。", e);
 
             // 立即更新本地状态，避免下次发送再次空转
-            peer_state.manager.force_mark_offline(&peer_id);
+            peer_state.active_manager().force_mark_offline(&peer_id);
 
             // 保存为挂起
             crate::db::save_text_message_with_status(
@@ -634,30 +652,42 @@ pub async fn send_file(
         #[cfg(target_os = "android")]
         {
             use crate::android_fd::AndroidFile;
-            let (name, size) = AndroidFile::query_content_uri_info(&actual_path).unwrap_or_default();
+            let (name, size) =
+                AndroidFile::query_content_uri_info(&actual_path).unwrap_or_default();
             let name = if name.is_empty() {
-                let raw_seg = actual_path.split('/').last()
+                let raw_seg = actual_path
+                    .split('/')
+                    .last()
                     .and_then(|s| urlencoding::decode(s).ok())
                     .map(|s| s.to_string())
                     .unwrap_or_default();
                 let name = if let Some(idx) = raw_seg.rfind(':') {
                     raw_seg[idx + 1..].to_string()
-                } else { raw_seg };
+                } else {
+                    raw_seg
+                };
                 if !name.contains('.') || name.is_empty() {
                     format!("file_{}.dat", chrono::Utc::now().timestamp())
-                } else { name }
-            } else { name };
+                } else {
+                    name
+                }
+            } else {
+                name
+            };
             (name, size as usize)
         }
         #[cfg(not(target_os = "android"))]
-        { return Err("content:// URI 仅在 Android 上支持".to_string()); }
+        {
+            return Err("content:// URI 仅在 Android 上支持".to_string());
+        }
     } else {
         let name = std::path::Path::new(&actual_path)
-            .file_name().and_then(|n| n.to_str())
+            .file_name()
+            .and_then(|n| n.to_str())
             .ok_or("无效的文件名")?
             .to_string();
-        let metadata = std::fs::metadata(&actual_path)
-            .map_err(|e| format!("读取文件信息失败: {}", e))?;
+        let metadata =
+            std::fs::metadata(&actual_path).map_err(|e| format!("读取文件信息失败: {}", e))?;
         (name, metadata.len() as usize)
     };
 
@@ -665,8 +695,12 @@ pub async fn send_file(
 
     // ── 检查接收端是否离线 ──
     let is_offline_now = {
-        let peers = peer_state.manager.get_all_peers();
-        peers.iter().find(|p| p.id == peer_id).map(|p| p.is_offline).unwrap_or(true)
+        let peers = peer_state.active_manager().get_all_peers();
+        peers
+            .iter()
+            .find(|p| p.id == peer_id)
+            .map(|p| p.is_offline)
+            .unwrap_or(true)
     };
 
     if is_offline_now {
@@ -695,13 +729,20 @@ pub async fn send_file(
     // ── 检查接收端的 auto_download 设置 ──
     let auto_enabled = {
         let auto_dl_url = format!("http://{}/api/auto_download", peer_addr);
-        match reqwest::Client::new().get(&auto_dl_url).send().await {
-            Ok(resp) => {
-                if let Ok(data) = resp.json::<serde_json::Value>().await {
-                    data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true)
-                } else { true }
-            }
-            Err(_) => true, // 连不上时默认 ON（保底走现有上传流程）
+        match crate::network::lan_http_client(None) {
+            Ok(client) => match client.get(&auto_dl_url).send().await {
+                Ok(resp) => {
+                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                        data.get("enabled")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true)
+                    } else {
+                        true
+                    }
+                }
+                Err(_) => true, // 连不上时默认 ON（保底走现有上传流程）
+            },
+            Err(_) => true,
         }
     };
 
@@ -726,12 +767,19 @@ pub async fn send_file(
             let sender_msg_id_val = msg_id.unwrap_or(0);
 
             // 1. 如果系统配额将满，FIFO 淘汰最旧的
-            let max_limit = if AndroidFile::get_api_level().unwrap_or(30) >= 30 { 500 } else { 120 };
+            let max_limit = if AndroidFile::get_api_level().unwrap_or(30) >= 30 {
+                500
+            } else {
+                120
+            };
             let sys_count = AndroidFile::get_persisted_uri_count().unwrap_or(0);
             let need_free = (sys_count as i64) - (max_limit as i64 - 1);
             if need_free > 0 {
                 for _ in 0..need_free {
-                    match crate::db::get_oldest_persisted_uri(&state.pool).await.unwrap_or(None) {
+                    match crate::db::get_oldest_persisted_uri(&state.pool)
+                        .await
+                        .unwrap_or(None)
+                    {
                         Some((_id, oldest_uri, _oldest_msg_id)) => {
                             let _ = AndroidFile::release_persistable_uri_permission(&oldest_uri);
                             let _ = crate::db::remove_persisted_uri(&state.pool, &oldest_uri).await;
@@ -745,7 +793,9 @@ pub async fn send_file(
             // 2. 尝试持久化当前 URI
             match AndroidFile::take_persistable_uri_permission(&actual_path) {
                 Ok(_) => {
-                    let _ = crate::db::add_persisted_uri(&state.pool, &actual_path, sender_msg_id_val).await;
+                    let _ =
+                        crate::db::add_persisted_uri(&state.pool, &actual_path, sender_msg_id_val)
+                            .await;
                     println!("[Command] ✓ content URI 权限已持久化: {}", actual_path);
                 }
                 Err(e) => {
@@ -765,15 +815,23 @@ pub async fn send_file(
                             &state.pool,
                             sender_msg_id_val,
                             &format!("fd:{}", sender_msg_id_val),
-                        ).await;
-                        println!("[Command] ✓ FD 已缓存作为降级: msg_id={}", sender_msg_id_val);
+                        )
+                        .await;
+                        println!(
+                            "[Command] ✓ FD 已缓存作为降级: msg_id={}",
+                            sender_msg_id_val
+                        );
                     }
                 }
             }
         }
 
-        let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
-        let my_name = crate::db::get_username(&state.pool).await.unwrap_or_default();
+        let my_id = crate::db::get_user_id(&state.pool)
+            .await
+            .unwrap_or_default();
+        let my_name = crate::db::get_username(&state.pool)
+            .await
+            .unwrap_or_default();
         let sender_msg_id = msg_id.unwrap_or(0);
 
         // 通过 WS 向接收端发送 file_offer
@@ -811,22 +869,43 @@ pub async fn send_file(
             let (is_online, backend_addr) = peer_state
                 .as_ref()
                 .map(|s| {
-                    if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peer_id) {
+                    if let Some(p) = s
+                        .active_manager()
+                        .get_all_peers()
+                        .iter()
+                        .find(|p| p.id == peer_id)
+                    {
                         (!p.is_offline, Some(p.addr.clone()))
-                    } else { (false, None) }
+                    } else {
+                        (false, None)
+                    }
                 })
                 .unwrap_or((true, None));
 
             if let Some(latest_addr) = backend_addr {
-                if latest_addr != peer_addr { peer_addr = latest_addr; }
+                if latest_addr != peer_addr {
+                    peer_addr = latest_addr;
+                }
             }
             return upload_file_internal(
-                &app, &state, peer_state.as_ref(),
-                peer_id, peer_addr, file_name, file_size, actual_path, file, is_online, None,
-            ).await;
+                &app,
+                &state,
+                peer_state.as_ref(),
+                peer_id,
+                peer_addr,
+                file_name,
+                file_size,
+                actual_path,
+                file,
+                is_online,
+                None,
+            )
+            .await;
         }
         #[cfg(not(target_os = "android"))]
-        { return Err("content:// URI 仅在 Android 上支持".to_string()); }
+        {
+            return Err("content:// URI 仅在 Android 上支持".to_string());
+        }
     }
 
     // 普通文件路径
@@ -838,18 +917,36 @@ pub async fn send_file(
     let (is_online, backend_addr) = peer_state
         .as_ref()
         .map(|s| {
-            if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peer_id) {
+            if let Some(p) = s
+                .active_manager()
+                .get_all_peers()
+                .iter()
+                .find(|p| p.id == peer_id)
+            {
                 (!p.is_offline, Some(p.addr.clone()))
-            } else { (false, None) }
+            } else {
+                (false, None)
+            }
         })
         .unwrap_or((true, None));
 
     if let Some(latest_addr) = backend_addr {
-        if latest_addr != peer_addr { peer_addr = latest_addr; }
+        if latest_addr != peer_addr {
+            peer_addr = latest_addr;
+        }
     }
     upload_file_internal(
-        &app, &state, peer_state.as_ref(),
-        peer_id, peer_addr, file_name, file_size, actual_path, file, is_online, None,
+        &app,
+        &state,
+        peer_state.as_ref(),
+        peer_id,
+        peer_addr,
+        file_name,
+        file_size,
+        actual_path,
+        file,
+        is_online,
+        None,
     )
     .await
 }
@@ -961,12 +1058,11 @@ pub async fn get_current_theme(state: State<'_, DbState>) -> Result<String, Stri
 }
 
 #[tauri::command]
-pub async fn get_default_download_path() -> Result<String, String> {
+pub async fn get_default_download_path(_state: State<'_, DbState>) -> Result<String, String> {
     if cfg!(target_os = "android") {
-        // Android 的公共下载目录
-        let download_path = "/storage/emulated/0/Download/LANChat";
-        println!("[Command] Android 默认下载路径: {}", download_path);
-        Ok(download_path.to_string())
+        let download_path = crate::db::get_download_path(&_state.pool).await?;
+        println!("[Command] Android 下载目标: {}", download_path);
+        Ok(download_path)
     } else {
         // 桌面端和 Web 端返回用户下载目录
         let home_dir = dirs::home_dir().ok_or("无法获取用户主目录")?;
@@ -980,10 +1076,8 @@ pub async fn get_default_download_path() -> Result<String, String> {
 pub async fn request_storage_permission() -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
-        // Android 上需要请求存储权限
-        // 注意：这个功能需要 Tauri 的 Android 插件支持
-        // 目前先返回 true，假设权限已授予
-        println!("[Command] Android 存储权限检查（假设已授予）");
+        crate::android_fd::AndroidFile::trigger_download_directory_picker_jni()?;
+        println!("[Command] 已打开 Android 系统下载文件夹选择器");
         return Ok(true);
     }
 
@@ -1246,7 +1340,13 @@ async fn persist_android_fd(
     use crate::android_fd::AndroidFile;
     let safe_name: String = file_name
         .chars()
-        .map(|ch| if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { ch })
+        .map(|ch| {
+            if matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                '_'
+            } else {
+                ch
+            }
+        })
         .collect();
     let outbox = app
         .path()
@@ -1293,8 +1393,12 @@ pub async fn send_file_from_fd(
 
         // ── 检查接收端是否离线 ──
         let is_offline_now = {
-            let peers = peer_state.manager.get_all_peers();
-            peers.iter().find(|p| p.id == peerId).map(|p| p.is_offline).unwrap_or(true)
+            let peers = peer_state.active_manager().get_all_peers();
+            peers
+                .iter()
+                .find(|p| p.id == peerId)
+                .map(|p| p.is_offline)
+                .unwrap_or(true)
         };
 
         if is_offline_now {
@@ -1312,7 +1416,9 @@ pub async fn send_file_from_fd(
                 persisted_path,
                 "pending".to_string(),
                 "pending".to_string(),
-            ).await.map_err(|e| format!("创建记录失败: {}", e))?;
+            )
+            .await
+            .map_err(|e| format!("创建记录失败: {}", e))?;
 
             return Ok(serde_json::json!({
                 "success": true,
@@ -1325,12 +1431,19 @@ pub async fn send_file_from_fd(
         // ── 1. 检查接收端的 auto_download 设置 ──
         let auto_enabled = {
             let auto_dl_url = format!("http://{}/api/auto_download", peerAddr);
-            match reqwest::Client::new().get(&auto_dl_url).send().await {
-                Ok(resp) => {
-                    if let Ok(data) = resp.json::<serde_json::Value>().await {
-                        data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true)
-                    } else { true }
-                }
+            match crate::network::lan_http_client(None) {
+                Ok(client) => match client.get(&auto_dl_url).send().await {
+                    Ok(resp) => {
+                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                            data.get("enabled")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(true)
+                        } else {
+                            true
+                        }
+                    }
+                    Err(_) => true,
+                },
                 Err(_) => true,
             }
         };
@@ -1346,10 +1459,16 @@ pub async fn send_file_from_fd(
                 persisted_path,
                 "offering".to_string(),
                 "sent".to_string(),
-            ).await.map_err(|e| format!("创建发送记录失败: {}", e))?;
+            )
+            .await
+            .map_err(|e| format!("创建发送记录失败: {}", e))?;
 
-            let my_id = crate::db::get_user_id(&state.pool).await.unwrap_or_default();
-            let my_name = crate::db::get_username(&state.pool).await.unwrap_or_default();
+            let my_id = crate::db::get_user_id(&state.pool)
+                .await
+                .unwrap_or_default();
+            let my_name = crate::db::get_username(&state.pool)
+                .await
+                .unwrap_or_default();
 
             // 通过 WS 向接收端发送 file_offer
             let offer = serde_json::json!({
@@ -1360,7 +1479,8 @@ pub async fn send_file_from_fd(
                 "file_size": fileSize,
                 "sender_msg_id": sender_msg_id,
             });
-            let _ = crate::network::messaging::send_json_via_ws(&peerAddr, &offer.to_string()).await;
+            let _ =
+                crate::network::messaging::send_json_via_ws(&peerAddr, &offer.to_string()).await;
 
             return Ok(serde_json::json!({
                 "success": true,
@@ -1375,7 +1495,12 @@ pub async fn send_file_from_fd(
         let (is_online, backend_addr) = peer_state
             .as_ref()
             .map(|s| {
-                if let Some(p) = s.manager.get_all_peers().iter().find(|p| p.id == peerId) {
+                if let Some(p) = s
+                    .active_manager()
+                    .get_all_peers()
+                    .iter()
+                    .find(|p| p.id == peerId)
+                {
                     (!p.is_offline, Some(p.addr.clone()))
                 } else {
                     (false, None)
@@ -1402,7 +1527,9 @@ pub async fn send_file_from_fd(
         let file_path = originalUri.unwrap_or_else(|| format!("fd:{}", fd));
         let android_file = AndroidFile::from_fd(fd)?;
         let std_file = android_file.into_file();
-        let dup = std_file.try_clone().map_err(|e| format!("FD 克隆失败: {}", e))?;
+        let dup = std_file
+            .try_clone()
+            .map_err(|e| format!("FD 克隆失败: {}", e))?;
         let file = tokio::fs::File::from_std(std_file);
 
         // 先存消息获取 msg_id
@@ -1414,7 +1541,9 @@ pub async fn send_file_from_fd(
             file_path,
             "uploading".to_string(),
             overall_status.to_string(),
-        ).await.map_err(|e| format!("保存消息失败: {}", e))?;
+        )
+        .await
+        .map_err(|e| format!("保存消息失败: {}", e))?;
 
         // 缓存 FD（用 msg_id 作为 key，供媒体服务器 /api/media 读取）
         let raw_fd = dup.into_raw_fd();
@@ -1458,26 +1587,20 @@ pub async fn send_file_from_fd(
     }
 }
 
-// 分享文件到其他应用（仅 Android）
 #[cfg(target_os = "android")]
-#[tauri::command]
-pub async fn share_file_to_other_app(
-    #[allow(non_snake_case)] filePath: String,
-) -> Result<(), String> {
-    // 🌟 fd: 路径 → 转为自定义 FdContentProvider 的 URI，零拷贝分享
-    let final_path = if filePath.starts_with("fd:") {
-        let msg_id = &filePath[3..];
+fn normalize_android_external_file_path(file_path: &str) -> String {
+    if let Some(msg_id) = file_path.strip_prefix("fd:") {
         let msg_id_i64: i64 = msg_id.parse().unwrap_or(0);
-        // 从 FD 缓存中获取文件名，让第三方 App 能识别文件类型
         let file_name = crate::android_fd::get_cached_file_name(msg_id_i64)
             .unwrap_or_else(|| "file".to_string());
         format!("content://com.lanchat.app.fdprovider/{msg_id}/{file_name}")
     } else {
-        filePath.clone()
-    };
+        file_path.to_string()
+    }
+}
 
-    println!("[Command] 准备分享文件到其他应用: {}", final_path);
-
+#[cfg(target_os = "android")]
+fn call_android_file_method(method: &str, file_path: &str) -> Result<String, String> {
     use jni::objects::JValue;
 
     let context = ndk_context::android_context();
@@ -1491,19 +1614,51 @@ pub async fn share_file_to_other_app(
     let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
 
     let file_path_jstring = env
-        .new_string(&final_path)
+        .new_string(file_path)
         .map_err(|e| format!("创建字符串失败: {}", e))?;
 
-    env.call_method(
-        activity,
-        "shareFile",
-        "(Ljava/lang/String;)V",
-        &[JValue::Object(&file_path_jstring)],
-    )
-    .map_err(|e| format!("调用 shareFile 失败: {}", e))?;
+    let result = env
+        .call_method(
+            activity,
+            method,
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[JValue::Object(&file_path_jstring)],
+        )
+        .map_err(|e| format!("调用 {method} 失败: {e}"))?
+        .l()
+        .map_err(|e| format!("读取 {method} 返回值失败: {e}"))?;
+    let result = jni::objects::JString::from(result);
+    let result = env
+        .get_string(&result)
+        .map_err(|e| format!("解析 {method} 返回值失败: {e}"))?
+        .to_string_lossy()
+        .into_owned();
 
-    println!("[Command] 分享文件命令已发送到 Android");
-    Ok(())
+    Ok(result)
+}
+
+#[cfg(target_os = "android")]
+fn call_android_file_action(method: &str, file_path: &str) -> Result<(), String> {
+    let result = call_android_file_method(method, file_path)?;
+    if let Some(error) = result.strip_prefix("ERROR:") {
+        Err(error.to_string())
+    } else if result == "OK" {
+        Ok(())
+    } else {
+        Err(format!("{method} 返回未知结果: {result}"))
+    }
+}
+
+// 分享文件到其他应用（仅 Android）
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn share_file_to_other_app(
+    #[allow(non_snake_case)] filePath: String,
+) -> Result<(), String> {
+    let final_path = normalize_android_external_file_path(&filePath);
+    println!("[Command] 准备分享文件到其他应用: {}", final_path);
+
+    call_android_file_action("shareFile", &final_path)
 }
 
 // 非 Android 平台的空实现
@@ -1520,34 +1675,27 @@ pub async fn share_file_to_other_app(
 #[cfg(target_os = "android")]
 #[tauri::command]
 pub async fn open_file_in_android(#[allow(non_snake_case)] filePath: String) -> Result<(), String> {
-    println!("[Command] 准备打开文件: {}", filePath);
+    let final_path = normalize_android_external_file_path(&filePath);
+    println!("[Command] 准备打开文件: {}", final_path);
+    call_android_file_action("openFile", &final_path)
+}
 
-    use jni::objects::JValue;
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn get_android_file_state(
+    #[allow(non_snake_case)] filePath: String,
+) -> Result<String, String> {
+    let final_path = normalize_android_external_file_path(&filePath);
+    call_android_file_method("getFileState", &final_path)
+}
 
-    let context = ndk_context::android_context();
-    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
-        .map_err(|e| format!("获取 JavaVM 失败: {}", e))?;
-
-    let mut env = vm
-        .attach_current_thread()
-        .map_err(|e| format!("附加线程失败: {}", e))?;
-
-    let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
-
-    let file_path_jstring = env
-        .new_string(&filePath)
-        .map_err(|e| format!("创建字符串失败: {}", e))?;
-
-    env.call_method(
-        activity,
-        "openFile",
-        "(Ljava/lang/String;)V",
-        &[JValue::Object(&file_path_jstring)],
-    )
-    .map_err(|e| format!("调用 openFile 失败: {}", e))?;
-
-    println!("[Command] 打开文件命令已发送到 Android");
-    Ok(())
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub async fn get_android_file_state(
+    #[allow(non_snake_case)] filePath: String,
+) -> Result<String, String> {
+    let _ = filePath;
+    Ok("NOT_APPLICABLE".to_string())
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1712,8 +1860,7 @@ impl AndroidShareState {
 // 批量删除消息
 #[tauri::command]
 pub async fn delete_messages(
-    #[allow(unused_variables)]
-    app: tauri::AppHandle,
+    #[allow(unused_variables)] app: tauri::AppHandle,
     state: tauri::State<'_, crate::db::DbState>,
     msg_ids: Vec<i64>,
 ) -> Result<(), String> {
@@ -1723,7 +1870,11 @@ pub async fn delete_messages(
     #[cfg(target_os = "android")]
     {
         use crate::android_fd::AndroidFile;
-        let outbox = app.path().app_data_dir().ok().map(|path| path.join("outbox"));
+        let outbox = app
+            .path()
+            .app_data_dir()
+            .ok()
+            .map(|path| path.join("outbox"));
         for &msg_id in &msg_ids {
             // 释放持久化 URI 权限
             if let Ok(Some(uri)) = crate::db::get_uri_by_msg_id(&state.pool, msg_id).await {
@@ -1735,9 +1886,10 @@ pub async fn delete_messages(
             crate::android_fd::remove_cached_fd(msg_id);
 
             // 仅删除由 LANChat 自己复制到私有 outbox 的附件副本。
-            if let (Some(outbox_dir), Ok((file_path, _, _))) =
-                (outbox.as_ref(), crate::db::get_sender_file_by_msg_id(&state.pool, msg_id).await)
-            {
+            if let (Some(outbox_dir), Ok((file_path, _, _))) = (
+                outbox.as_ref(),
+                crate::db::get_sender_file_by_msg_id(&state.pool, msg_id).await,
+            ) {
                 let candidate = std::path::PathBuf::from(file_path);
                 if candidate.starts_with(outbox_dir) && candidate.is_file() {
                     let _ = tokio::fs::remove_file(candidate).await;
@@ -1766,29 +1918,34 @@ pub async fn delete_user_complete(
 ) -> Result<(), String> {
     let my_id = crate::db::get_user_id(&state.pool).await?;
 
-    // 1. 删除数据库记录
-    crate::db::delete_user_and_history(&state.pool, &my_id, &peer_id).await?;
-
-    // 2. 同步删除内存中的用户状态，否则 apiGetPeers 还会返回它
-    peer_state.manager.remove_peer(&peer_id);
-
-    Ok(())
+    peer_state
+        .active_manager()
+        .delete_user_and_history(&state.pool, &my_id, &peer_id)
+        .await
 }
 
 // ── 自定义 IP 命令 ──
 
 #[tauri::command]
-pub async fn get_custom_peers(state: tauri::State<'_, crate::db::DbState>) -> Result<Vec<String>, String> {
+pub async fn get_custom_peers(
+    state: tauri::State<'_, crate::db::DbState>,
+) -> Result<Vec<String>, String> {
     Ok(crate::db::get_custom_peers(&state.pool).await)
 }
 
 #[tauri::command]
-pub async fn add_custom_peer(state: tauri::State<'_, crate::db::DbState>, peer: String) -> Result<(), String> {
+pub async fn add_custom_peer(
+    state: tauri::State<'_, crate::db::DbState>,
+    peer: String,
+) -> Result<(), String> {
     crate::db::add_custom_peer(&state.pool, &peer).await
 }
 
 #[tauri::command]
-pub async fn remove_custom_peer(state: tauri::State<'_, crate::db::DbState>, peer: String) -> Result<(), String> {
+pub async fn remove_custom_peer(
+    state: tauri::State<'_, crate::db::DbState>,
+    peer: String,
+) -> Result<(), String> {
     crate::db::remove_custom_peer(&state.pool, &peer).await
 }
 
@@ -1798,7 +1955,10 @@ pub async fn request_file(
     sender_addr: String,
     sender_msg_id: i64,
 ) -> Result<(), String> {
-    println!("[手动下载] 桌面端接收端请求文件: msg_id={}, 发送端地址={}", sender_msg_id, sender_addr);
+    println!(
+        "[手动下载] 桌面端接收端请求文件: msg_id={}, 发送端地址={}",
+        sender_msg_id, sender_addr
+    );
     let my_id = crate::db::get_user_id(&state.pool).await?;
     let req_msg = serde_json::json!({
         "msg_type": "file_request",
@@ -1809,13 +1969,109 @@ pub async fn request_file(
 }
 
 #[tauri::command]
-pub async fn get_notifications_enabled(state: tauri::State<'_, crate::db::DbState>) -> Result<bool, String> {
+pub async fn get_notifications_enabled(
+    state: tauri::State<'_, crate::db::DbState>,
+) -> Result<bool, String> {
     Ok(crate::db::get_notifications_enabled(&state.pool).await)
 }
 
 #[tauri::command]
-pub async fn set_notifications_enabled(state: tauri::State<'_, crate::db::DbState>, enabled: bool) -> Result<(), String> {
+pub async fn set_notifications_enabled(
+    state: tauri::State<'_, crate::db::DbState>,
+    enabled: bool,
+) -> Result<(), String> {
     crate::db::set_notifications_enabled(&state.pool, enabled).await
+}
+
+#[tauri::command]
+pub fn get_background_receive_state() -> serde_json::Value {
+    let value = serde_json::to_value(crate::core_runtime::CoreRuntime::global().status())
+        .unwrap_or_else(|_| serde_json::json!({"state": "ERROR"}));
+    #[cfg(windows)]
+    let value = {
+        let mut value = value;
+        if let Some((_, manager)) = crate::core_runtime::CoreRuntime::global().shared_resources() {
+            if let Some(store) = manager.persistence() {
+                value["peer_persistence"] = serde_json::json!(store.status());
+            }
+        }
+        value
+    };
+    value
+}
+
+#[cfg(target_os = "android")]
+fn call_android_activity_void(method: &str) -> Result<(), String> {
+    let context = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
+        .map_err(|error| format!("获取 JavaVM 失败: {error}"))?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|error| format!("附加线程失败: {error}"))?;
+    let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
+    env.call_method(activity, method, "()V", &[])
+        .map_err(|error| format!("调用 {method} 失败: {error}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn call_android_activity_string(method: &str) -> Result<String, String> {
+    let context = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
+        .map_err(|error| format!("获取 JavaVM 失败: {error}"))?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|error| format!("附加线程失败: {error}"))?;
+    let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
+    let value = env
+        .call_method(activity, method, "()Ljava/lang/String;", &[])
+        .map_err(|error| format!("调用 {method} 失败: {error}"))?
+        .l()
+        .map_err(|error| error.to_string())?;
+    let value = jni::objects::JString::from(value);
+    env.get_string(&value)
+        .map(|value| value.to_string_lossy().into_owned())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn retry_background_service() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_void("retryBackgroundService");
+    #[cfg(not(target_os = "android"))]
+    Err("仅 Android 支持后台接收服务".to_string())
+}
+
+#[tauri::command]
+pub fn stop_background_receive_and_exit() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_void("stopBackgroundReceiveAndExit");
+    #[cfg(not(target_os = "android"))]
+    Err("仅 Android 支持后台接收服务".to_string())
+}
+
+#[tauri::command]
+pub fn get_battery_optimization_state() -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_string("getBatteryOptimizationState");
+    #[cfg(not(target_os = "android"))]
+    Ok("not_applicable".to_string())
+}
+
+#[tauri::command]
+pub fn open_battery_optimization_settings() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_void("openBatteryOptimizationSettings");
+    #[cfg(not(target_os = "android"))]
+    Err("仅 Android 支持电池优化设置".to_string())
+}
+
+#[tauri::command]
+pub fn get_notification_permission_state() -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_string("getNotificationPermissionState");
+    #[cfg(not(target_os = "android"))]
+    Ok("not_applicable".to_string())
 }
 
 #[tauri::command]
@@ -1856,7 +2112,10 @@ pub fn request_permission_on_android(app: tauri::AppHandle) -> Result<String, St
     #[cfg(target_os = "android")]
     {
         use tauri_plugin_notification::NotificationExt;
-        let result = app.notification().request_permission().map_err(|e| e.to_string())?;
+        let result = app
+            .notification()
+            .request_permission()
+            .map_err(|e| e.to_string())?;
         return Ok(format!("{:?}", result));
     }
     #[cfg(not(target_os = "android"))]
@@ -1879,8 +2138,183 @@ fn get_notification_id(from_id: &str) -> i32 {
     (hasher.finish() & 0x7FFFFFFF) as i32
 }
 
+#[cfg(windows)]
+const WINDOWS_NOTIFICATION_APP_ID: &str = "com.lanchat.app";
+
+/// 便携版 EXE 没有安装器创建的 AppUserModelId。Windows Toast 使用自定义
+/// AppUserModelId 前必须先注册显示名称，否则通知可能既不弹出也不进入通知中心。
+#[cfg(windows)]
+pub fn ensure_windows_notification_identity() -> Result<(), String> {
+    use std::path::PathBuf;
+    use windows::core::{Interface, GUID, HSTRING};
+    use windows::Win32::Foundation::{PROPERTYKEY, RPC_E_CHANGED_MODE};
+    use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
+    use windows::Win32::UI::Shell::{
+        IShellLinkW, SetCurrentProcessExplicitAppUserModelID, ShellLink,
+    };
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    const PKEY_APP_USER_MODEL_ID: PROPERTYKEY = PROPERTYKEY {
+        fmtid: GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3),
+        pid: 5,
+    };
+
+    let current_user = RegKey::predef(HKEY_CURRENT_USER);
+    let path = format!(
+        r"Software\Classes\AppUserModelId\{}",
+        WINDOWS_NOTIFICATION_APP_ID
+    );
+    let (key, _) = current_user
+        .create_subkey(path)
+        .map_err(|error| format!("创建 Windows 通知身份失败: {error}"))?;
+    key.set_value("DisplayName", &"LQ Chat")
+        .map_err(|error| format!("写入 Windows 通知显示名称失败: {error}"))?;
+    key.set_value("IconBackgroundColor", &"0")
+        .map_err(|error| format!("写入 Windows 通知图标背景失败: {error}"))?;
+
+    let app_id = HSTRING::from(WINDOWS_NOTIFICATION_APP_ID);
+    unsafe { SetCurrentProcessExplicitAppUserModelID(&app_id) }
+        .map_err(|error| format!("设置 Windows 进程通知身份失败: {error}"))?;
+
+    let executable =
+        std::env::current_exe().map_err(|error| format!("读取当前 LQ Chat 路径失败: {error}"))?;
+    let working_directory = executable
+        .parent()
+        .map(PathBuf::from)
+        .ok_or_else(|| "LQ Chat 路径缺少父目录".to_string())?;
+    let app_data = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .ok_or_else(|| "Windows APPDATA 目录不可用".to_string())?;
+    let shortcut_dir = app_data
+        .join("Microsoft")
+        .join("Windows")
+        .join("Start Menu")
+        .join("Programs");
+    let shortcut = shortcut_dir.join("LQ Chat.lnk");
+    let legacy_shortcut = shortcut_dir.join("LANChat.lnk");
+    if let Some(parent) = shortcut.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("创建开始菜单目录失败: {error}"))?;
+    }
+
+    let com_result = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+    let should_uninitialize = com_result.is_ok();
+    if com_result.is_err() && com_result != RPC_E_CHANGED_MODE {
+        return Err(format!("初始化 Windows Shell 失败: {com_result:?}"));
+    }
+
+    let create_shortcut = || -> windows::core::Result<()> {
+        unsafe {
+            let shell_link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+            shell_link.SetPath(&HSTRING::from(executable.to_string_lossy().as_ref()))?;
+            shell_link.SetWorkingDirectory(&HSTRING::from(
+                working_directory.to_string_lossy().as_ref(),
+            ))?;
+            shell_link.SetDescription(&HSTRING::from("LQ Chat 局域网聊天"))?;
+            shell_link.SetIconLocation(&HSTRING::from(executable.to_string_lossy().as_ref()), 0)?;
+
+            let property_store: IPropertyStore = shell_link.cast()?;
+            let app_id_value = PROPVARIANT::from(WINDOWS_NOTIFICATION_APP_ID);
+            property_store.SetValue(&PKEY_APP_USER_MODEL_ID, &app_id_value)?;
+            property_store.Commit()?;
+
+            let persist_file: IPersistFile = shell_link.cast()?;
+            persist_file.Save(&HSTRING::from(shortcut.to_string_lossy().as_ref()), true)?;
+            Ok(())
+        }
+    }();
+
+    if should_uninitialize {
+        unsafe { CoUninitialize() };
+    }
+    create_shortcut.map_err(|error| format!("注册 LQ Chat 开始菜单通知身份失败: {error}"))?;
+    if legacy_shortcut != shortcut && legacy_shortcut.is_file() {
+        let _ = std::fs::remove_file(legacy_shortcut);
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn show_windows_system_notification(title: &str, body: &str) -> Result<(), String> {
+    ensure_windows_notification_identity()?;
+    use tauri_winrt_notification::{Duration, Sound, Toast};
+    Toast::new(WINDOWS_NOTIFICATION_APP_ID)
+        .title(title)
+        .text1(body)
+        .duration(Duration::Short)
+        .sound(Some(Sound::Default))
+        .show()
+        .map_err(|error| format!("Windows 系统通知发送失败: {error}"))
+}
+
+#[cfg(windows)]
+pub fn windows_notification_for_core_event(
+    event: &crate::core_events::CoreEvent,
+) -> Option<(String, String)> {
+    use crate::core_events::CoreEvent;
+
+    let (payload, kind) = match event {
+        CoreEvent::MessageReceived(payload) => (payload, "message"),
+        CoreEvent::FileOfferReceived(payload) => (payload, "file_offer"),
+        CoreEvent::FileTransferCompleted(payload) => (payload, "file_completed"),
+        CoreEvent::CoreError(status) => {
+            return Some((
+                "LQ Chat 后台接收发生异常".to_string(),
+                status
+                    .last_error_message
+                    .clone()
+                    .unwrap_or_else(|| "点击打开并重试".to_string()),
+            ));
+        }
+        _ => return None,
+    };
+
+    let from_id = payload.get("from_id").and_then(|value| value.as_str())?;
+    if from_id.is_empty() || from_id == "me" {
+        return None;
+    }
+    let title = payload
+        .get("from_name")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("局域网设备")
+        .to_string();
+    let file_name = payload
+        .get("file_name")
+        .or_else(|| payload.get("content"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("未知文件");
+    let body = match kind {
+        "file_offer" => format!("请求发送文件：{file_name}"),
+        "file_completed" => format!("文件接收完成：{file_name}"),
+        _ if payload.get("msg_type").and_then(|value| value.as_str()) == Some("image") => {
+            "[图片]".to_string()
+        }
+        _ => payload
+            .get("content")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("收到一条新消息")
+            .chars()
+            .take(100)
+            .collect(),
+    };
+    Some((title, body))
+}
+
 #[tauri::command]
-pub fn show_notification(_app: tauri::AppHandle, title: String, body: String, #[allow(unused_variables)] from_id: String) {
+pub fn show_notification(
+    _app: tauri::AppHandle,
+    title: String,
+    body: String,
+    #[allow(unused_variables)] from_id: String,
+) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         // Linux 用 notify-send
@@ -1888,11 +2322,18 @@ pub fn show_notification(_app: tauri::AppHandle, title: String, body: String, #[
             .arg(&title)
             .arg(&body)
             .spawn();
+        return Ok(());
     }
 
-    #[cfg(any(windows, target_os = "macos", target_os = "android"))]
+    #[cfg(windows)]
     {
-        // Windows / macOS / Android 均使用系统原生通知中心。
+        show_windows_system_notification(&title, &body)?;
+        return Ok(());
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    {
+        // macOS / Android 使用 Tauri 的系统原生通知组件。
         use tauri_plugin_notification::NotificationExt;
         let app = _app;
         let mut builder = app.notification().builder().title(&title).body(&body);
@@ -1900,7 +2341,37 @@ pub fn show_notification(_app: tauri::AppHandle, title: String, body: String, #[
             let notif_id = get_notification_id(&from_id);
             builder = builder.id(notif_id);
         }
-        let _ = builder.show();
+        builder.show().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod notification_tests {
+    use super::windows_notification_for_core_event;
+    use crate::core_events::CoreEvent;
+
+    #[test]
+    fn windows_notification_maps_incoming_text_and_ignores_progress() {
+        let incoming = CoreEvent::MessageReceived(serde_json::json!({
+            "from_id": "phone-id",
+            "from_name": "IQOO",
+            "content": "测试消息",
+            "msg_type": "text"
+        }));
+        assert_eq!(
+            windows_notification_for_core_event(&incoming),
+            Some(("IQOO".to_string(), "测试消息".to_string()))
+        );
+
+        let progress = CoreEvent::FileTransferProgress(serde_json::json!({
+            "from_id": "phone-id",
+            "file_name": "demo.apk"
+        }));
+        assert_eq!(windows_notification_for_core_event(&progress), None);
     }
 }
 
@@ -1909,7 +2380,9 @@ pub fn show_notification(_app: tauri::AppHandle, title: String, body: String, #[
 pub fn clear_notification(_app: tauri::AppHandle, #[allow(unused_variables)] from_id: String) {
     #[cfg(any(target_os = "macos", target_os = "android"))]
     {
-        if from_id.is_empty() { return; }
+        if from_id.is_empty() {
+            return;
+        }
         use tauri_plugin_notification::NotificationExt;
         let notif_id = get_notification_id(&from_id);
         let _ = _app.notification().cancel(vec![notif_id]);

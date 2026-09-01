@@ -25,7 +25,8 @@ async fn main() {
     } else {
         // 读配置文件的 db_path
         let cfg = lanchat::config_file::read_config();
-        cfg.db_path.map(|p| lanchat::config_file::resolve_db_dir(&p))
+        cfg.db_path
+            .map(|p| lanchat::config_file::resolve_db_dir(&p))
     };
 
     // Step 3: 打开数据库
@@ -47,7 +48,9 @@ async fn main() {
     println!("[Server Main] 我的 ID: {}", my_id);
 
     // Step 4: 若 --port 没传，读配置文件取 port
-    let port: u16 = args.port.unwrap_or_else(|| lanchat::config_file::get_port_from_config().unwrap_or(8888));
+    let port: u16 = args
+        .port
+        .unwrap_or_else(|| lanchat::config_file::get_port_from_config().unwrap_or(8888));
 
     // 创建全局用户管理器
     let peer_manager = Arc::new(PeerManager::new());
@@ -58,11 +61,23 @@ async fn main() {
     }
 
     // Step 5: 以 port 启动服务
+    let event_bus = lanchat::core_events::CoreEventBus::default();
+    let cancellation = tokio_util::sync::CancellationToken::new();
     // 1. 启动 Web 服务 (TCP)
     let pool_clone = pool.clone();
     let peer_manager_clone = peer_manager.clone();
+    let server_bus = event_bus.clone();
+    let server_cancellation = cancellation.child_token();
     tokio::spawn(async move {
-        lanchat::web_server::start_server(port, port, pool_clone, peer_manager_clone).await;
+        let _ = lanchat::web_server::start_server(
+            port,
+            port,
+            pool_clone,
+            peer_manager_clone,
+            server_bus,
+            server_cancellation,
+        )
+        .await;
     });
 
     // 2. 启动 UDP 监听
@@ -70,13 +85,17 @@ async fn main() {
     let listen_name = my_name.clone();
     let peer_manager_clone = peer_manager.clone();
     let pool_for_discovery = pool.clone();
+    let listener_bus = event_bus.clone();
+    let listener_cancellation = cancellation.child_token();
     tokio::spawn(async move {
-        lanchat::network::discovery::start_listening(
+        let _ = lanchat::network::discovery::start_listening(
             port,
             listen_id,
             listen_name,
             peer_manager_clone,
             pool_for_discovery,
+            listener_bus,
+            listener_cancellation,
         )
         .await;
     });
@@ -84,8 +103,15 @@ async fn main() {
     // 3. 启动 UDP 广播
     let announce_id = my_id.clone();
     let announce_pool = pool.clone();
+    let announcer_cancellation = cancellation.child_token();
     tokio::spawn(async move {
-        lanchat::network::discovery::start_announcing(port, announce_id, announce_pool).await;
+        let _ = lanchat::network::discovery::start_announcing(
+            port,
+            announce_id,
+            announce_pool,
+            announcer_cancellation,
+        )
+        .await;
     });
 
     println!("[Server Main] ========================================");
