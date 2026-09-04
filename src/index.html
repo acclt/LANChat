@@ -117,7 +117,9 @@
                             <button id="open-battery-settings-btn" type="button" class="android-inline-action"><span id="battery-optimization-status">正在检查…</span></button>
                         </div>
                     </section>
-                    <button id="save-permissions-btn" class="android-primary-action android-only" type="button">保存权限设置</button>
+                    <div class="android-save-bar android-only">
+                        <button id="save-permissions-btn" class="android-primary-action android-only" type="button">保存权限设置</button>
+                    </div>
                 </section>
 
                 <div class="setting-item" id="close-to-tray-setting">
@@ -139,12 +141,14 @@
                     </div>
                     <div class="setting-hint" data-i18n="autostart_hint">自动启动时隐藏到托盘</div>
                 </div>
-                <div class="button-group android-settings-actions">
-                    <button id="save-settings-btn" data-i18n="save">保存</button>
-                    <button id="cancel-settings-btn" data-i18n="cancel">取消</button>
+                <div class="android-save-bar">
+                    <div class="button-group android-settings-actions">
+                        <button id="save-settings-btn" data-i18n="save">保存</button>
+                        <button id="cancel-settings-btn" data-i18n="cancel">取消</button>
+                    </div>
+                    <div id="settings-success-msg" class="success-msg" role="status"></div>
+                    <div id="settings-error-msg" class="error-msg" role="alert"></div>
                 </div>
-                <div id="settings-success-msg" class="success-msg" role="status"></div>
-                <div id="settings-error-msg" class="error-msg" role="alert"></div>
             </div>
         </div>
         <div id="add-peer-panel" class="settings-panel" style="display: none;">
@@ -165,12 +169,14 @@
                     </div>
                     <div id="custom-peer-list" class="custom-peer-list"></div>
                 </div>
-                <div class="button-group">
-                    <button id="save-peer-btn" data-i18n="save">保存</button>
-                    <button id="cancel-peer-btn" data-i18n="cancel">取消</button>
+                <div class="android-save-bar">
+                    <div class="button-group">
+                        <button id="save-peer-btn" data-i18n="save">保存</button>
+                        <button id="cancel-peer-btn" data-i18n="cancel">取消</button>
+                    </div>
+                    <div id="peer-success-msg" class="success-msg"></div>
+                    <div id="peer-error-msg" class="error-msg"></div>
                 </div>
-                <div id="peer-success-msg" class="success-msg"></div>
-                <div id="peer-error-msg" class="error-msg"></div>
             </div>
         </div>
         <section id="android-push-apps-panel" class="android-overlay-panel android-only" aria-label="选择推送应用">
@@ -192,8 +198,10 @@
                 <div id="android-push-apps-list" class="android-push-apps-list"></div>
                 <div id="android-push-apps-empty" class="android-subpage-empty">正在读取应用…</div>
             </section>
-            <p id="android-push-apps-status" class="android-subpage-status" role="status"></p>
-            <button id="android-push-apps-save-btn" class="android-primary-action" type="button">保存选择</button>
+            <div class="android-save-bar">
+                <p id="android-push-apps-status" class="android-subpage-status" role="status"></p>
+                <button id="android-push-apps-save-btn" class="android-primary-action" type="button">保存选择</button>
+            </div>
         </section>
         <section id="android-push-sources-panel" class="settings-panel android-push-sources-panel" style="display: none;" aria-label="正在向本机推送">
             <header class="android-page-bar android-only">

@@ -1014,7 +1014,71 @@ body.android-app #cancel-peer-btn {
   display: none;
 }
 
+/* Save actions remain in the visible viewport while each page scrolls. */
+body.android-app #settings-panel,
+body.android-app #permissions-panel,
+body.android-app #add-peer-panel,
+body.android-app #android-push-apps-panel {
+  /* A filtered ancestor would make fixed footers scroll with that ancestor. */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding-bottom: calc(var(--android-save-bar-height, 104px) + var(--android-keyboard-inset, 0px) + 16px);
+  scroll-padding-bottom: calc(var(--android-save-bar-height, 104px) + var(--android-keyboard-inset, 0px) + 16px);
+}
+
+body.android-app .android-save-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--android-keyboard-inset, 0px);
+  z-index: 5;
+  display: grid;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 12px max(20px, calc((100% - 680px) / 2)) max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--android-line);
+  background: var(--android-bg);
+  box-shadow: 0 -4px 18px rgba(39, 31, 78, .06);
+}
+
+body.android-app .android-save-bar .button-group,
+body.android-app .android-save-bar #android-push-apps-save-btn,
+body.android-app .android-save-bar #save-permissions-btn {
+  width: 100%;
+  margin: 0;
+}
+
+body.android-app .android-save-bar #save-peer-btn {
+  width: 100%;
+  min-height: 48px;
+}
+
+body.android-app .android-save-bar .android-subpage-status,
+body.android-app .android-save-bar .error-msg,
+body.android-app .android-save-bar .success-msg,
+body.android-app .android-save-bar #settings-success-msg.show,
+body.android-app .android-save-bar #settings-error-msg:not(:empty) {
+  position: static;
+  width: 100%;
+  min-height: 0;
+  max-height: 4em;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+body.android-app .android-save-bar .android-subpage-status:empty,
+body.android-app .android-save-bar .error-msg:empty,
+body.android-app .android-save-bar .success-msg:not(.show) {
+  display: none;
+}
+
 @media (max-width: 420px) {
+  body.android-app .android-save-bar {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
   body.android-app .android-home,
   body.android-app .settings-panel,
   body.android-app #permissions-panel,

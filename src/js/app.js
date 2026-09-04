@@ -7,6 +7,7 @@ async function renderPage() {
   const previewMode = androidPreview || desktopPreview;
   const androidApp = (navigator.userAgent.includes("Android") && !!window.__TAURI__) || androidPreview;
   document.body.classList.toggle("android-app", androidApp);
+  if (androidApp) initAndroidSaveBars();
 
   const myName = await apiGetMyName();
   const nameElement = document.getElementById("my-name");
@@ -263,6 +264,31 @@ async function refreshPeerListNow() {
 async function startPeerPolling() {
   await refreshPeerListNow();
   setInterval(refreshPeerListNow, 1000);
+}
+
+function initAndroidSaveBars() {
+  // Keep actions above the IME, including WebViews which overlay instead of resize.
+  const updateViewport = () => {
+    const viewport = window.visualViewport;
+    const inset = viewport && viewport.scale === 1
+      ? Math.max(0, innerHeight - viewport.height - viewport.offsetTop)
+      : 0;
+    document.documentElement.style.setProperty("--android-keyboard-inset", `${inset}px`);
+  };
+  updateViewport();
+  window.visualViewport?.addEventListener("resize", updateViewport);
+  window.visualViewport?.addEventListener("scroll", updateViewport);
+  window.addEventListener("resize", updateViewport);
+
+  // Reserve the actual footer height, including wrapped save/error messages.
+  const observer = new ResizeObserver((entries) => {
+    for (const { target } of entries) {
+      const height = target.getBoundingClientRect().height;
+      const panel = target.closest(".settings-panel, .android-permissions-panel, .android-overlay-panel");
+      if (panel && height > 0) panel.style.setProperty("--android-save-bar-height", `${height}px`);
+    }
+  });
+  document.querySelectorAll(".android-save-bar").forEach((bar) => observer.observe(bar));
 }
 
 document.addEventListener("DOMContentLoaded", renderPage);
