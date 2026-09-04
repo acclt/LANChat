@@ -9,6 +9,49 @@ use crate::core_events::{CoreEvent, CoreEventBus};
 use crate::peers::PeerManager;
 
 const MULTICAST_IP: &str = "224.0.0.167";
+const PRESENCE_TARGET_LIMIT: usize = 32;
+const PRESENCE_BYTES_LIMIT: usize = 700;
+
+fn valid_device_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
+}
+
+fn encode_notification_presence(enabled: bool, target_device_ids: &[String]) -> String {
+    let mut encoded = String::new();
+    for id in target_device_ids
+        .iter()
+        .filter(|id| valid_device_id(id))
+        .take(PRESENCE_TARGET_LIMIT)
+    {
+        let next_len = encoded.len() + usize::from(!encoded.is_empty()) + id.len();
+        if next_len > PRESENCE_BYTES_LIMIT {
+            break;
+        }
+        if !encoded.is_empty() {
+            encoded.push(',');
+        }
+        encoded.push_str(id);
+    }
+    format!("0|{}|{encoded}", if enabled { "1" } else { "0" })
+}
+
+fn parse_notification_presence(parts: &[&str]) -> Option<(bool, Vec<String>)> {
+    if parts.len() < 9 {
+        return None;
+    }
+    let enabled = parts[7] == "1";
+    let target_device_ids = parts[8]
+        .split(',')
+        .filter(|id| valid_device_id(id))
+        .take(PRESENCE_TARGET_LIMIT)
+        .map(str::to_owned)
+        .collect();
+    Some((enabled, target_device_ids))
+}
 
 fn create_discovery_socket(bind_addr: &str, is_listener: bool) -> std::io::Result<UdpSocket> {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
@@ -85,7 +128,11 @@ pub async fn run_announcer(
             .unwrap_or_else(|_| "Unknown".to_string());
         system.refresh_memory();
         let available_memory_mb = system.available_memory() / (1024 * 1024);
-        let message = format!("LANChat|ONLINE|{user_id}|{username}|{port}|{available_memory_mb}");
+        let (push_enabled, target_device_ids) =
+            crate::notification_sync::discovery_presence(&pool).await;
+        let presence = encode_notification_presence(push_enabled, &target_device_ids);
+        let message =
+            format!("LANChat|ONLINE|{user_id}|{username}|{port}|{available_memory_mb}|{presence}");
 
         for address in &target_addrs {
             let _ = socket.send_to(message.as_bytes(), address).await;
@@ -164,6 +211,7 @@ pub async fn run_listener(
         let peer_port = parts[4];
         let available_memory_mb = parts[5].parse().unwrap_or(0);
         let peer_addr = format!("{}:{peer_port}", address.ip());
+        let notification_presence = parse_notification_presence(&parts);
         let Some(is_new_or_reconnected) = peer_manager.observe_discovery(
             peer_id.clone(),
             name.clone(),
@@ -172,6 +220,13 @@ pub async fn run_listener(
         ) else {
             continue;
         };
+        if let Some((enabled, target_device_ids)) = notification_presence.as_ref() {
+            peer_manager.update_notification_presence(
+                &peer_id,
+                *enabled,
+                target_device_ids.clone(),
+            );
+        }
 
         #[cfg(not(windows))]
         let persist_heartbeat = true;
@@ -213,18 +268,28 @@ pub async fn run_listener(
             });
         }
 
-        event_bus.publish(CoreEvent::PeerDiscovered(serde_json::json!({
+        let mut event = serde_json::json!({
             "id": peer_id,
             "name": name,
             "addr": peer_addr,
             "available_memory_mb": available_memory_mb,
-        })));
+        });
+        if let Some((enabled, targets)) = notification_presence {
+            event["notification_push_enabled"] = serde_json::json!(enabled);
+            event["notification_push_target_device_ids"] = serde_json::json!(targets);
+        }
+        event_bus.publish(CoreEvent::PeerDiscovered(event));
 
-        if parts.len() <= 6 {
+        if parts.get(6).is_none_or(|marker| *marker == "0") {
             let reply_name = crate::db::get_username(&pool)
                 .await
                 .unwrap_or_else(|_| my_name.clone());
-            let reply = format!("LANChat|ONLINE|{my_id}|{reply_name}|{port}|0|1");
+            let (enabled, targets) = crate::notification_sync::discovery_presence(&pool).await;
+            let presence = encode_notification_presence(enabled, &targets);
+            let reply = format!(
+                "LANChat|ONLINE|{my_id}|{reply_name}|{port}|0|1{}",
+                &presence[1..]
+            );
             let target = format!("{}:{peer_port}", address.ip());
             let _ = socket.send_to(reply.as_bytes(), &target).await;
         }
@@ -278,4 +343,29 @@ pub async fn send_single_broadcast(
         let _ = socket.send_to(message.as_bytes(), address).await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notification_presence_round_trips_and_rejects_invalid_targets() {
+        let encoded = encode_notification_presence(
+            true,
+            &["target-a".into(), "bad:target".into(), "target_b".into()],
+        );
+        let message = format!("LANChat|ONLINE|source|Phone|8888|64|{encoded}");
+        let parts: Vec<_> = message.split('|').collect();
+        assert_eq!(
+            parse_notification_presence(&parts),
+            Some((true, vec!["target-a".into(), "target_b".into()]))
+        );
+    }
+
+    #[test]
+    fn legacy_discovery_has_no_notification_presence() {
+        let parts: Vec<_> = "LANChat|ONLINE|source|Phone|8888|64".split('|').collect();
+        assert_eq!(parse_notification_presence(&parts), None);
+    }
 }

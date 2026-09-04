@@ -12,6 +12,10 @@ pub struct Peer {
     pub last_seen: u64,           // Unix 时间戳
     pub is_offline: bool,         // 是否离线
     pub available_memory_mb: u64, // 可用内存（MB）
+    #[serde(default)]
+    pub notification_push_enabled: bool,
+    #[serde(default)]
+    pub notification_push_target_device_ids: Vec<String>,
 }
 
 // 全局在线用户列表
@@ -52,6 +56,8 @@ impl PeerManager {
                 last_seen: _last_seen as u64,
                 is_offline,
                 available_memory_mb,
+                notification_push_enabled: false,
+                notification_push_target_device_ids: Vec::new(),
             };
             peers.insert(id, peer);
         }
@@ -126,6 +132,8 @@ impl PeerManager {
                 last_seen: now,
                 is_offline: false,
                 available_memory_mb,
+                notification_push_enabled: false,
+                notification_push_target_device_ids: Vec::new(),
             };
             println!(
                 "[PeerManager] 添加新用户: {} ({}) - 可用内存: {} MB",
@@ -133,6 +141,18 @@ impl PeerManager {
             );
             peers.insert(id, peer);
             return Some(true); // 新用户，返回 true
+        }
+    }
+
+    pub fn update_notification_presence(
+        &self,
+        id: &str,
+        enabled: bool,
+        target_device_ids: Vec<String>,
+    ) {
+        if let Some(peer) = self.peers.write().unwrap().get_mut(id) {
+            peer.notification_push_enabled = enabled;
+            peer.notification_push_target_device_ids = target_device_ids;
         }
     }
 

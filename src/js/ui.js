@@ -112,7 +112,7 @@ async function addUserToList(id, name, addr, isOffline = false) {
   li.dataset.id = id;
   li.dataset.name = name;
   li.dataset.addr = addr;
-  if (document.body.classList.contains("windows-app")) {
+  if (document.body.classList.contains("windows-app") || document.body.classList.contains("android-app")) {
     li.tabIndex = 0;
     li.setAttribute("role", "button");
     li.title = name;
@@ -121,9 +121,15 @@ async function addUserToList(id, name, addr, isOffline = false) {
     });
   }
   li.innerHTML = `
-        <span class="user-name">${name}</span>
-        <span class="user-addr">${addr}</span>
+        <span class="android-peer-avatar" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+        </span>
+        <span class="android-peer-copy">
+          <span class="user-name">${name}</span>
+          <span class="user-addr">${addr} · ${isOffline ? "离线" : "在线"}</span>
+        </span>
         <span class="user-status">${isOffline ? "offline" : ""}</span>
+        <span class="android-peer-chevron" aria-hidden="true">›</span>
     `;
 
   if (isOffline) {
@@ -204,7 +210,10 @@ function updateUserStatus(item, name, addr, isOffline) {
   const addrSpan = item.querySelector(".user-addr");
 
   if (nameSpan && nameSpan.textContent !== name) nameSpan.textContent = name;
-  if (addrSpan && addrSpan.textContent !== addr) addrSpan.textContent = addr;
+  const displayAddr = document.body.classList.contains("android-app")
+    ? `${addr} · ${isOffline ? "离线" : "在线"}`
+    : addr;
+  if (addrSpan && addrSpan.textContent !== displayAddr) addrSpan.textContent = displayAddr;
   const nextStatus = isOffline ? "OFF" : "";
   if (statusSpan && statusSpan.textContent !== nextStatus) {
     statusSpan.textContent = nextStatus;
@@ -2581,7 +2590,15 @@ function initSettings() {
   const dbPathSetting = document.getElementById("db-path-setting");
   const settingsErrorMsg = document.getElementById("settings-error-msg");
   const settingsSuccessMsg = document.getElementById("settings-success-msg");
+  const settingsNameInput = document.getElementById("settings-device-name-input");
+  const permissionsPanel = document.getElementById("permissions-panel");
+  const permissionsBtn = document.getElementById("android-permissions-btn");
+  const permissionsBackBtn = document.getElementById("android-permissions-back-btn");
+  const savePermissionsBtn = document.getElementById("save-permissions-btn");
+  const settingsBackBtn = document.getElementById("android-settings-back-btn");
+  const permissionFileBtn = document.getElementById("android-permission-file-btn");
   let initialPort = "8888";
+  let initialName = "";
   let initialDbPath = "";
   let initialDlPath = "";
   let initialAutoDl = true;
@@ -2605,7 +2622,8 @@ function initSettings() {
   const stopBackgroundServiceBtn = document.getElementById("stop-background-service-btn");
 
   // Android 端隐藏数据库路径配置
-  const isAndroid = window.__TAURI__ && navigator.userAgent.includes("Android");
+  const isAndroid = !!window.__TAURI__ &&
+    (navigator.userAgent.includes("Android") || document.body.classList.contains("android-app"));
   const isWindowsDesktop = !!window.__TAURI__ && !isAndroid && navigator.userAgent.includes("Windows");
   if (isAndroid && dbPathSetting) {
     dbPathSetting.style.display = "none";
@@ -2630,6 +2648,11 @@ function initSettings() {
     downloadPathInput.value = androidDownloadTarget.startsWith("content://")
       ? `系统文件夹：${label || "已授权目录"}`
       : "应用专属存储（默认）";
+    if (permissionFileBtn) {
+      permissionFileBtn.textContent = androidDownloadTarget.startsWith("content://")
+        ? "已授权"
+        : "设置";
+    }
   }
 
   if (isAndroid) {
@@ -2685,6 +2708,7 @@ function initSettings() {
       }
     });
     window.__TAURI__.event?.listen("core-state-changed", refreshBackgroundReceiveState);
+    window.addEventListener("focus", refreshBackgroundReceiveState);
   }
 
   // 获取默认下载路径
@@ -2704,16 +2728,22 @@ function initSettings() {
   settingsBtn.addEventListener("click", async () => {
     if (settingsPanel.style.display === "block") {
       settingsPanel.style.display = "none";
+      permissionsPanel?.classList.remove("is-open");
       settingsErrorMsg.textContent = "";
       settingsSuccessMsg.textContent = "";
       settingsSuccessMsg.classList.remove("show");
     } else {
       settingsPanel.style.display = "block";
+      permissionsPanel?.classList.remove("is-open");
       settingsErrorMsg.textContent = "";
       settingsSuccessMsg.textContent = "";
       settingsSuccessMsg.classList.remove("show");
 
       try {
+        if (settingsNameInput) {
+          initialName = await apiGetMyName();
+          settingsNameInput.value = initialName;
+        }
         const settings = await apiGetSettings();
         const defaultDlPath = await getDefaultDownloadPath();
 
@@ -2746,11 +2776,27 @@ function initSettings() {
           }
         }
         await refreshBackgroundReceiveState();
+        await window.NotificationUI?.refreshSettings?.();
       } catch (e) {
         settingsErrorMsg.textContent = "加载设置失败: " + e.message;
       }
 
     }
+  });
+
+  settingsBackBtn?.addEventListener("click", () => cancelSettingsBtn.click());
+  permissionsBtn?.addEventListener("click", async () => {
+    permissionsPanel?.classList.add("is-open");
+    await refreshBackgroundReceiveState();
+    window.NotificationUI?.refreshSettings?.();
+  });
+  permissionsBackBtn?.addEventListener("click", () => {
+    permissionsPanel?.classList.remove("is-open");
+  });
+  permissionFileBtn?.addEventListener("click", () => choosePathBtn.click());
+  savePermissionsBtn?.addEventListener("click", () => {
+    saveSettingsBtn.dataset.saveDestination = "settings";
+    saveSettingsBtn.click();
   });
 
   // 选择下载路径
@@ -2823,6 +2869,8 @@ function initSettings() {
 
   // 保存设置
   saveSettingsBtn.addEventListener("click", async () => {
+    const saveDestination = saveSettingsBtn.dataset.saveDestination || "home";
+    delete saveSettingsBtn.dataset.saveDestination;
     try {
       settingsErrorMsg.textContent = "";
       settingsSuccessMsg.textContent = "";
@@ -2842,6 +2890,18 @@ function initSettings() {
         portInput.value = String(portNum);
       }
 
+      const deviceName = settingsNameInput?.value.trim() || initialName;
+      if (isAndroid && !deviceName) {
+        settingsErrorMsg.textContent = t("name_empty");
+        settingsNameInput?.focus();
+        return;
+      }
+      if (isAndroid && deviceName.length > 50) {
+        settingsErrorMsg.textContent = t("name_too_long");
+        settingsNameInput?.focus();
+        return;
+      }
+
       // 空值恢复默认
       const dlPath = isAndroid
         ? (androidDownloadTarget || (await getDefaultDownloadPath()))
@@ -2852,8 +2912,15 @@ function initSettings() {
       const notificationsEnabled = notificationToggle.checked;
       const closeToTray = isWindowsDesktop ? closeToTrayToggle.checked : undefined;
       const autostartEnabled = isWindowsDesktop ? autostartToggle.checked : false;
+      const nameChanged = isAndroid && deviceName !== initialName;
 
       await apiUpdateSettings(dlPath, myPort, myDbPath, autoDl, closeToTray);
+      if (nameChanged) {
+        const updatedName = await apiUpdateMyName(deviceName);
+        initialName = updatedName;
+        document.getElementById("my-name").textContent = updatedName;
+        document.getElementById("android-device-name").textContent = updatedName;
+      }
       if (window.__TAURI__) {
         await window.__TAURI__.core.invoke("set_notifications_enabled", { enabled: notificationsEnabled });
         window._notificationsEnabled = notificationsEnabled;
@@ -2872,9 +2939,17 @@ function initSettings() {
       const closeToTrayChanged = isWindowsDesktop && closeToTray !== initialCloseToTray;
       const autostartChanged = isWindowsDesktop && autostartEnabled !== initialAutostart;
 
-      if (!portChanged && !dbPathChanged && !dlPathChanged && !autoDlChanged && !notificationsChanged && !closeToTrayChanged && !autostartChanged) {
+      const finishSave = () => {
+        if (saveDestination === "settings") {
+          permissionsPanel?.classList.remove("is-open");
+        } else {
+          settingsPanel.style.display = "none";
+        }
+      };
+
+      if (!nameChanged && !portChanged && !dbPathChanged && !dlPathChanged && !autoDlChanged && !notificationsChanged && !closeToTrayChanged && !autostartChanged) {
         // 没有任何改动，直接关闭
-        settingsPanel.style.display = "none";
+        finishSave();
         return;
       }
 
@@ -2885,9 +2960,9 @@ function initSettings() {
       }
       settingsSuccessMsg.classList.add("show");
       setTimeout(() => {
-        settingsPanel.style.display = "none";
+        finishSave();
         settingsSuccessMsg.classList.remove("show");
-      }, 1500);
+      }, saveDestination === "settings" ? 650 : 1200);
 
       console.log("[UI] 设置保存成功");
     } catch (e) {
@@ -2897,6 +2972,7 @@ function initSettings() {
 
   // 取消
   cancelSettingsBtn.addEventListener("click", () => {
+    permissionsPanel?.classList.remove("is-open");
     settingsPanel.style.display = "none";
     settingsErrorMsg.textContent = "";
     settingsSuccessMsg.textContent = "";
@@ -2915,6 +2991,7 @@ function initAddPeer() {
   const customPeerInput = document.getElementById("custom-peer-input");
   const addCustomPeerBtn = document.getElementById("add-custom-peer-btn");
   const customPeerList = document.getElementById("custom-peer-list");
+  const androidBackBtn = document.getElementById("android-add-peer-back-btn");
 
   // 打开/关闭面板
   addBtn.addEventListener("click", () => {
@@ -2955,6 +3032,7 @@ function initAddPeer() {
     addPanel.style.display = "none";
     errorMsg.textContent = "";
   });
+  androidBackBtn?.addEventListener("click", () => cancelBtn.click());
 
   // 设备地址校验：返回 { address, error }，address 含端口
   function validateCustomPeer(val) {

@@ -27,6 +27,23 @@ async function renderPage() {
 
   document.getElementById("android-settings-btn")?.addEventListener("click", () => document.getElementById("settings-btn")?.click());
   document.getElementById("android-add-peer-btn")?.addEventListener("click", () => document.getElementById("add-peer-btn")?.click());
+  document.getElementById("android-receive-sources-btn")?.addEventListener("click", () => window.NotificationUI?.openPushSources?.());
+  document.getElementById("android-refresh-peers-btn")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try { await refreshPeerListNow(); }
+    finally { button.disabled = false; }
+  });
+  document.getElementById("android-refresh-receive-btn")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await refreshPeerListNow();
+      await window.NotificationUI?.refresh?.();
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.getElementById("android-edit-name-btn")?.addEventListener("click", () => document.getElementById("my-name")?.click());
   try {
     if (!window.__TAURI__) throw new Error("preview");
@@ -51,7 +68,9 @@ async function renderPage() {
 
   if (previewMode) {
     const summary = document.getElementById("android-peer-summary");
-    if (summary) summary.textContent = "自动检测到 1 台局域网设备";
+    if (summary) summary.textContent = "当前 1 台设备";
+    const emptyState = document.getElementById("android-chat-empty");
+    if (emptyState) emptyState.hidden = true;
     void addUserToList("preview-peer", "林然的电脑", "192.168.5.8:8888", false);
   }
 
@@ -192,10 +211,7 @@ async function renderPage() {
   }, 1500);
 }
 
-async function startPeerPolling() {
-  const pollInterval = 1000;
-
-  const updatePeerList = async () => {
+async function refreshPeerListNow() {
     const peers = await apiGetPeers();
     if (!peers) return;
     window.NotificationUI?.onPeers(peers);
@@ -225,11 +241,10 @@ async function startPeerPolling() {
 
     const summary = document.getElementById("android-peer-summary");
     if (summary) {
-      const onlineCount = peers.filter((peer) => !peer.is_offline).length;
-      summary.textContent = onlineCount > 0
-        ? `自动检测到 ${onlineCount} 台局域网设备`
-        : "暂未检测到局域网设备";
+      summary.textContent = `当前 ${peers.length} 台设备`;
     }
+    const emptyState = document.getElementById("android-chat-empty");
+    if (emptyState) emptyState.hidden = peers.length > 0;
 
     // 处理“自动移除”：如果 DOM 中的用户 ID 不在 API 列表中，说明该用户被删除了
     const userListItems = document.querySelectorAll("#user-list li");
@@ -242,10 +257,12 @@ async function startPeerPolling() {
     });
 
     sortUserList();
-  };
+    return peers;
+}
 
-  await updatePeerList();
-  setInterval(updatePeerList, pollInterval);
+async function startPeerPolling() {
+  await refreshPeerListNow();
+  setInterval(refreshPeerListNow, 1000);
 }
 
 document.addEventListener("DOMContentLoaded", renderPage);

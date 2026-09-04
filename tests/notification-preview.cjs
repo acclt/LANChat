@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, "../src");
 const fixtureIcon = fs.readFileSync(path.resolve(__dirname, "../src-tauri/icons/32x32.png")).toString("base64");
 const fixture = `(() => {
   const android = new URLSearchParams(location.search).has('android-preview');
-  const peers = [{id:'iqoo',name:'IQOO',addr:'192.168.5.10:8888',is_offline:false},{id:'redm',name:'REDM',addr:'192.168.5.11:8888',is_offline:false},{id:'4060',name:'4060',addr:'192.168.5.4:8888',is_offline:true}];
+  const peers = [{id:'iqoo',name:'IQOO',addr:'192.168.5.10:8888',is_offline:false,notification_push_enabled:true,notification_push_target_device_ids:['preview-local']},{id:'redm',name:'REDM',addr:'192.168.5.11:8888',is_offline:false,notification_push_enabled:true,notification_push_target_device_ids:['other-device']},{id:'4060',name:'4060',addr:'192.168.5.4:8888',is_offline:true,notification_push_enabled:false,notification_push_target_device_ids:[]}];
   let settings = {push_enabled:false,receive_enabled:true,allowed_packages:[],target_device_ids:[]};
   const listeners = new Map();
   const records = [{peer_id:'iqoo',peer_name:'IQOO',view_kind:'notification_receive',status:'success',notification:{msg_type:'notification',event_id:'preview-event',source_device_id:'iqoo',target_device_id:'preview-local',package:'example.messages',app_name:'短信',title:'快递到达提醒',text:'您的包裹已到达驿站。此内容是本地界面测试数据，不是真实系统通知。',notification_key:'preview-key',post_time:Date.now()}}];
@@ -16,7 +16,10 @@ const fixture = `(() => {
     switch(command){
       case 'notification_settings':if(args.settings)settings=args.settings;return{settings,platform:android?'android':'windows',access:false,permission:'unknown'};
       case 'notification_records':return records;
-      case 'notification_action':return{apps:[{package:'example.messages',name:'短信'},{package:'example.chat',name:'聊天'}]};
+      case 'notification_action':
+        if(args.action==='apps')return{apps:[{package:'example.messages',name:'短信',icon:'${fixtureIcon}'},{package:'example.chat',name:'聊天',icon:null}]};
+        if(args.action==='replace_allowed'){settings={...settings,allowed_packages:[...(args.payload?.packages||[])]};return{settings,platform:android?'android':'windows',access:false,permission:'unknown'};}
+        return{settings,platform:android?'android':'windows',access:false,permission:'unknown'};
       case 'notification_test':if(!settings.push_enabled)throw Error('信息推送未开启');if(!settings.target_device_ids.length)throw Error('请先选择目标设备');return null;
       case 'get_my_name':return android?'我的手机':'我的电脑';case 'get_my_id':return 'preview-local';
       case 'get_peers':return peers;case 'get_local_device_info':return{ip:'192.168.5.20',port:8888};
@@ -24,6 +27,8 @@ const fixture = `(() => {
       case 'get_language':return 'zh';case 'get_current_theme':return 'default';case 'get_themes':return [];
       case 'get_default_download_path':return 'D:/Downloads';case 'get_notifications_enabled':return true;
       case 'get_unread_count':return 0;case 'get_notification_permission_state':return 'granted';
+      case 'get_background_receive_state':return{state:'RUNNING',last_error_message:null};
+      case 'get_battery_optimization_state':return'unrestricted';
       case 'get_core_status':return{state:'RUNNING'};
       default:return [];
     }

@@ -5,6 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
         <link rel="stylesheet" href="css/style.css">
         <link rel="stylesheet" href="css/notification-sync.css">
+        <link rel="stylesheet" href="css/android-ui.css">
         <title>LQ Chat</title>
     </head>
     <body>
@@ -17,64 +18,108 @@
             <div id="error-msg" class="error-msg"></div>
         </div>
         <div id="settings-panel" class="settings-panel" style="display: none;">
-            <h3 data-i18n="settings">设置</h3>
+            <header class="android-page-bar android-only">
+                <button id="android-settings-back-btn" class="android-back-btn" type="button" aria-label="返回主页面">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <h3>设置</h3>
+                <span></span>
+            </header>
+            <h3 class="desktop-settings-title" data-i18n="settings">设置</h3>
             <div class="settings-content">
-                <div class="setting-item">
-                    <label for="port-input" data-i18n="port_label">端口:</label>
-                    <div class="path-input-group">
-                        <input type="number" id="port-input" class="no-spinner" placeholder="8888" min="1" max="65535">
+                <section class="android-settings-card">
+                    <div class="setting-item android-inline-setting android-only">
+                        <label for="settings-device-name-input">设备名称</label>
+                        <input type="text" id="settings-device-name-input" maxlength="50" autocomplete="off">
                     </div>
-                </div>
-                <div class="setting-item" id="db-path-setting">
-                    <label for="db-path-input" data-i18n="db_path_label">数据库路径:</label>
-                    <div class="path-input-group">
-                        <input type="text" id="db-path-input">
-                        <button id="choose-db-path-btn" data-i18n="choose">选择</button>
+                    <div class="setting-item android-inline-setting">
+                        <label for="port-input">监听端口</label>
+                        <div class="path-input-group">
+                            <input type="number" id="port-input" class="no-spinner" placeholder="8888" min="1" max="65535">
+                        </div>
                     </div>
-                </div>
-                <div class="setting-item">
-                    <label for="download-path-input" data-i18n="download_path_label">下载路径:</label>
-                    <div class="path-input-group">
-                        <input type="text" id="download-path-input">
-                        <button id="choose-path-btn" data-i18n="choose">选择</button>
+                    <div class="setting-item" id="db-path-setting">
+                        <label for="db-path-input" data-i18n="db_path_label">数据库路径:</label>
+                        <div class="path-input-group">
+                            <input type="text" id="db-path-input">
+                            <button id="choose-db-path-btn" data-i18n="choose">选择</button>
+                        </div>
                     </div>
-                </div>
-                <div class="setting-item">
-                    <div class="setting-label-row">
-                        <label for="auto-download-toggle" data-i18n="auto_download_label">自动下载:</label>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="auto-download-toggle" checked>
-                            <span class="toggle-slider"></span>
-                        </label>
+                    <div class="setting-item android-inline-setting android-download-setting">
+                        <label for="download-path-input">下载位置</label>
+                        <div class="path-input-group">
+                            <input type="text" id="download-path-input">
+                            <button id="choose-path-btn" type="button" aria-label="选择下载位置">
+                                <span data-i18n="choose">选择</span>
+                                <svg class="android-only" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                            </button>
+                        </div>
                     </div>
-                </div>
-                <div class="setting-item">
-                    <div class="setting-label-row">
-                        <label for="notification-toggle">系统通知:</label>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="notification-toggle" checked>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-                    <div id="notification-permission-hint" class="setting-hint"></div>
-                </div>
-                <div class="setting-item" id="background-receive-setting" style="display: none;">
-                    <div class="setting-label-row">
-                        <label>后台接收状态:</label>
-                        <span id="background-receive-status">正在检查…</span>
-                    </div>
-                    <div id="background-receive-error" class="setting-hint"></div>
-                    <div class="setting-label-row">
-                        <label>电池优化:</label>
-                        <span id="battery-optimization-status">正在检查…</span>
-                    </div>
-                    <div class="setting-hint">按 Home、切换 App 或锁屏后继续接收；从最近任务划掉 LQ Chat 会完整退出。</div>
-                    <div class="button-group background-receive-actions">
-                        <button id="retry-background-service-btn" type="button" style="display: none;">重试后台接收</button>
-                        <button id="open-battery-settings-btn" type="button">前往设置为不受限制</button>
-                        <button id="stop-background-service-btn" type="button">停止后台接收并退出</button>
-                    </div>
-                </div>
+                </section>
+
+                <div id="android-notification-settings" class="android-notification-settings android-only" aria-label="信息推送设置"></div>
+
+                <section class="android-permission-entry android-only" aria-label="系统权限">
+                    <div class="android-section-label">系统权限</div>
+                    <button id="android-permissions-btn" class="android-nav-row" type="button">
+                        <span class="android-row-icon android-row-icon-green">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>
+                        </span>
+                        <span class="android-row-copy"><strong>权限设置</strong><small>后台运行、通知、局域网与文件访问</small></span>
+                        <svg class="android-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                </section>
+
+                <section id="permissions-panel" class="android-permissions-panel">
+                    <header class="android-page-bar android-only">
+                        <button id="android-permissions-back-btn" class="android-back-btn" type="button" aria-label="返回设置">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                        </button>
+                        <h3>权限设置</h3>
+                        <span></span>
+                    </header>
+                    <section class="android-permissions-card">
+                        <div class="setting-item android-permission-row" id="background-receive-setting" style="display: none;">
+                            <span class="android-permission-copy"><strong>后台运行</strong><small>离开应用后继续发现设备和接收信息</small></span>
+                            <span id="background-receive-status" class="android-permission-status">正在检查…</span>
+                            <div id="background-receive-error" class="setting-hint"></div>
+                            <div class="background-receive-actions">
+                                <button id="retry-background-service-btn" type="button" style="display: none;">重试</button>
+                                <button id="stop-background-service-btn" type="button" class="android-danger-action">停止并退出</button>
+                            </div>
+                        </div>
+                        <div class="setting-item android-permission-row">
+                            <span class="android-permission-copy"><strong>通知权限</strong><small>显示接收信息和推送状态通知</small></span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="notification-toggle" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <div id="notification-permission-hint" class="setting-hint"></div>
+                        </div>
+                        <div class="setting-item android-permission-row android-only">
+                            <span class="android-permission-copy"><strong>通知访问权限</strong><small>读取并推送本机允许的应用通知</small></span>
+                            <button id="android-notification-access-btn" type="button" class="android-inline-action">检查</button>
+                        </div>
+                        <div class="setting-item android-permission-row android-only">
+                            <span class="android-permission-copy"><strong>局域网设备发现</strong><small>发现并连接同一网络中的设备</small></span>
+                            <span class="android-permission-status android-status-ok">已启用</span>
+                        </div>
+                        <div class="setting-item android-permission-row android-only">
+                            <span class="android-permission-copy"><strong>文件访问</strong><small>发送文件并保存接收到的内容</small></span>
+                            <button id="android-permission-file-btn" type="button" class="android-inline-action">设置</button>
+                        </div>
+                        <div class="setting-item android-permission-row">
+                            <span class="android-permission-copy"><strong data-i18n="auto_download_label">自动下载</strong><small class="android-only">自动保存接收到的文件</small></span>
+                            <input class="android-square-check" type="checkbox" id="auto-download-toggle" checked aria-label="自动下载">
+                        </div>
+                        <div class="setting-item android-permission-row android-only" id="android-battery-row">
+                            <span class="android-permission-copy"><strong>电池优化限制</strong><small class="android-only">后台服务不受系统休眠限制</small></span>
+                            <button id="open-battery-settings-btn" type="button" class="android-inline-action"><span id="battery-optimization-status">正在检查…</span></button>
+                        </div>
+                    </section>
+                    <button id="save-permissions-btn" class="android-primary-action android-only" type="button">保存权限设置</button>
+                </section>
+
                 <div class="setting-item" id="close-to-tray-setting">
                     <div class="setting-label-row">
                         <label for="close-to-tray-toggle" data-i18n="close_to_tray_label">点击 X 时最小化到托盘:</label>
@@ -94,16 +139,23 @@
                     </div>
                     <div class="setting-hint" data-i18n="autostart_hint">自动启动时隐藏到托盘</div>
                 </div>
-                <div class="button-group">
+                <div class="button-group android-settings-actions">
                     <button id="save-settings-btn" data-i18n="save">保存</button>
                     <button id="cancel-settings-btn" data-i18n="cancel">取消</button>
                 </div>
-                <div id="settings-success-msg" class="success-msg"></div>
-                <div id="settings-error-msg" class="error-msg"></div>
+                <div id="settings-success-msg" class="success-msg" role="status"></div>
+                <div id="settings-error-msg" class="error-msg" role="alert"></div>
             </div>
         </div>
         <div id="add-peer-panel" class="settings-panel" style="display: none;">
-            <h3 data-i18n="add_peer_title">手动添加设备</h3>
+            <header class="android-page-bar android-only">
+                <button id="android-add-peer-back-btn" class="android-back-btn" type="button" aria-label="返回主页面">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <h3>添加设备</h3>
+                <span></span>
+            </header>
+            <h3 class="desktop-settings-title" data-i18n="add_peer_title">手动添加设备</h3>
             <div class="settings-content">
                 <div class="setting-item">
                     <label for="custom-peer-input" data-i18n="peer_input_label">IP / 域名:端口</label>
@@ -121,6 +173,43 @@
                 <div id="peer-error-msg" class="error-msg"></div>
             </div>
         </div>
+        <section id="android-push-apps-panel" class="android-overlay-panel android-only" aria-label="选择推送应用">
+            <header class="android-page-bar android-only">
+                <button id="android-push-apps-back-btn" class="android-back-btn" type="button" aria-label="返回设置">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <h3>选择推送应用</h3>
+                <span></span>
+            </header>
+            <div class="android-app-picker-tools">
+                <input id="android-push-apps-search" type="search" placeholder="搜索应用名称" aria-label="搜索应用名称" autocomplete="off">
+                <div class="android-app-picker-selection">
+                    <label><input id="android-push-apps-select-all" type="checkbox"><span id="android-push-apps-select-all-label">全选</span></label>
+                    <span id="android-push-apps-count" role="status">已选 0 个</span>
+                </div>
+            </div>
+            <section class="android-app-picker-card">
+                <div id="android-push-apps-list" class="android-push-apps-list"></div>
+                <div id="android-push-apps-empty" class="android-subpage-empty">正在读取应用…</div>
+            </section>
+            <p id="android-push-apps-status" class="android-subpage-status" role="status"></p>
+            <button id="android-push-apps-save-btn" class="android-primary-action" type="button">保存选择</button>
+        </section>
+        <section id="android-push-sources-panel" class="settings-panel android-push-sources-panel" style="display: none;" aria-label="正在向本机推送">
+            <header class="android-page-bar android-only">
+                <button id="android-push-sources-back-btn" class="android-back-btn" type="button" aria-label="返回主页面">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <h3>正在向本机推送</h3>
+                <span></span>
+            </header>
+            <div class="settings-content">
+                <section class="android-push-sources-card">
+                    <div id="android-push-sources-list" class="android-push-sources-list"></div>
+                    <div id="android-push-sources-empty" class="android-subpage-empty">暂无设备向本机推送</div>
+                </section>
+            </div>
+        </section>
         <div id="theme-panel" class="theme-panel" style="display: none;">
             <div class="theme-content">
                 <div class="theme-section">
@@ -156,36 +245,50 @@
         <div class="container">
             <div class="main-content">
                 <div class="user-list-container">
-                    <section id="android-home" class="android-home" aria-label="本机与设备">
-                        <div class="android-brand-row">
-                            <div class="android-brand-mark">L</div>
-                            <div class="android-brand-copy">
-                                <strong>LQ Chat</strong>
-                                <span>局域网聊天</span>
+                    <section id="android-home" class="android-home" aria-label="设备主页">
+                        <header class="android-home-bar">
+                            <div class="android-local-device">
+                                <span class="android-online-dot" aria-hidden="true"></span>
+                                <span><strong id="android-device-name">正在加载...</strong><span aria-hidden="true"> · </span><span id="android-device-ip">检测中...</span></span>
                             </div>
-                            <button id="android-settings-btn" class="android-icon-btn" type="button" aria-label="设置" title="设置">⚙</button>
-                        </div>
-                        <div class="android-device-card">
-                            <div class="android-card-title"><span>本机设备</span><span class="android-online-pill">● 在线</span></div>
-                            <button id="android-edit-name-btn" class="android-info-row" type="button">
-                                <span>设备名称</span><strong id="android-device-name">正在加载...</strong><em>修改</em>
+                            <button id="android-settings-btn" class="android-icon-btn" type="button" aria-label="打开设置">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.2 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.4v-4h.1A1.7 1.7 0 0 0 4.2 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.6 4.2a1.7 1.7 0 0 0 1-.6A1.7 1.7 0 0 0 10 2.5v-.1h4v.1a1.7 1.7 0 0 0 1 1.7 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 8.6a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.1v4h-.1a1.7 1.7 0 0 0-1.7 1Z"/></svg>
                             </button>
-                            <div class="android-info-row android-ip-row">
-                                <span>设备 IP</span><strong id="android-device-ip">检测中...</strong>
+                        </header>
+
+                        <section class="android-home-card android-chat-card" aria-label="聊天设备">
+                            <div class="android-list-toolbar">
+                                <span id="android-peer-summary" class="android-count-label">当前 0 台设备</span>
+                                <div class="android-list-actions">
+                                    <button id="android-refresh-peers-btn" class="android-icon-btn" type="button" aria-label="刷新聊天设备">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
+                                    </button>
+                                    <button id="android-add-peer-btn" class="android-add-btn" type="button">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                                        <span>添加设备</span>
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                        <button id="android-add-peer-btn" class="android-add-device" type="button">
-                            <span class="android-add-icon">♙+</span>
-                            <span><strong>添加设备</strong><small>输入 IP、域名或端口</small></span>
-                            <b>›</b>
-                        </button>
-                        <div class="android-device-section">
-                            <div><strong>设备</strong><span id="android-peer-summary">正在检测局域网设备</span></div>
-                            <span class="android-refresh-icon">⟳</span>
-                        </div>
+                            <div id="android-chat-empty" class="android-list-empty">暂未发现在线设备</div>
+                            <ul id="user-list"></ul>
+                        </section>
+
+                        <section class="android-home-card android-receive-card" aria-label="信息接收设备">
+                            <div class="android-list-toolbar">
+                                <span id="android-receive-count" class="android-count-label">信息接收 0 台设备</span>
+                                <div class="android-list-actions">
+                                    <button id="android-refresh-receive-btn" class="android-icon-btn" type="button" aria-label="刷新信息接收设备">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
+                                    </button>
+                                    <button id="android-receive-sources-btn" class="android-add-btn" type="button">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+                                        <span>推送设备</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="android-receive-list" class="android-receive-list"></div>
+                        </section>
                     </section>
-                    <ul id="user-list">
-                    </ul>
                     <div id="android-listening" class="android-listening">⌁&nbsp; 正在监听同一局域网中的设备</div>
                 </div>
                 <div class="chat-container" id="chat-container" style="display: none;">

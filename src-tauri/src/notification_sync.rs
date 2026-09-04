@@ -50,6 +50,61 @@ pub struct Settings {
     pub target_device_ids: Vec<String>,
 }
 
+const DISCOVERY_PRESENCE_KEY: &str = "notification_sync_discovery_presence";
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct DiscoveryPresence {
+    enabled: bool,
+    target_device_ids: Vec<String>,
+}
+
+#[cfg(target_os = "android")]
+fn valid_device_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
+}
+
+#[cfg(target_os = "android")]
+async fn persist_discovery_presence(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    settings: &Settings,
+) -> Result<(), String> {
+    let presence = DiscoveryPresence {
+        enabled: settings.push_enabled,
+        target_device_ids: settings
+            .target_device_ids
+            .iter()
+            .filter(|id| valid_device_id(id))
+            .take(32)
+            .cloned()
+            .collect(),
+    };
+    let value = serde_json::to_string(&presence).map_err(|_| "推送状态保存失败")?;
+    sqlx::query("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)")
+        .bind(DISCOVERY_PRESENCE_KEY)
+        .bind(value)
+        .execute(pool)
+        .await
+        .map_err(|_| "推送状态保存失败")?;
+    Ok(())
+}
+
+pub async fn discovery_presence(pool: &sqlx::Pool<sqlx::Sqlite>) -> (bool, Vec<String>) {
+    let value = sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key=?")
+        .bind(DISCOVERY_PRESENCE_KEY)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    let presence = value
+        .and_then(|value| serde_json::from_str::<DiscoveryPresence>(&value).ok())
+        .unwrap_or_default();
+    (presence.enabled, presence.target_device_ids)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Notification {
     pub msg_type: String,
@@ -436,9 +491,15 @@ pub async fn notification_settings(
 ) -> Result<Value, String> {
     #[cfg(target_os = "android")]
     {
-        return crate::notification_android::settings(
+        let value = crate::notification_android::settings(
             json!({"action":if settings.is_some() {"save"} else {"get"},"settings":settings}),
-        );
+        )?;
+        if let Ok(settings) = serde_json::from_value::<Settings>(value["settings"].clone()) {
+            if let Err(error) = persist_discovery_presence(&state.pool, &settings).await {
+                eprintln!("[NotificationSync] {error}");
+            }
+        }
+        return Ok(value);
     }
     #[cfg(not(target_os = "android"))]
     {

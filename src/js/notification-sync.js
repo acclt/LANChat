@@ -16,12 +16,16 @@ window.NotificationUI = (() => {
   let info = {},
     dialog,
     appDialog,
+    pushSourcesPanel,
     panel,
     welcome,
     pushList,
     receiveList,
     refreshTimer,
     busy = false;
+  let appOptions = [],
+    appSelection = new Set(),
+    appLoading = false;
   const statusText = {
     sending: "处理中",
     success: "成功",
@@ -47,6 +51,13 @@ window.NotificationUI = (() => {
   const peerFor = (id) => peers.find((p) => p.id === id);
   const nameFor = (id) =>
     peerFor(id)?.name || records.find((r) => r.peer_id === id)?.peer_name || id;
+  const pushSourcePeers = () =>
+    peers.filter(
+      (peer) =>
+        peer.notification_push_enabled === true &&
+        Array.isArray(peer.notification_push_target_device_ids) &&
+        peer.notification_push_target_device_ids.includes(localId),
+    );
   const isNarrow = () => android || innerWidth < 960;
   function group(title, sending) {
     const box = el("section", "ns-group");
@@ -67,13 +78,63 @@ window.NotificationUI = (() => {
     box.append(head, list);
     return { box, list };
   }
+  function renderPushSourcesPage() {
+    if (!android || !pushSourcesPanel) return;
+    const list = pushSourcesPanel.querySelector("#android-push-sources-list");
+    const empty = pushSourcesPanel.querySelector("#android-push-sources-empty");
+    const sources = pushSourcePeers();
+    list.replaceChildren();
+    empty.hidden = sources.length > 0;
+    for (const peer of sources) {
+      const row = button(
+        "",
+        () => {
+          closePushSources();
+          open(peer.id, "notification_receive");
+        },
+        "ns-device",
+      );
+      row.dataset.peer = peer.id;
+      const copy = el("span", "ns-device-copy");
+      copy.append(
+        el("strong", "ns-name", peer.name || peer.id),
+        el(
+          "small",
+          "ns-address",
+          `${peer.addr || "当前地址未知"} · ${peer.is_offline ? "离线" : "在线"}`,
+        ),
+      );
+      row.append(copy, el("span", "ns-badge", "›"));
+      row.classList.toggle("online", !peer.is_offline);
+      list.append(row);
+    }
+  }
+  function openPushSources() {
+    if (!android || !pushSourcesPanel) return;
+    renderPushSourcesPage();
+    pushSourcesPanel.style.display = "block";
+    if (location.hash !== "#push-sources")
+      history.pushState({ pushSources: true }, "", "#push-sources");
+  }
+  function closePushSources() {
+    if (!pushSourcesPanel) return;
+    pushSourcesPanel.style.display = "none";
+  }
   function renderDevices() {
     if (!enabled) return;
     const fill = (list, ids, kind) => {
       const wanted = new Set(ids);
       for (const row of [...list.children])
         if (!wanted.has(row.dataset.peer)) row.remove();
+      if (android && kind === "notification_receive") {
+        const count = document.getElementById("android-receive-count");
+        if (count) count.textContent = `信息接收 ${ids.length} 台设备`;
+      }
       if (!ids.length) {
+        if (android) {
+          list.replaceChildren();
+          return;
+        }
         if (!list.firstChild)
           list.append(
             el(
@@ -105,19 +166,23 @@ window.NotificationUI = (() => {
         const peer = peerFor(id),
           name = nameFor(id),
           online = peer && !peer.is_offline;
-        const label = `${name}（${kind === "notification_push" ? "信息推送" : "信息接收"}）`;
+        const label = android
+          ? name
+          : `${name}（${kind === "notification_push" ? "信息推送" : "信息接收"}）`;
         row.querySelector(".ns-name").textContent = label;
         row.title = label;
         row.querySelector(".ns-address").textContent =
-          peer?.addr || "当前地址未知";
+          `${peer?.addr || "当前地址未知"} · ${online ? "在线" : "离线"}`;
         const badge = row.querySelector(".ns-badge");
-        badge.textContent =
-          kind === "notification_push"
+        badge.textContent = android
+          ? "›"
+          : kind === "notification_push"
             ? `${config.push_enabled ? "已开启" : "已暂停"} · ${online ? "在线" : "离线"}`
             : online
               ? "在线"
               : "离线";
         badge.classList.toggle("online", !!online);
+        row.classList.toggle("online", !!online);
         row.classList.toggle(
           "selected",
           current?.id === id && current?.kind === kind,
@@ -128,28 +193,21 @@ window.NotificationUI = (() => {
         );
       }
     };
-    if (android)
-      fill(
-        pushList,
-        [...new Set(config.target_device_ids)].filter((id) => id !== localId),
-        "notification_push",
-      );
     fill(
       receiveList,
-      [
-        ...new Set(
-          records
-            .filter((r) => r.view_kind === "notification_receive")
-            .map((r) => r.peer_id),
-        ),
-      ],
+      android
+        ? pushSourcePeers().map((peer) => peer.id)
+        : [...new Set(records.filter((r) => r.view_kind === "notification_receive").map((r) => r.peer_id))],
       "notification_receive",
     );
+    renderPushSourcesPage();
     if (current) renderDetail();
-    welcome.querySelector(".ns-welcome-hint").textContent =
-      config.receive_enabled
-        ? "在手机的信息推送设置中勾选本机，即可在这里接收通知。"
-        : "开启信息接收，让手机上的重要通知出现在电脑上。";
+    if (welcome) {
+      welcome.querySelector(".ns-welcome-hint").textContent =
+        config.receive_enabled
+          ? "在手机的信息推送设置中勾选本机，即可在这里接收通知。"
+          : "开启信息接收，让手机上的重要通知出现在电脑上。";
+    }
   }
   function leave() {
     if (!enabled) return;
@@ -382,108 +440,199 @@ window.NotificationUI = (() => {
       dialog.querySelector(".ns-save-status").textContent = getErrorMessage(e);
     }
   }
+  function filteredApps() {
+    const query = appDialog.querySelector("#android-push-apps-search").value.trim().toLocaleLowerCase();
+    return appOptions.filter((app) => (app.name || app.package).toLocaleLowerCase().includes(query));
+  }
+  function updateAppSelectionControls() {
+    const visible = filteredApps();
+    const count = visible.filter((app) => appSelection.has(app.package)).length;
+    const all = appDialog.querySelector("#android-push-apps-select-all");
+    all.checked = visible.length > 0 && count === visible.length;
+    all.indeterminate = count > 0 && count < visible.length;
+    all.disabled = appLoading || busy || !visible.length;
+    appDialog.querySelector("#android-push-apps-search").disabled = appLoading || busy;
+    appDialog.querySelector("#android-push-apps-save-btn").disabled = appLoading || busy;
+    appDialog.querySelector("#android-push-apps-select-all-label").textContent =
+      appDialog.querySelector("#android-push-apps-search").value.trim() ? "全选搜索结果" : "全选";
+    appDialog.querySelector("#android-push-apps-count").textContent = `已选 ${appSelection.size} 个`;
+  }
+  function renderAppPicker() {
+    if (!appDialog) return;
+    const list = appDialog.querySelector("#android-push-apps-list");
+    const empty = appDialog.querySelector("#android-push-apps-empty");
+    list.replaceChildren();
+    const visible = filteredApps();
+    updateAppSelectionControls();
+    empty.hidden = visible.length > 0;
+    if (!visible.length) {
+      empty.textContent = appOptions.length ? "未找到匹配的应用" : "未发现可选择的应用";
+      return;
+    }
+    for (const app of visible) {
+      const row = el("label", "android-push-app-row");
+      const icon = el("span", "android-push-app-icon");
+      if (app.icon) {
+        const image = document.createElement("img");
+        image.alt = "";
+        image.src = `data:image/png;base64,${app.icon}`;
+        icon.append(image);
+      } else {
+        icon.textContent = Array.from(app.name || app.package || "应用")[0];
+      }
+      const name = el("span", "android-push-app-name", app.name || app.package);
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = appSelection.has(app.package);
+      input.setAttribute("aria-label", `选择 ${app.name || app.package}`);
+      input.addEventListener("change", () => {
+        input.checked
+          ? appSelection.add(app.package)
+          : appSelection.delete(app.package);
+        updateAppSelectionControls();
+      });
+      row.append(icon, name, input);
+      list.append(row);
+    }
+  }
   async function chooseApps() {
-    appDialog.querySelector(".ns-app-options").textContent = "正在读取应用…";
-    appDialog.showModal();
+    if (!appDialog) return;
+    appLoading = true;
+    appOptions = [];
+    appSelection = new Set(config.allowed_packages);
+    appDialog.querySelector("#android-push-apps-search").value = "";
+    updateAppSelectionControls();
+    appDialog.classList.add("is-open");
+    appDialog.scrollTop = 0;
+    appDialog.querySelector("#android-push-apps-list").replaceChildren();
+    const empty = appDialog.querySelector("#android-push-apps-empty");
+    empty.hidden = false;
+    empty.textContent = "正在读取应用…";
+    appDialog.querySelector("#android-push-apps-status").textContent = "";
+    if (location.hash !== "#push-apps")
+      history.pushState({ pushApps: true }, "", "#push-apps");
     try {
       const result = await invoke("notification_action", { action: "apps" });
-      const list = appDialog.querySelector(".ns-app-options");
-      list.replaceChildren();
-      if (!(result.apps || []).length) {
-        list.append(el("p", "ns-hint", "未能读取应用列表。请在系统的 LQ Chat 应用权限中检查“读取已安装应用列表”（如果有此选项），授权后重新打开本页。"));
-        return;
-      }
-      for (const app of result.apps || []) {
-        const row = checkRow(
-          `${app.name} · ${app.package}`,
-          config.allowed_packages.includes(app.package),
-          async (input) => {
-            if (
-              !(await save(
-                updateSet("allowed_packages", app.package, input.checked),
-              ))
-            )
-              input.checked = !input.checked;
-            dialog.querySelector(".ns-app-count").textContent =
-              `允许推送的应用 · 已选 ${config.allowed_packages.length}`;
-          },
-        );
-        row.dataset.search = `${app.name} ${app.package}`.toLowerCase();
-        list.append(row);
-      }
+      appOptions = result.apps || [];
+      appSelection = new Set(config.allowed_packages);
+      appLoading = false;
+      renderAppPicker();
     } catch (e) {
-      appDialog.querySelector(".ns-app-options").textContent =
-        getErrorMessage(e);
+      empty.hidden = false;
+      empty.textContent = getErrorMessage(e);
+    }
+  }
+  function closeAppPicker() {
+    appDialog?.classList.remove("is-open");
+  }
+  async function saveAppPicker() {
+    if (!appDialog || busy || appLoading) return;
+    const saveButton = appDialog.querySelector("#android-push-apps-save-btn");
+    const status = appDialog.querySelector("#android-push-apps-status");
+    busy = true;
+    updateAppSelectionControls();
+    appDialog.querySelectorAll(".android-push-app-row input").forEach((input) => { input.disabled = true; });
+    saveButton.disabled = true;
+    status.textContent = "正在保存…";
+    try {
+      const result = await invoke("notification_action", {
+        action: "replace_allowed",
+        payload: { packages: [...appSelection] },
+      });
+      info = { ...info, ...result };
+      config = result.settings || config;
+      renderSettings();
+      status.textContent = "已保存";
+      closeAppPicker();
+      if (location.hash === "#push-apps") history.back();
+    } catch (e) {
+      status.textContent = `保存失败：${getErrorMessage(e)}`;
+    } finally {
+      busy = false;
+      updateAppSelectionControls();
+      appDialog.querySelectorAll(".android-push-app-row input").forEach((input) => { input.disabled = false; });
     }
   }
   function renderSettings() {
     const content = dialog.querySelector(".ns-settings-content");
     content.replaceChildren();
     if (android) {
-      const heading = el("h3", "", "信息推送");
-      content.append(
-        heading,
-        checkRow("信息推送总开关", config.push_enabled, async (input) => {
+      const heading = el("div", "ns-push-heading", "信息推送");
+      const panel = el("section", "ns-push-panel");
+      panel.append(
+        checkRow("启用信息推送", config.push_enabled, async (input) => {
           if (!(await save({ ...config, push_enabled: input.checked })))
             input.checked = !input.checked;
         }),
       );
-      content.append(el("h4", "", "推送目标设备（可多选）"));
       const choices = el("div", "ns-target-options");
       const ids = [
         ...new Set([...peers.map((p) => p.id), ...config.target_device_ids]),
       ].filter((id) => id !== localId);
       for (const id of ids) {
         const p = peerFor(id);
-        choices.append(
-          checkRow(
-            `${nameFor(id)} · ${p && !p.is_offline ? "在线" : "离线"}`,
-            config.target_device_ids.includes(id),
-            async (input) => {
-              if (
-                !(await save(updateSet("target_device_ids", id, input.checked)))
-              )
-                input.checked = !input.checked;
-            },
-          ),
+        const row = checkRow(
+          "",
+          config.target_device_ids.includes(id),
+          async (input) => {
+            if (
+              !(await save(updateSet("target_device_ids", id, input.checked)))
+            )
+              input.checked = !input.checked;
+          },
         );
+        const copy = row.querySelector("span");
+        copy.className = "ns-target-copy";
+        copy.append(
+          el("strong", "", nameFor(id)),
+          el("small", "", `${p?.addr || "地址未知"} · ${p && !p.is_offline ? "在线" : "离线"}`),
+        );
+        choices.append(row);
       }
       if (!ids.length)
         choices.append(
-          el("p", "ns-hint", "尚未发现其他设备。请先启动对方的 LanChat。"),
+          el("p", "ns-hint", "尚未发现其他设备。请先启动对方的 LQ Chat。"),
         );
-      content.append(
+      const appPickerRow = button("", chooseApps, "ns-app-picker-row");
+      appPickerRow.append(
+        el("strong", "", "选择推送应用"),
+        el(
+          "span",
+          "ns-app-picker-summary",
+          `已选 ${config.allowed_packages.length} 个`,
+        ),
+      );
+      panel.append(
         choices,
-        button(
-          `允许推送的应用 · 已选 ${config.allowed_packages.length}`,
-          chooseApps,
-          "ns-button ns-app-count",
-        ),
-      );
-      content.append(
-        button(`通知访问权限 · ${info.access ? "已授权" : "未授权"}`, () =>
-          systemAction("access"),
-        ),
-      );
-      content.append(
+        appPickerRow,
         button("发送测试通知", async (event) => {
           const b = event.currentTarget;
+          const hint = dialog.querySelector(".ns-save-status");
+          if (!config.push_enabled) {
+            hint.textContent = "请先启用信息推送";
+            return;
+          }
+          if (!config.target_device_ids.length) {
+            hint.textContent = "请至少选择一台推送设备";
+            return;
+          }
           b.disabled = true;
-          dialog.querySelector(".ns-save-status").textContent =
-            "正在发送，请在各目标推送详情查看结果…";
+          hint.textContent = "正在发送测试通知…";
           try {
             await invoke("notification_test");
-            dialog.querySelector(".ns-save-status").textContent =
-              "本次尝试已结束，各设备结果请查看推送详情。";
+            hint.textContent = `测试通知已发送到 ${config.target_device_ids.length} 台设备`;
             await refreshRecords();
           } catch (e) {
-            dialog.querySelector(".ns-save-status").textContent =
-              getErrorMessage(e);
+            hint.textContent = getErrorMessage(e);
           } finally {
             b.disabled = false;
           }
-        }),
+        }, "ns-test-button"),
       );
+      content.append(heading, panel);
+      const accessButton = document.getElementById("android-notification-access-btn");
+      if (accessButton) accessButton.textContent = info.access ? "已授权" : "去授权";
+      return;
     }
     content.append(
       el("h3", "", "信息接收"),
@@ -525,11 +674,17 @@ window.NotificationUI = (() => {
       renderSettings();
       renderDevices();
       dialog.querySelector(".ns-save-status").textContent = "";
-      if (!dialog.open) dialog.showModal();
+      if (android) {
+        const settingsPanel = document.getElementById("settings-panel");
+        if (settingsPanel?.style.display !== "block")
+          document.getElementById("settings-btn")?.click();
+      } else if (!dialog.open) {
+        dialog.showModal();
+      }
     } catch (e) {
       dialog.querySelector(".ns-save-status").textContent =
         `读取设置失败：${getErrorMessage(e)}`;
-      if (!dialog.open) dialog.showModal();
+      if (!android && !dialog.open) dialog.showModal();
     }
   }
   async function init(options) {
@@ -556,31 +711,31 @@ window.NotificationUI = (() => {
     const main = document.querySelector(".main-content"),
       sidebar = document.querySelector(".user-list-container"),
       chatList = document.getElementById("user-list");
-    const chatGroup = el("details", "ns-chat-group");
-    chatGroup.open = true;
-    chatGroup.append(el("summary", "", "局域网聊天设备"));
-    chatList.before(chatGroup);
-    chatGroup.append(chatList);
     if (android) {
-      const g = group("信息推送设备", true);
-      pushList = g.list;
-      chatGroup.after(g.box);
+      receiveList = document.getElementById("android-receive-list");
+      welcome = null;
+    } else {
+      const chatGroup = el("details", "ns-chat-group");
+      chatGroup.open = true;
+      chatGroup.append(el("summary", "", "局域网聊天设备"));
+      chatList.before(chatGroup);
+      chatGroup.append(chatList);
+      const incoming = group("信息接收设备", false);
+      receiveList = incoming.list;
+      sidebar.insertBefore(
+        incoming.box,
+        document.getElementById("android-listening"),
+      );
+      welcome = el("section", "ns-welcome");
+      welcome.append(
+        el("span", "ns-welcome-mark", "L"),
+        el("p", "ns-eyebrow", "LQ CHAT · 局域网互联"),
+        el("h2", "", "手机上的消息，在电脑上接收"),
+        el("p", "ns-welcome-hint"),
+        button("设置信息接收", openSettings),
+      );
+      main.append(welcome);
     }
-    const incoming = group("信息接收设备", false);
-    receiveList = incoming.list;
-    sidebar.insertBefore(
-      incoming.box,
-      document.getElementById("android-listening"),
-    );
-    welcome = el("section", "ns-welcome");
-    welcome.append(
-      el("span", "ns-welcome-mark", "L"),
-      el("p", "ns-eyebrow", "LQ CHAT · 局域网互联"),
-      el("h2", "", "手机上的消息，在电脑上接收"),
-      el("p", "ns-welcome-hint"),
-      button("设置信息接收", openSettings),
-    );
-    main.append(welcome);
     panel = el("section", "ns-detail");
     panel.hidden = true;
     const head = el("header", "ns-detail-header"),
@@ -616,62 +771,78 @@ window.NotificationUI = (() => {
         card.querySelector(".ns-more").hidden = !card.classList.contains("expanded") && body.scrollHeight <= body.clientHeight + 1;
       });
     }).observe(panel.querySelector(".ns-cards"));
-    dialog = el("dialog", "ns-dialog");
-    const dialogHead = el("header", "ns-dialog-header");
-    dialogHead.append(
-      el("h2", "", android ? "信息推送与接收" : "信息接收设置"),
-      button("关闭", () => dialog.close(), "ns-text-button"),
-    );
-    dialog.append(
-      dialogHead,
-      el("div", "ns-settings-content"),
-      el("p", "ns-save-status"),
-    );
-    dialog.querySelector(".ns-save-status").setAttribute("role", "status");
-    document.body.append(dialog);
-    appDialog = el("dialog", "ns-dialog");
-    const appHead = el("header", "ns-dialog-header");
-    appHead.append(
-      el("h2", "", "允许推送的应用"),
-      button("完成", () => appDialog.close(), "ns-text-button"),
-    );
-    const search = el("input", "ns-app-search");
-    search.placeholder = "搜索应用";
-    search.setAttribute("aria-label", "搜索应用");
-    search.addEventListener("input", () => {
-      appDialog
-        .querySelectorAll("[data-search]")
-        .forEach(
-          (row) =>
-            (row.hidden = !row.dataset.search.includes(
-              search.value.toLowerCase(),
-            )),
-        );
-    });
-    appDialog.append(
-      appHead,
-      search,
-      el("div", "ns-app-options"),
-      el("p", "ns-save-status"),
-    );
-    document.body.append(appDialog);
-    document
-      .querySelector(
-        "#settings-panel .settings-content, #settings-panel .panel-content",
-      )
-      ?.append(button("信息推送与接收", openSettings));
-    if (!document.querySelector("#settings-panel .ns-button"))
+    if (android) {
+      dialog = document.getElementById("android-notification-settings");
+      appDialog = document.getElementById("android-push-apps-panel");
+      pushSourcesPanel = document.getElementById("android-push-sources-panel");
+      dialog.replaceChildren(
+        el("div", "ns-settings-content"),
+        el("p", "ns-save-status"),
+      );
+      dialog.querySelector(".ns-save-status").setAttribute("role", "status");
       document
-        .getElementById("settings-panel")
-        ?.append(
-          button(android ? "信息推送与接收" : "信息接收设置", openSettings),
-        );
+        .getElementById("android-notification-access-btn")
+        ?.addEventListener("click", () => systemAction("access"));
+      document
+        .getElementById("android-push-apps-back-btn")
+        ?.addEventListener("click", () => {
+          if (location.hash === "#push-apps") history.back();
+          else closeAppPicker();
+        });
+      document
+        .getElementById("android-push-apps-save-btn")
+        ?.addEventListener("click", saveAppPicker);
+      document.getElementById("android-push-apps-search")
+        ?.addEventListener("input", renderAppPicker);
+      document.getElementById("android-push-apps-select-all")
+        ?.addEventListener("change", (event) => {
+          for (const app of filteredApps()) {
+            event.target.checked ? appSelection.add(app.package) : appSelection.delete(app.package);
+          }
+          renderAppPicker();
+        });
+      document
+        .getElementById("android-push-sources-back-btn")
+        ?.addEventListener("click", () => {
+          if (location.hash === "#push-sources") history.back();
+          else closePushSources();
+        });
+      renderSettings();
+    } else {
+      dialog = el("dialog", "ns-dialog");
+      const dialogHead = el("header", "ns-dialog-header");
+      dialogHead.append(
+        el("h2", "", "信息接收设置"),
+        button("关闭", () => dialog.close(), "ns-text-button"),
+      );
+      dialog.append(
+        dialogHead,
+        el("div", "ns-settings-content"),
+        el("p", "ns-save-status"),
+      );
+      dialog.querySelector(".ns-save-status").setAttribute("role", "status");
+      document.body.append(dialog);
+      document
+        .querySelector(
+          "#settings-panel .settings-content, #settings-panel .panel-content",
+        )
+        ?.append(button("信息接收设置", openSettings));
+      if (!document.querySelector("#settings-panel .ns-button"))
+        document
+          .getElementById("settings-panel")
+          ?.append(button("信息接收设置", openSettings));
+    }
     window.addEventListener("popstate", () => {
       if (location.hash !== "#notifications") leave();
+      if (location.hash !== "#push-apps") closeAppPicker();
+      if (location.hash !== "#push-sources") closePushSources();
     });
     window.addEventListener("focus", () => {
       refreshSoon();
-      if (dialog.open && !busy) openSettings();
+      const settingsVisible = android
+        ? document.getElementById("settings-panel")?.style.display === "block"
+        : dialog.open;
+      if (settingsVisible && !busy) openSettings();
     });
     await apiListen("notification-records-changed", refreshSoon);
     window.addEventListener("synced-notification-tapped", (event) =>
@@ -696,5 +867,28 @@ window.NotificationUI = (() => {
     peers = value.filter((p) => p.id !== localId);
     renderDevices();
   }
-    return { init, onPeers, leave, openSettings, open };
+  async function refreshSettings() {
+    if (!enabled) return;
+    info = await invoke("notification_settings");
+    config = info.settings;
+    renderSettings();
+    renderDevices();
+  }
+  async function refresh() {
+    if (!enabled) return;
+    peers = ((await apiGetPeers()) || []).filter((p) => p.id !== localId);
+    await refreshRecords();
+    if (android) renderSettings();
+    renderDevices();
+  }
+  return {
+    init,
+    onPeers,
+    leave,
+    openSettings,
+    open,
+    openPushSources,
+    refreshSettings,
+    refresh,
+  };
 })();

@@ -24,7 +24,11 @@ object NotificationSyncSettings {
 
     private fun selectableApps(context: Context) = context.packageManager.getInstalledApplications(0)
         .asSequence()
-        .filter { it.enabled && it.packageName != context.packageName }
+        .filter {
+            it.enabled && it.packageName != context.packageName &&
+                ((it.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 ||
+                    context.packageManager.getLaunchIntentForPackage(it.packageName) != null)
+        }
         .sortedWith(compareBy({ context.packageManager.getApplicationLabel(it).toString().lowercase() }, { it.packageName }))
 
     /** One editor commit replaces the complete snapshot. A failed commit restores the prior value. */
