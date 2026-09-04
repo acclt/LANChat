@@ -2034,6 +2034,44 @@ fn call_android_activity_string(method: &str) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
+#[cfg(target_os = "android")]
+fn call_android_activity_string_arg(method: &str, input: &str) -> Result<String, String> {
+    let context = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
+        .map_err(|error| format!("获取 JavaVM 失败: {error}"))?;
+    let mut env = vm.attach_current_thread().map_err(|error| format!("附加线程失败: {error}"))?;
+    let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
+    let arg = jni::objects::JObject::from(
+        env.new_string(input).map_err(|error| error.to_string())?,
+    );
+    let value = env.call_method(
+        activity,
+        method,
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        &[jni::objects::JValue::Object(&arg)],
+    ).map_err(|error| format!("调用 {method} 失败: {error}"))?.l()
+        .map_err(|error| error.to_string())?;
+    let value = jni::objects::JString::from(value);
+    env.get_string(&value).map(|value| value.to_string_lossy().into_owned()).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_background_runtime_settings() -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_string("getBackgroundRuntimeSettings").and_then(|value| serde_json::from_str(&value).map_err(|error| error.to_string()));
+    #[cfg(not(target_os = "android"))]
+    Ok(serde_json::json!({}))
+}
+
+#[tauri::command]
+pub fn set_background_runtime_settings(settings: serde_json::Value) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    return call_android_activity_string_arg("setBackgroundRuntimeSettings", &settings.to_string())
+        .and_then(|value| serde_json::from_str(&value).map_err(|error| error.to_string()));
+    #[cfg(not(target_os = "android"))]
+    Ok(settings)
+}
+
 #[tauri::command]
 pub fn retry_background_service() -> Result<(), String> {
     #[cfg(target_os = "android")]

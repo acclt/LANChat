@@ -179,6 +179,8 @@ pub fn run() {
             commands::get_notifications_enabled,
             commands::set_notifications_enabled,
             commands::get_background_receive_state,
+            commands::get_background_runtime_settings,
+            commands::set_background_runtime_settings,
             commands::retry_background_service,
             commands::stop_background_receive_and_exit,
             commands::get_battery_optimization_state,

@@ -434,33 +434,63 @@ body.android-app #download-path-input:focus {
   outline-offset: -2px;
 }
 
-body.android-app .android-download-setting .path-input-group {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-body.android-app #download-path-input {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-body.android-app #choose-path-btn {
-  min-width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  color: var(--android-muted);
-  background: transparent;
-}
-
-body.android-app #choose-path-btn > span {
+body.android-app .desktop-download-setting {
   display: none;
 }
 
-body.android-app #choose-path-btn svg.android-only {
-  display: block;
+body.android-app #android-download-location-btn {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--android-ink);
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+body.android-app .android-download-label {
+  color: var(--android-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+body.android-app .android-download-value-group {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 6px;
+}
+
+body.android-app #android-download-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 15px;
+  font-weight: 400;
+}
+
+body.android-app .android-download-value-group svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--android-muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.android-app #android-download-location-btn:focus-visible,
+body.android-app #background-receive-status:focus-visible {
+  outline: 2px solid var(--android-purple);
+  outline-offset: -2px;
 }
 
 body.android-app .android-section-label,
@@ -937,8 +967,51 @@ body.android-app .android-inline-action {
   background: var(--android-purple-soft);
 }
 
+body.android-app #android-notification-access-btn.is-authorized {
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  color: var(--android-green);
+  background: transparent;
+  box-shadow: none;
+  font-weight: 400;
+  text-align: right;
+}
+
+body.android-app #android-notification-access-btn:focus-visible {
+  outline: 2px solid var(--android-purple);
+  outline-offset: 3px;
+}
+
 body.android-app #background-receive-setting {
   display: grid !important;
+}
+
+body.android-app #background-receive-status {
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  text-align: right;
+  cursor: pointer;
+}
+
+body.android-app #background-receive-status:disabled {
+  color: var(--android-muted);
+  cursor: default;
+}
+
+body.android-app #background-receive-status[data-state="ERROR"] {
+  color: #a93449;
+}
+
+body.android-app #background-receive-status:not(:disabled):active {
+  background: var(--android-green-soft);
 }
 
 body.android-app #background-receive-error,
@@ -964,9 +1037,9 @@ body.android-app .background-receive-actions button {
   background: var(--android-purple-soft);
 }
 
-body.android-app .background-receive-actions .android-danger-action {
-  color: #a93449;
-  background: #fdecef;
+body.android-app .background-receive-actions[hidden],
+body.android-app #background-receive-error:empty {
+  display: none;
 }
 
 body.android-app #open-battery-settings-btn {

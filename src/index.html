@@ -45,7 +45,7 @@
                             <button id="choose-db-path-btn" data-i18n="choose">选择</button>
                         </div>
                     </div>
-                    <div class="setting-item android-inline-setting android-download-setting">
+                    <div class="setting-item android-inline-setting desktop-download-setting">
                         <label for="download-path-input">下载位置</label>
                         <div class="path-input-group">
                             <input type="text" id="download-path-input">
@@ -55,6 +55,13 @@
                             </button>
                         </div>
                     </div>
+                    <button id="android-download-location-btn" class="android-inline-setting android-download-row android-only" type="button" aria-label="选择下载位置">
+                        <span class="android-download-label">下载位置</span>
+                        <span class="android-download-value-group">
+                            <span id="android-download-value">应用专属存储（默认）</span>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                        </span>
+                    </button>
                 </section>
 
                 <div id="android-notification-settings" class="android-notification-settings android-only" aria-label="信息推送设置"></div>
@@ -81,12 +88,23 @@
                     <section class="android-permissions-card">
                         <div class="setting-item android-permission-row" id="background-receive-setting" style="display: none;">
                             <span class="android-permission-copy"><strong>后台运行</strong><small>离开应用后继续发现设备和接收信息</small></span>
-                            <span id="background-receive-status" class="android-permission-status">正在检查…</span>
+                            <button id="background-receive-status" class="android-permission-status" type="button" disabled>正在检查…</button>
                             <div id="background-receive-error" class="setting-hint"></div>
-                            <div class="background-receive-actions">
+                            <div class="background-receive-actions" hidden>
                                 <button id="retry-background-service-btn" type="button" style="display: none;">重试</button>
-                                <button id="stop-background-service-btn" type="button" class="android-danger-action">停止并退出</button>
                             </div>
+                        </div>
+                        <div class="setting-item android-permission-row android-only">
+                            <span class="android-permission-copy"><strong>后台常驻</strong><small>划掉最近任务后继续收发；系统回收后允许恢复</small></span>
+                            <label class="toggle-switch"><input type="checkbox" id="background-keep-running-toggle"><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="setting-item android-permission-row android-only">
+                            <span class="android-permission-copy"><strong>开机自启</strong><small>手机重启并解锁后尝试恢复后台服务</small></span>
+                            <label class="toggle-switch"><input type="checkbox" id="background-start-on-boot-toggle"><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="setting-item android-permission-row android-only">
+                            <span class="android-permission-copy"><strong>在最近任务中隐藏</strong><small>不隐藏桌面图标和常驻通知</small></span>
+                            <label class="toggle-switch"><input type="checkbox" id="background-exclude-recents-toggle"><span class="toggle-slider"></span></label>
                         </div>
                         <div class="setting-item android-permission-row">
                             <span class="android-permission-copy"><strong>通知权限</strong><small>显示接收信息和推送状态通知</small></span>

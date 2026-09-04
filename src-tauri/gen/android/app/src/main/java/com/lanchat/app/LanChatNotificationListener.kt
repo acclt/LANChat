@@ -1,6 +1,9 @@
 package com.lanchat.app
 
 import android.app.Notification
+import android.content.ComponentName
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.annotation.Keep
@@ -15,6 +18,29 @@ object NotificationSyncNative {
 }
 
 class LanChatNotificationListener : NotificationListenerService() {
+    private val rebindHandler = Handler(Looper.getMainLooper())
+    private var rebindAttempt = 0
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        rebindAttempt = 0
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        if (!NotificationSyncSettings.isListenerEnabled(this) || !BackgroundRuntimeSettings.mayRecover(this)) return
+        val delay = (1L shl minOf(rebindAttempt++, 5)) * 1000L
+        rebindHandler.postDelayed({
+            if (NotificationSyncSettings.isListenerEnabled(this) && BackgroundRuntimeSettings.mayRecover(this)) {
+                runCatching { requestRebind(ComponentName(this, LanChatNotificationListener::class.java)) }
+            }
+        }, delay)
+    }
+
+    override fun onDestroy() {
+        rebindHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         // This gate is JVM-only; an OS-created listener must never initialize native code.
         if (sbn == null || !LanChatForegroundService.notificationSessionReady()) return

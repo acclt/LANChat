@@ -30,6 +30,8 @@
     "allow-notification-action",
     "allow-notification-test",
     "allow-get-background-receive-state",
+    "allow-get-background-runtime-settings",
+    "allow-set-background-runtime-settings",
     "allow-retry-background-service",
     "allow-stop-background-receive-and-exit",
     "allow-get-battery-optimization-state",

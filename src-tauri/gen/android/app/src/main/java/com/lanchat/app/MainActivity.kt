@@ -23,6 +23,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.MimeTypeMap
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.Keep
 import androidx.core.content.FileProvider
@@ -115,9 +116,47 @@ class MainActivity : TauriActivity() {
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        applyRecentsPolicy()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         AndroidDownloadStore.initialize(applicationContext)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            private var pending = false
+
+            private fun leaveRootPage() {
+                isEnabled = false
+                try {
+                    onBackPressedDispatcher.onBackPressed()
+                } finally {
+                    isEnabled = true
+                }
+            }
+
+            override fun handleOnBackPressed() {
+                if (pending) return
+                val view = webView ?: findWebView(window.decorView)
+                if (view == null) {
+                    leaveRootPage()
+                    return
+                }
+                pending = true
+                // Same-document history is owned by the frontend, not WebView.canGoBack().
+                view.evaluateJavascript("""
+                    (() => {
+                        const pages = ['#settings', '#permissions', '#push-apps', '#push-sources',
+                            '#notifications', '#chat', '#chat-select', '#chat-attachment'];
+                        if (history.length > 1 && pages.includes(location.hash)) {
+                            history.back();
+                            return true;
+                        }
+                        return false;
+                    })()
+                """.trimIndent()) { handled ->
+                    pending = false
+                    if (handled != "true" && !isFinishing && !isDestroyed) leaveRootPage()
+                }
+            }
+        })
 
         // 开启 WebView 调试（方便 adb logcat 看到 JS console 输出）
         android.webkit.WebView.setWebContentsDebuggingEnabled(true)
@@ -145,6 +184,20 @@ class MainActivity : TauriActivity() {
     @Keep
     fun retryBackgroundService() {
         LanChatForegroundService.retryVisibleUserSession(this)
+    }
+
+    @Keep
+    fun getBackgroundRuntimeSettings(): String = BackgroundRuntimeSettings.read(this).toString()
+
+    @Keep
+    fun setBackgroundRuntimeSettings(input: String): String =
+        BackgroundRuntimeSettings.save(this, JSONObject(input)).also {
+            applyRecentsPolicy(it.optBoolean("exclude_from_recents"))
+        }.toString()
+
+    private fun applyRecentsPolicy(enabled: Boolean = BackgroundRuntimeSettings.read(this).optBoolean("exclude_from_recents")) {
+        if (enabled) intent.addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+        else intent.removeFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
     }
 
     @Keep

@@ -1,6 +1,7 @@
 package com.lanchat.app
 
 import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -11,6 +12,10 @@ import org.json.JSONObject
 
 /** The single persistent source, readable even when the native library is absent. */
 object NotificationSyncSettings {
+    fun isListenerEnabled(context: Context): Boolean {
+        val enabled = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners") ?: return false
+        return enabled.split(":").any { it == ComponentName(context, LanChatNotificationListener::class.java).flattenToString() }
+    }
     private fun prefs(context: Context) = context.getSharedPreferences("notification_sync", Context.MODE_PRIVATE)
     fun read(context: Context): JSONObject {
         val p = prefs(context)

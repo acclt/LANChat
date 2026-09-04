@@ -156,6 +156,16 @@ description = "Allows reading the Android background receive Core state"
 commands.allow = ["get_background_receive_state"]
 
 [[permission]]
+identifier = "allow-get-background-runtime-settings"
+description = "Allows reading Android background preferences"
+commands.allow = ["get_background_runtime_settings"]
+
+[[permission]]
+identifier = "allow-set-background-runtime-settings"
+description = "Allows saving Android background preferences"
+commands.allow = ["set_background_runtime_settings"]
+
+[[permission]]
 identifier = "allow-retry-background-service"
 description = "Allows an explicit user retry of the Android background service"
 commands.allow = ["retry_background_service"]

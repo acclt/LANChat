@@ -31,7 +31,7 @@ class LanChatServiceContractTest {
         assertNotNull(MainActivity::class.java.getDeclaredMethod("launchDownloadDirectoryPicker"))
     }
     @Test
-    fun serviceManifestKeepsSingleProcessNonStickySessionContract() {
+    fun serviceManifestKeepsSingleProcessRecoveryContract() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         @Suppress("DEPRECATION")
         val info = context.packageManager.getServiceInfo(
@@ -40,7 +40,7 @@ class LanChatServiceContractTest {
         )
 
         assertFalse(info.exported)
-        assertTrue(info.flags and ServiceInfo.FLAG_STOP_WITH_TASK != 0)
+        assertTrue(info.flags and ServiceInfo.FLAG_STOP_WITH_TASK == 0)
         assertTrue(
             info.foregroundServiceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE != 0,
         )
@@ -64,8 +64,8 @@ class LanChatServiceContractTest {
     }
 
     @Test
-    fun serviceReturnsNotStickyAndDeclaresDefensiveExitCallbacks() {
-        assertEquals(android.app.Service.START_NOT_STICKY, LanChatForegroundService.serviceStartMode())
+    fun serviceReturnsStickyAndDeclaresDefensiveExitCallbacks() {
+        assertEquals(android.app.Service.START_STICKY, LanChatForegroundService.serviceStartMode())
         assertNotNull(
             LanChatForegroundService::class.java.getDeclaredMethod(
                 "onTaskRemoved",
@@ -178,5 +178,20 @@ class LanChatServiceContractTest {
         assertTrue("android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" in permissions)
         assertTrue("android.permission.CHANGE_WIFI_MULTICAST_STATE" in permissions)
         assertTrue("android.permission.POST_NOTIFICATIONS" in permissions)
+        assertTrue("android.permission.RECEIVE_BOOT_COMPLETED" in permissions)
+    }
+
+    @Test
+    fun backgroundPolicySeparatesPreferencesFromCurrentStopBoundary() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val saved = BackgroundRuntimeSettings.save(context, JSONObject()
+            .put("keep_running", true).put("start_on_boot", true).put("exclude_from_recents", true))
+        assertTrue(saved.getBoolean("keep_running"))
+        assertTrue(BackgroundRuntimeSettings.mayRecover(context))
+        BackgroundRuntimeSettings.stopCurrentSession(context)
+        assertTrue(BackgroundRuntimeSettings.mayStartOnBoot(context))
+        assertFalse(BackgroundRuntimeSettings.mayRecover(context))
+        BackgroundRuntimeSettings.beginBootSession(context, 123L)
+        assertTrue(BackgroundRuntimeSettings.mayRecover(context))
     }
 }

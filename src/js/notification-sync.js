@@ -26,6 +26,32 @@ window.NotificationUI = (() => {
   let appOptions = [],
     appSelection = new Set(),
     appLoading = false;
+  let accessRefresh = null;
+
+  function renderNotificationAccess() {
+    const button = document.getElementById("android-notification-access-btn");
+    if (!button) return;
+    button.textContent = info.access ? "已授权" : "去授权";
+    button.classList.toggle("is-authorized", !!info.access);
+  }
+
+  function refreshNotificationAccess() {
+    if (!enabled || !android) return;
+    if (accessRefresh) return accessRefresh;
+    // Resume refresh must not replace settings controls or their unsaved values.
+    accessRefresh = (async () => {
+      try {
+        const latest = await invoke("notification_settings");
+        info.access = latest.access;
+        renderNotificationAccess();
+      } catch (error) {
+        console.warn("[NotificationSync] 权限状态刷新失败", getErrorMessage(error));
+      } finally {
+        accessRefresh = null;
+      }
+    })();
+    return accessRefresh;
+  }
   const statusText = {
     sending: "处理中",
     success: "成功",
@@ -496,7 +522,7 @@ window.NotificationUI = (() => {
     }
   }
   async function chooseApps() {
-    if (!appDialog) return;
+    if (!appDialog || busy || appDialog.classList.contains("is-open")) return;
     appLoading = true;
     appOptions = [];
     appSelection = new Set(config.allowed_packages);
@@ -533,6 +559,7 @@ window.NotificationUI = (() => {
     updateAppSelectionControls();
     appDialog.querySelectorAll(".android-push-app-row input").forEach((input) => { input.disabled = true; });
     saveButton.disabled = true;
+    document.querySelector(".message-action-toast")?.remove();
     status.textContent = "正在保存…";
     try {
       const result = await invoke("notification_action", {
@@ -543,10 +570,14 @@ window.NotificationUI = (() => {
       config = result.settings || config;
       renderSettings();
       status.textContent = "已保存";
-      closeAppPicker();
-      if (location.hash === "#push-apps") history.back();
+      showMessageActionToast("保存成功", 2400);
+      if (appDialog.classList.contains("is-open")) {
+        closeAppPicker();
+        if (location.hash === "#push-apps") history.back();
+      }
     } catch (e) {
       status.textContent = `保存失败：${getErrorMessage(e)}`;
+      showMessageActionToast(status.textContent, 4000);
     } finally {
       busy = false;
       updateAppSelectionControls();
@@ -630,8 +661,7 @@ window.NotificationUI = (() => {
         }, "ns-test-button"),
       );
       content.append(heading, panel);
-      const accessButton = document.getElementById("android-notification-access-btn");
-      if (accessButton) accessButton.textContent = info.access ? "已授权" : "去授权";
+      renderNotificationAccess();
       return;
     }
     content.append(
@@ -833,16 +863,18 @@ window.NotificationUI = (() => {
           ?.append(button("信息接收设置", openSettings));
     }
     window.addEventListener("popstate", () => {
-      if (location.hash !== "#notifications") leave();
+      const inSettings = android && ["#settings", "#permissions", "#push-apps"].includes(location.hash);
+      if (!inSettings && location.hash !== "#notifications") leave();
       if (location.hash !== "#push-apps") closeAppPicker();
       if (location.hash !== "#push-sources") closePushSources();
     });
     window.addEventListener("focus", () => {
       refreshSoon();
-      const settingsVisible = android
-        ? document.getElementById("settings-panel")?.style.display === "block"
-        : dialog.open;
-      if (settingsVisible && !busy) openSettings();
+      if (android) refreshNotificationAccess();
+      else if (dialog.open && !busy) openSettings();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") refreshNotificationAccess();
     });
     await apiListen("notification-records-changed", refreshSoon);
     window.addEventListener("synced-notification-tapped", (event) =>

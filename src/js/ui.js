@@ -788,6 +788,8 @@ function updateListHighlight(activeId) {
 
 // 5. 全局监听器:处理物理返回键和手动后退
 window.addEventListener("popstate", function (event) {
+  if (document.body.classList.contains("android-app") &&
+      ["#settings", "#permissions", "#push-apps"].includes(location.hash)) return;
   const chatContainer = document.getElementById("chat-container");
 
   const attachmentPanel = document.getElementById("android-attachment-panel");
@@ -1070,17 +1072,18 @@ function formatAndroidStoredPath(filePath, fileName) {
   return filePath.replaceAll("\\", "/");
 }
 
-function showMessageActionToast(text) {
+function showMessageActionToast(text, duration = 1400) {
   document.querySelector(".message-action-toast")?.remove();
   const toast = document.createElement("div");
   toast.className = "message-action-toast";
+  toast.setAttribute("role", "status");
   toast.textContent = text;
   document.body.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add("show"));
   setTimeout(() => {
     toast.classList.remove("show");
     setTimeout(() => toast.remove(), 180);
-  }, 1400);
+  }, duration);
 }
 
 function getActionErrorMessage(error) {
@@ -2584,6 +2587,8 @@ function initSettings() {
   const cancelSettingsBtn = document.getElementById("cancel-settings-btn");
   const choosePathBtn = document.getElementById("choose-path-btn");
   const downloadPathInput = document.getElementById("download-path-input");
+  const androidDownloadButton = document.getElementById("android-download-location-btn");
+  const androidDownloadValue = document.getElementById("android-download-value");
   const portInput = document.getElementById("port-input");
   const dbPathInput = document.getElementById("db-path-input");
   const chooseDbPathBtn = document.getElementById("choose-db-path-btn");
@@ -2619,12 +2624,60 @@ function initSettings() {
   const retryBackgroundServiceBtn = document.getElementById("retry-background-service-btn");
   const batteryOptimizationStatus = document.getElementById("battery-optimization-status");
   const openBatterySettingsBtn = document.getElementById("open-battery-settings-btn");
-  const stopBackgroundServiceBtn = document.getElementById("stop-background-service-btn");
+  let stoppingBackground = false;
+  const backgroundKeepRunningToggle = document.getElementById("background-keep-running-toggle");
+  const backgroundStartOnBootToggle = document.getElementById("background-start-on-boot-toggle");
+  const backgroundExcludeRecentsToggle = document.getElementById("background-exclude-recents-toggle");
 
   // Android 端隐藏数据库路径配置
   const isAndroid = !!window.__TAURI__ &&
     (navigator.userAgent.includes("Android") || document.body.classList.contains("android-app"));
   const isWindowsDesktop = !!window.__TAURI__ && !isAndroid && navigator.userAgent.includes("Windows");
+  let settingsSession = 0;
+  let saving = false;
+  let loading = false;
+  const saveButtonLabels = new Map();
+  const updateSaveButtons = () => {
+    saveSettingsBtn.disabled = saving || loading;
+    if (savePermissionsBtn) savePermissionsBtn.disabled = saving || loading;
+    if (isAndroid) {
+      for (const button of [saveSettingsBtn, savePermissionsBtn].filter(Boolean)) {
+        button.setAttribute("aria-busy", String(saving));
+        if (saving) {
+          if (!saveButtonLabels.has(button)) saveButtonLabels.set(button, button.textContent);
+          button.textContent = "正在保存…";
+        } else if (saveButtonLabels.has(button)) {
+          button.textContent = saveButtonLabels.get(button);
+          saveButtonLabels.delete(button);
+        }
+      }
+    }
+  };
+  const clearSettingsFeedback = () => {
+    settingsErrorMsg.textContent = "";
+    settingsSuccessMsg.textContent = "";
+    settingsSuccessMsg.classList.remove("show");
+  };
+  const closeSettings = () => {
+    if (isAndroid && location.hash === "#settings") history.back();
+    else {
+      permissionsPanel?.classList.remove("is-open");
+      settingsPanel.style.display = "none";
+      clearSettingsFeedback();
+    }
+  };
+  const closePermissions = () => {
+    if (isAndroid && location.hash === "#permissions") history.back();
+    else permissionsPanel?.classList.remove("is-open");
+  };
+  if (isAndroid) {
+    window.addEventListener("popstate", () => {
+      const inSettings = ["#settings", "#permissions", "#push-apps"].includes(location.hash);
+      settingsPanel.style.display = inSettings ? "block" : "none";
+      permissionsPanel?.classList.toggle("is-open", location.hash === "#permissions");
+      if (!inSettings) clearSettingsFeedback();
+    });
+  }
   if (isAndroid && dbPathSetting) {
     dbPathSetting.style.display = "none";
   }
@@ -2648,6 +2701,11 @@ function initSettings() {
     downloadPathInput.value = androidDownloadTarget.startsWith("content://")
       ? `系统文件夹：${label || "已授权目录"}`
       : "应用专属存储（默认）";
+    if (androidDownloadValue) {
+      androidDownloadValue.textContent = downloadPathInput.value;
+      androidDownloadValue.title = androidDownloadTarget || downloadPathInput.value;
+      androidDownloadButton?.setAttribute("aria-label", `下载位置：${downloadPathInput.value}，选择下载目录`);
+    }
     if (permissionFileBtn) {
       permissionFileBtn.textContent = androidDownloadTarget.startsWith("content://")
         ? "已授权"
@@ -2682,8 +2740,16 @@ function initSettings() {
         ERROR: "△ 启动失败",
       };
       backgroundReceiveStatus.textContent = labels[state.state] || state.state || "未知";
+      backgroundReceiveStatus.dataset.state = state.state || "UNKNOWN";
+      const canStop = ["RUNNING", "STARTING"].includes(state.state);
+      backgroundReceiveStatus.disabled = stoppingBackground || !canStop;
+      backgroundReceiveStatus.title = canStop ? "点击停止后台接收并退出" : "";
+      backgroundReceiveStatus.setAttribute("aria-label", canStop
+        ? `${backgroundReceiveStatus.textContent}，点击停止后台接收并退出`
+        : backgroundReceiveStatus.textContent);
       backgroundReceiveError.textContent = state.last_error_message || "";
       retryBackgroundServiceBtn.style.display = state.state === "ERROR" ? "inline-block" : "none";
+      retryBackgroundServiceBtn.parentElement.hidden = state.state !== "ERROR";
       const battery = await window.__TAURI__.core.invoke("get_battery_optimization_state");
       batteryOptimizationStatus.textContent = battery === "unrestricted" ? "不受限制" : "受系统优化限制";
       const notification = await window.__TAURI__.core.invoke("get_notification_permission_state");
@@ -2702,9 +2768,20 @@ function initSettings() {
     });
     openBatterySettingsBtn?.addEventListener("click", () =>
       window.__TAURI__.core.invoke("open_battery_optimization_settings"));
-    stopBackgroundServiceBtn?.addEventListener("click", async () => {
-      if (confirm("停止后台接收并退出 LQ Chat？")) {
+    backgroundReceiveStatus?.addEventListener("click", async () => {
+      if (stoppingBackground || backgroundReceiveStatus.disabled ||
+          !confirm("停止后台接收并退出 LQ Chat？")) return;
+      stoppingBackground = true;
+      backgroundReceiveStatus.disabled = true;
+      try {
         await window.__TAURI__.core.invoke("stop_background_receive_and_exit");
+      } catch (error) {
+        const message = "停止失败：" + getActionErrorMessage(error);
+        backgroundReceiveError.textContent = message;
+        showMessageActionToast(message, 4000);
+      } finally {
+        stoppingBackground = false;
+        backgroundReceiveStatus.disabled = !["RUNNING", "STARTING"].includes(backgroundReceiveStatus.dataset.state);
       }
     });
     window.__TAURI__.event?.listen("core-state-changed", refreshBackgroundReceiveState);
@@ -2727,12 +2804,15 @@ function initSettings() {
   // 打开/关闭设置面板 - 切换显示/隐藏
   settingsBtn.addEventListener("click", async () => {
     if (settingsPanel.style.display === "block") {
-      settingsPanel.style.display = "none";
-      permissionsPanel?.classList.remove("is-open");
-      settingsErrorMsg.textContent = "";
-      settingsSuccessMsg.textContent = "";
-      settingsSuccessMsg.classList.remove("show");
+      closeSettings();
     } else {
+      if (loading || saving) return;
+      settingsSession += 1;
+      loading = true;
+      updateSaveButtons();
+      if (isAndroid && location.hash !== "#settings") {
+        history.pushState({ settingsOpen: true }, "", "#settings");
+      }
       settingsPanel.style.display = "block";
       permissionsPanel?.classList.remove("is-open");
       settingsErrorMsg.textContent = "";
@@ -2767,6 +2847,12 @@ function initSettings() {
           autostartToggle.checked = initialAutostart;
         }
         if (window.__TAURI__) {
+          if (isAndroid) {
+            const background = await window.__TAURI__.core.invoke("get_background_runtime_settings");
+            backgroundKeepRunningToggle.checked = !!background.keep_running;
+            backgroundStartOnBootToggle.checked = !!background.start_on_boot;
+            backgroundExcludeRecentsToggle.checked = !!background.exclude_from_recents;
+          }
           initialNotifications = await window.__TAURI__.core.invoke("get_notifications_enabled").catch(() => true);
           notificationToggle.checked = initialNotifications;
           if (isAndroid && typeof Notification !== "undefined" && Notification.permission === "denied") {
@@ -2779,6 +2865,9 @@ function initSettings() {
         await window.NotificationUI?.refreshSettings?.();
       } catch (e) {
         settingsErrorMsg.textContent = "加载设置失败: " + e.message;
+      } finally {
+        loading = false;
+        updateSaveButtons();
       }
 
     }
@@ -2786,14 +2875,18 @@ function initSettings() {
 
   settingsBackBtn?.addEventListener("click", () => cancelSettingsBtn.click());
   permissionsBtn?.addEventListener("click", async () => {
+    if (isAndroid && location.hash !== "#permissions") {
+      history.pushState({ permissionsOpen: true }, "", "#permissions");
+    }
     permissionsPanel?.classList.add("is-open");
     await refreshBackgroundReceiveState();
     window.NotificationUI?.refreshSettings?.();
   });
-  permissionsBackBtn?.addEventListener("click", () => {
-    permissionsPanel?.classList.remove("is-open");
-  });
+  permissionsBackBtn?.addEventListener("click", closePermissions);
   permissionFileBtn?.addEventListener("click", () => choosePathBtn.click());
+  androidDownloadButton?.addEventListener("click", () => {
+    if (isAndroid && !saving && !loading) choosePathBtn.click();
+  });
   savePermissionsBtn?.addEventListener("click", () => {
     saveSettingsBtn.dataset.saveDestination = "settings";
     saveSettingsBtn.click();
@@ -2869,8 +2962,14 @@ function initSettings() {
 
   // 保存设置
   saveSettingsBtn.addEventListener("click", async () => {
+    if (saving || loading) return;
     const saveDestination = saveSettingsBtn.dataset.saveDestination || "home";
     delete saveSettingsBtn.dataset.saveDestination;
+    const saveSession = settingsSession;
+    const saveHash = location.hash;
+    saving = true;
+    updateSaveButtons();
+    document.querySelector(".message-action-toast")?.remove();
     try {
       settingsErrorMsg.textContent = "";
       settingsSuccessMsg.textContent = "";
@@ -2884,22 +2983,19 @@ function initSettings() {
       } else {
         const portNum = parseInt(portVal, 10);
         if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-          settingsErrorMsg.textContent = t("port_invalid");
-          return;
+          throw new Error(t("port_invalid"));
         }
         portInput.value = String(portNum);
       }
 
       const deviceName = settingsNameInput?.value.trim() || initialName;
       if (isAndroid && !deviceName) {
-        settingsErrorMsg.textContent = t("name_empty");
         settingsNameInput?.focus();
-        return;
+        throw new Error(t("name_empty"));
       }
       if (isAndroid && deviceName.length > 50) {
-        settingsErrorMsg.textContent = t("name_too_long");
         settingsNameInput?.focus();
-        return;
+        throw new Error(t("name_too_long"));
       }
 
       // 空值恢复默认
@@ -2913,6 +3009,19 @@ function initSettings() {
       const closeToTray = isWindowsDesktop ? closeToTrayToggle.checked : undefined;
       const autostartEnabled = isWindowsDesktop ? autostartToggle.checked : false;
       const nameChanged = isAndroid && deviceName !== initialName;
+      const backgroundSettings = isAndroid ? {
+        keep_running: backgroundKeepRunningToggle.checked,
+        start_on_boot: backgroundStartOnBootToggle.checked,
+        exclude_from_recents: backgroundExcludeRecentsToggle.checked,
+      } : null;
+
+      // Permission timeouts must not leave a partially written configuration.
+      if (notificationsEnabled && isAndroid) {
+        const permission = await requestAndroidNotificationPermission();
+        if (permission !== "granted") {
+          throw new Error("系统通知权限未获允许，请授权后重试；或关闭通知开关后保存");
+        }
+      }
 
       await apiUpdateSettings(dlPath, myPort, myDbPath, autoDl, closeToTray);
       if (nameChanged) {
@@ -2924,31 +3033,38 @@ function initSettings() {
       if (window.__TAURI__) {
         await window.__TAURI__.core.invoke("set_notifications_enabled", { enabled: notificationsEnabled });
         window._notificationsEnabled = notificationsEnabled;
-        if (notificationsEnabled && isAndroid) await requestAndroidNotificationPermission();
         if (isWindowsDesktop && autostartEnabled !== initialAutostart) {
           await window.__TAURI__.core.invoke("set_autostart_enabled", { enabled: autostartEnabled });
+        }
+        if (isAndroid) {
+          await window.__TAURI__.core.invoke("set_background_runtime_settings", {
+            settings: backgroundSettings,
+          });
         }
       }
 
       // 检测是否有实际改动
       const portChanged = myPort !== initialPort;
       const dbPathChanged = myDbPath !== initialDbPath;
-      const dlPathChanged = dlPath !== initialDlPath;
-      const autoDlChanged = autoDl !== initialAutoDl;
-      const notificationsChanged = notificationsEnabled !== initialNotifications;
-      const closeToTrayChanged = isWindowsDesktop && closeToTray !== initialCloseToTray;
-      const autostartChanged = isWindowsDesktop && autostartEnabled !== initialAutostart;
 
       const finishSave = () => {
+        if (settingsSession !== saveSession || settingsPanel.style.display !== "block" ||
+            (isAndroid && location.hash !== saveHash)) return;
         if (saveDestination === "settings") {
-          permissionsPanel?.classList.remove("is-open");
+          closePermissions();
         } else {
-          settingsPanel.style.display = "none";
+          closeSettings();
         }
       };
 
-      if (!nameChanged && !portChanged && !dbPathChanged && !dlPathChanged && !autoDlChanged && !notificationsChanged && !closeToTrayChanged && !autostartChanged) {
-        // 没有任何改动，直接关闭
+      if (isAndroid) {
+        initialPort = myPort;
+        initialDbPath = myDbPath;
+        initialDlPath = dlPath;
+        initialAutoDl = autoDl;
+        initialNotifications = notificationsEnabled;
+        showMessageActionToast(portChanged || dbPathChanged
+          ? "保存成功，部分设置需重启后生效" : "保存成功", 2400);
         finishSave();
         return;
       }
@@ -2966,18 +3082,17 @@ function initSettings() {
 
       console.log("[UI] 设置保存成功");
     } catch (e) {
-      settingsErrorMsg.textContent = t("settings_save_fail") + ": " + e.message;
+      const message = t("settings_save_fail") + ": " + getActionErrorMessage(e);
+      settingsErrorMsg.textContent = message;
+      if (isAndroid) showMessageActionToast(message, 4000);
+    } finally {
+      saving = false;
+      updateSaveButtons();
     }
   });
 
   // 取消
-  cancelSettingsBtn.addEventListener("click", () => {
-    permissionsPanel?.classList.remove("is-open");
-    settingsPanel.style.display = "none";
-    settingsErrorMsg.textContent = "";
-    settingsSuccessMsg.textContent = "";
-    settingsSuccessMsg.classList.remove("show");
-  });
+  cancelSettingsBtn.addEventListener("click", closeSettings);
 }
 
 // 初始化手动添加设备功能

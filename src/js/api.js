@@ -1070,15 +1070,30 @@ async function requestNotificationPermission() {
 }
 
 /** Android 13+ 通知权限申请（Tauri 端使用插件原生 API） */
-window.requestAndroidNotificationPermission = async function() {
-  if (!window.__TAURI__) return;
-  if (window.__TAURI__.notification) {
-    try { await window.__TAURI__.notification.requestPermission(); }
-    catch (_) {}
-  } else {
-    try { await window.__TAURI__.core.invoke("request_permission_on_android"); }
-    catch (_) {}
-  }
+let androidNotificationPermissionRequest = null;
+window.requestAndroidNotificationPermission = function() {
+  if (!window.__TAURI__) return Promise.resolve("granted");
+  if (androidNotificationPermissionRequest) return androidNotificationPermissionRequest;
+  const tauri = window.__TAURI__;
+  let timer;
+  const request = (async () => {
+    // Notification plugin 2.3.3 does not resolve repeat requests on Android 13+.
+    const state = await tauri.core.invoke("get_notification_permission_state");
+    if (state === "granted") return state;
+    if (tauri.notification) await tauri.notification.requestPermission();
+    else await tauri.core.invoke("plugin:notification|request_permission");
+    return tauri.core.invoke("get_notification_permission_state");
+  })();
+  androidNotificationPermissionRequest = Promise.race([
+    request,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("通知授权等待超时，请在系统设置中确认通知权限后重试")), 15000);
+    }),
+  ]).finally(() => {
+    clearTimeout(timer);
+    androidNotificationPermissionRequest = null;
+  });
+  return androidNotificationPermissionRequest;
 };
 
 /** 显示桌面通知。Tauri 端调平台命令，Web 端用 Web Notification API */

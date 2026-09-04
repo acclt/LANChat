@@ -76,7 +76,11 @@ async function renderPage() {
   }
 
   // 请求 Android 通知权限（Android 13+ 需要运行时权限）
-  requestAndroidNotificationPermission();
+  if (androidApp) {
+    requestAndroidNotificationPermission().catch(error => {
+      console.warn("[App] 通知权限申请未完成:", error);
+    });
+  }
 
   // 使用我们封装好的 apiListen
   await apiListen("new-peer", (event) => {
