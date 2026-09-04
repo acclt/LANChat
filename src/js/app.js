@@ -7,6 +7,8 @@ async function renderPage() {
   const previewMode = androidPreview || desktopPreview;
   const androidApp = (navigator.userAgent.includes("Android") && !!window.__TAURI__) || androidPreview;
   document.body.classList.toggle("android-app", androidApp);
+  document.body.classList.toggle("windows-app", !androidApp &&
+    (desktopPreview || (!!window.__TAURI__ && navigator.userAgent.includes("Windows"))));
   if (androidApp) initAndroidSaveBars();
 
   const myName = await apiGetMyName();
@@ -27,6 +29,7 @@ async function renderPage() {
   initAddPeer();
 
   document.getElementById("android-settings-btn")?.addEventListener("click", () => document.getElementById("settings-btn")?.click());
+  document.getElementById("desktop-refresh-btn")?.addEventListener("click", () => document.getElementById("android-refresh-peers-btn")?.click());
   document.getElementById("android-add-peer-btn")?.addEventListener("click", () => document.getElementById("add-peer-btn")?.click());
   document.getElementById("android-receive-sources-btn")?.addEventListener("click", () => window.NotificationUI?.openPushSources?.());
   document.getElementById("android-refresh-peers-btn")?.addEventListener("click", async (event) => {
@@ -51,6 +54,8 @@ async function renderPage() {
     const info = await window.__TAURI__.core.invoke("get_local_device_info");
     const ip = document.getElementById("android-device-ip");
     if (ip) ip.textContent = `${info.ip}:${info.port}`;
+    const desktopAddress = document.getElementById("desktop-local-address");
+    if (desktopAddress) desktopAddress.textContent = `${info.ip}:${info.port}`;
   } catch (e) {
     console.warn("[JS-App] 获取本机 IP 失败:", e);
     const ip = document.getElementById("android-device-ip");

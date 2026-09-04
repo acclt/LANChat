@@ -14,6 +14,12 @@ function initNameEditor() {
   const errorMsg = document.getElementById("error-msg");
 
   // 点击用户名切换改名面板
+  nameDisplay.addEventListener("keydown", event => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      nameDisplay.click();
+    }
+  });
   nameDisplay.addEventListener("click", () => {
     if (editPanel.style.display === "block") {
       editPanel.style.display = "none";
@@ -3638,6 +3644,8 @@ async function applyTheme(themeName) {
   );
 
   if (themeName === "default") {
+    const desktopStylesheet = document.getElementById("desktop-ui-stylesheet");
+    if (desktopStylesheet) desktopStylesheet.disabled = false;
     // 恢复默认主题:启用默认CSS
     if (defaultStylesheet) {
       defaultStylesheet.disabled = false;
@@ -3648,6 +3656,8 @@ async function applyTheme(themeName) {
 
   // 获取自定义主题CSS
   const css = await apiGetThemeCss(themeName);
+  const desktopStylesheet = document.getElementById("desktop-ui-stylesheet");
+  if (desktopStylesheet) desktopStylesheet.disabled = true;
 
   // 禁用默认样式表
   if (defaultStylesheet) {

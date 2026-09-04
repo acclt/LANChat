@@ -18,7 +18,7 @@ This repository continues the work of [cap153/LANChat](https://github.com/cap153
 - Close-to-tray and silent launch at Windows sign-in.
 - A shared light purple visual style across Windows and Android while retaining the desktop chat layout.
 
-Local build artifacts are not committed to the source repository. Build from source using the instructions below, or obtain packaged versions from [Releases](https://github.com/acclt/LANChat/releases).
+Local build artifacts are not committed to the source repository. Build from source using the instructions below, or obtain packaged versions from [Releases](https://github.com/acclt/LQchat/releases).
 
 ## Features
 
@@ -54,7 +54,7 @@ paru -S lanchat-bin
 
 ### Releases
 
-[https://github.com/acclt/LANChat/releases](https://github.com/acclt/LANChat/releases)
+[https://github.com/acclt/LQchat/releases](https://github.com/acclt/LQchat/releases)
 
 ### Build from Source
 

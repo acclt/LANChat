@@ -1,0 +1,205 @@
+/* Windows default theme, derived from the Android device UI. Custom themes opt out. */
+body.windows-app {
+  --desktop-bg: #f5f6fb;
+  --desktop-card: #fff;
+  --desktop-ink: #171c2a;
+  --desktop-muted: #727b91;
+  --desktop-line: #e5e6ef;
+  --desktop-accent: #7750da;
+  --desktop-soft: #eee8ff;
+  --desktop-green: #1da874;
+  --bg-dark: var(--desktop-bg);
+  --bg-panel: var(--desktop-card);
+  --bg-light: #eceef5;
+  --primary: var(--desktop-accent);
+  --primary-hover: #6841c8;
+  --primary-gradient: linear-gradient(var(--desktop-accent), var(--desktop-accent));
+  --text-main: var(--desktop-ink);
+  --text-dim: var(--desktop-muted);
+  --text: var(--desktop-ink);
+  --text-muted: var(--desktop-muted);
+  --success: var(--desktop-green);
+  --ns-accent: var(--desktop-accent);
+  --ns-ink: var(--desktop-ink);
+  --ns-muted: var(--desktop-muted);
+  --ns-line: var(--desktop-line);
+  color: var(--desktop-ink);
+  background: var(--desktop-bg);
+  font-family: "Microsoft YaHei UI", "Segoe UI Variable Text", sans-serif;
+  font-size: 13px;
+}
+
+body.windows-app *, body.windows-app *::before, body.windows-app *::after { box-sizing: border-box; }
+body.windows-app .desktop-only { display: flex; }
+body.windows-app .android-only, body.windows-app .android-home,
+body.windows-app #android-attachment-actions, body.windows-app #android-attachment-panel { display: none !important; }
+body.windows-app button, body.windows-app input, body.windows-app textarea { font: inherit; }
+body.windows-app button { cursor: pointer; transition: background .15s, border-color .15s; }
+body.windows-app button:hover { transform: none; box-shadow: none; }
+body.windows-app button:disabled { cursor: default; opacity: .5; }
+body.windows-app :is(button, input, textarea, [tabindex], summary):focus-visible { outline: 2px solid var(--desktop-accent); outline-offset: 3px; }
+body.windows-app :is(button, label) svg { flex-shrink: 0; }
+body.windows-app .container { padding: 0; background: var(--desktop-bg); }
+body.windows-app .header {
+  display: flex; order: -1; height: 76px; min-height: 76px; padding: 0 26px;
+  background: var(--desktop-card); border: 0; border-bottom: 1px solid var(--desktop-line);
+  color: var(--desktop-ink); gap: 24px; line-height: 1.4;
+}
+body.windows-app .desktop-brand { align-items: center; gap: 12px; font-size: 21px; font-weight: 700; letter-spacing: -.5px; }
+body.windows-app .desktop-brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 14px; background: var(--desktop-accent); color: #fff; font-size: 26px; }
+body.windows-app .desktop-brand small { display: block; font-size: 10px; font-weight: 400; color: var(--desktop-muted); letter-spacing: 2px; margin-top: 2px; }
+body.windows-app .header h1 { min-width: 0; flex: 1; font-size: 13px; font-weight: 500; gap: 9px; height: 36px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.windows-app .header h1::before { content: ""; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--desktop-green); box-shadow: 0 0 0 4px #e7f7f0; }
+body.windows-app .header-buttons { height: 38px; gap: 8px; }
+body.windows-app .header-buttons button { padding: 0 18px; border-radius: 12px; background: var(--desktop-bg); color: var(--desktop-ink); border: 1px solid var(--desktop-line); font-size: 13px; opacity: 1; }
+body.windows-app .header-buttons #add-peer-btn { background: var(--desktop-accent); color: #fff; border-color: transparent; }
+body.windows-app .header-buttons button:hover { background: var(--desktop-soft); }
+body.windows-app .header-buttons #add-peer-btn:hover { background: var(--primary-hover); }
+body.windows-app .main-content, body.windows-app.chat-open .main-content {
+  min-height: 0; padding: 20px; gap: 20px; background: var(--desktop-bg); display: flex;
+}
+body.windows-app .user-list-container, body.windows-app.chat-open .user-list-container {
+  display: flex; flex: 0 0 300px; width: 300px; max-width: 300px; min-width: 0;
+  height: 100%; background: transparent; border: 0; padding: 0; overflow-y: auto;
+}
+body.windows-app .desktop-sidebar-top { justify-content: space-between; align-items: center; gap: 12px; padding: 4px 6px 22px; }
+body.windows-app .desktop-sidebar-top h2 { margin: 0 0 8px; color: var(--desktop-ink); font-size: 20px; letter-spacing: 0; }
+body.windows-app .desktop-sidebar-top h2::before, body.windows-app .ns-welcome h2::before, body.windows-app .ns-dialog h2::before { display: none; }
+body.windows-app #desktop-local-address { color: var(--desktop-muted); font: 11px Consolas, monospace; }
+body.windows-app #desktop-refresh-btn { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid var(--desktop-line); border-radius: 12px; background: #fff; color: var(--desktop-muted); }
+body.windows-app #desktop-refresh-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+body.windows-app .ns-chat-group, body.windows-app .ns-group { margin: 0 0 16px; border: 1px solid var(--desktop-line); border-radius: 20px; background: #fff; box-shadow: 0 8px 24px #27204e05; }
+body.windows-app .ns-chat-group > summary { margin: 0; padding: 17px 18px; color: var(--desktop-accent); font-size: 12px; border-bottom: 1px solid var(--desktop-line); }
+body.windows-app .ns-group-heading { padding: 12px 18px; min-height: 52px; }
+body.windows-app .ns-disclosure { font-size: 12px; color: var(--desktop-accent); }
+body.windows-app #user-list { padding: 6px; }
+body.windows-app #user-list li {
+  display: flex; flex-direction: row; align-items: center; gap: 12px; margin: 0; padding: 15px 10px;
+  border: 0; border-radius: 14px; background: transparent; min-height: 78px; box-shadow: none; transform: none;
+}
+body.windows-app #user-list li:hover { background: var(--desktop-bg); }
+body.windows-app #user-list li.active { background: var(--desktop-soft); box-shadow: none; }
+body.windows-app #user-list li.active::before { display: none; }
+body.windows-app .android-peer-avatar { display: grid; place-items: center; flex: 0 0 42px; width: 42px; height: 42px; border-radius: 14px; background: var(--desktop-soft); color: var(--desktop-accent); }
+body.windows-app .android-peer-avatar svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+body.windows-app .android-peer-copy { display: grid; gap: 7px; min-width: 0; flex: 1; }
+body.windows-app #user-list .user-name { color: var(--desktop-ink); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.windows-app #user-list .user-addr { color: var(--desktop-muted); font: 10px Consolas, monospace; margin: 0; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.windows-app #user-list .user-status { display: none; }
+body.windows-app .android-peer-chevron { color: var(--desktop-muted); font-size: 20px; }
+body.windows-app .ns-device { padding: 16px 18px; min-height: 74px; }
+body.windows-app .ns-name { font-size: 13px; }
+body.windows-app .ns-badge.online { color: var(--desktop-green); background: #e7f7f0; }
+body.windows-app .android-listening { position: static; margin: auto 6px 4px; padding-top: 20px; font-size: 11px; line-height: 1.7; color: var(--desktop-muted); }
+body.windows-app .ns-welcome {
+  display: flex; position: relative; overflow: hidden; flex: 1; min-width: 0; padding: 44px;
+  border: 1px solid var(--desktop-line); border-radius: 26px;
+  background: radial-gradient(ellipse at 50% 35%, #eee8ff 0%, #fafaff 47%, #fff 80%);
+}
+body.windows-app .ns-welcome-mark { width: 76px; height: 76px; border-radius: 24px; background: var(--desktop-accent); box-shadow: 0 16px 40px #7750da24; }
+body.windows-app .ns-eyebrow { letter-spacing: 2.5px; color: var(--desktop-accent); margin-top: 26px; }
+body.windows-app .ns-welcome h2 { font-size: clamp(21px, 2.4vw, 30px); line-height: 1.65; max-width: 520px; letter-spacing: -.6px; margin: 18px 0 12px; }
+body.windows-app .ns-welcome-hint { line-height: 1.9; font-size: 13px; max-width: 370px; margin-bottom: 28px; }
+body.windows-app .ns-welcome > .ns-button { padding: 13px 24px; background: var(--desktop-accent); color: #fff; border: 0; border-radius: 13px; }
+body.windows-app.chat-open .ns-welcome, body.windows-app.notification-open .ns-welcome { display: none; }
+body.windows-app .chat-container, body.windows-app .ns-detail {
+  position: relative; inset: auto; width: auto; height: auto; min-height: 0; min-width: 0; flex: 1;
+  padding: 0; z-index: 1; border: 1px solid var(--desktop-line); border-radius: 24px; background: var(--desktop-bg); overflow: hidden;
+}
+body.windows-app #user-list li { flex-wrap: nowrap; }
+body.windows-app #user-list .user-addr { opacity: 1; }
+body.windows-app .chat-header, body.windows-app .ns-detail-header { display: flex; align-items: center; padding: 18px 22px; min-height: 76px; gap: 14px; background: #fff; border-bottom: 1px solid var(--desktop-line); }
+body.windows-app .chat-header button { width: 32px; height: 32px; padding: 6px; background: transparent; color: var(--desktop-muted); border: 0; border-radius: 8px; }
+body.windows-app #chat-with-name { color: var(--desktop-ink); font-size: 17px; }
+body.windows-app .chat-messages { padding: 26px; gap: 20px; min-height: 0; background: var(--desktop-bg); }
+body.windows-app .message-content { max-width: min(82%,640px); padding: 13px 17px; border-radius: 17px; box-shadow: 0 3px 10px #25204404; font-size: 14px; line-height: 1.7; }
+body.windows-app .message.received .message-content { background: #fff; border: 1px solid var(--desktop-line); color: var(--desktop-ink); border-bottom-left-radius: 5px; }
+body.windows-app .message.sent .message-content { background: var(--desktop-accent); border: 1px solid transparent; color: #fff; border-bottom-right-radius: 5px; }
+body.windows-app .message-time { color: var(--desktop-muted); font-size: 10px; margin-top: 7px; }
+body.windows-app .chat-input-container { display: flex; flex-shrink: 0; align-items: flex-end; position: relative; padding: 16px 20px; gap: 10px; background: #fff; border-top: 1px solid var(--desktop-line); }
+body.windows-app .android-composer-main { display: flex; flex: 1; min-width: 0; align-items: flex-end; gap: 10px; }
+body.windows-app #chat-input { position: static; width: 100%; flex: 1; min-width: 0; min-height: 46px; max-height: 160px; padding: 12px 14px; border: 1px solid var(--desktop-line); border-radius: 14px; background: var(--desktop-bg); color: var(--desktop-ink); font-size: 14px; line-height: 20px; resize: none; box-shadow: none; }
+body.windows-app #attach-file-btn { position: static; flex: 0 0 42px; width: 42px; height: 46px; padding: 0; margin: 0; border: 1px solid var(--desktop-line); border-radius: 13px; background: var(--desktop-bg); color: var(--desktop-accent); font-size: 19px; }
+body.windows-app #send-btn { position: static; width: auto; min-width: 72px; height: 46px; padding: 0 18px; border: 0; border-radius: 13px; color: #fff; background: var(--desktop-accent); letter-spacing: 0; }
+body.windows-app #send-btn { height: 46px !important; }
+body.windows-app #send-btn:hover:not(:disabled) { background: var(--primary-hover) !important; color: #fff !important; box-shadow: none; }
+body.windows-app .chat-container:has(#select-mode-btn.active) #send-btn { background: #cf4355 !important; }
+body.windows-app :is(.settings-panel,.edit-panel,.theme-panel) {
+  position: fixed; top: 50%; left: 50%; width: 580px; max-width: calc(100vw - 40px); max-height: calc(100dvh - 48px);
+  transform: translate(-50%,-50%); overflow-y: auto; padding: 26px; background: var(--desktop-bg);
+  border: 1px solid var(--desktop-line); border-radius: 24px; box-shadow: 0 24px 90px #24213830;
+  font-family: inherit !important; animation: none; backdrop-filter: none;
+}
+body.windows-app :is(.settings-panel,.theme-panel) h3 { color: var(--desktop-ink); font-size: 21px; padding: 0 0 18px; margin: 0 0 20px; border: 0; }
+body.windows-app #settings-panel .settings-content { display: flex; flex-direction: column; gap: 12px; }
+body.windows-app #settings-panel :is(.android-settings-card,.android-permissions-panel) { padding: 4px 18px; background: #fff; border: 1px solid var(--desktop-line); border-radius: 18px; }
+body.windows-app #settings-panel .setting-item { margin: 0; padding: 15px 0; border: 0; border-bottom: 1px solid var(--desktop-line); }
+body.windows-app #settings-panel .setting-item:last-child { border: 0; }
+body.windows-app #settings-panel .android-settings-card .setting-item:not(.android-only) { display: grid; grid-template-columns: 90px minmax(0,1fr); align-items: center; gap: 12px; }
+body.windows-app #settings-panel .android-settings-card .setting-item > label { margin: 0; }
+body.windows-app .setting-item > label { font-size: 12px; color: var(--desktop-muted); font-weight: 500; margin-bottom: 10px; }
+body.windows-app .path-input-group { margin: 0; gap: 8px; }
+body.windows-app :is(#port-input,#db-path-input,#download-path-input,#new-name-input,#custom-peer-input) { min-width: 0; padding: 11px 12px; height: 42px; margin: 0; border: 1px solid var(--desktop-line); background: var(--desktop-bg); color: var(--desktop-ink); border-radius: 11px; font-size: 13px; }
+body.windows-app :is(#port-input,#db-path-input,#download-path-input):focus { background: #fff; border-color: var(--desktop-accent); }
+body.windows-app #settings-panel .android-permission-row:not(.android-only) { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; }
+body.windows-app .android-permission-copy { display: grid; gap: 5px; }
+body.windows-app .android-permission-copy strong { font-size: 13px; font-weight: 500; }
+body.windows-app .android-permission-copy small { font-size: 11px; color: var(--desktop-muted); line-height: 1.6; }
+body.windows-app #notification-permission-hint { grid-column: 1/-1; margin: 0; }
+body.windows-app #notification-permission-hint:empty { display: none; }
+body.windows-app .toggle-switch { margin: 0; }
+body.windows-app .toggle-slider { background: #d5d9e3; }
+body.windows-app .toggle-switch input:checked + .toggle-slider { background: var(--desktop-accent); }
+body.windows-app input[type=checkbox] { accent-color: var(--desktop-accent); }
+body.windows-app #auto-download-toggle { width: 20px; height: 20px; margin: 0 12px; }
+body.windows-app #settings-panel :is(#close-to-tray-setting,#autostart-setting) { padding: 15px 18px; border: 1px solid var(--desktop-line); border-radius: 16px; background: #fff; }
+body.windows-app .setting-label-row { gap: 16px; margin: 0; }
+body.windows-app .setting-label-row > label:first-child { font-size: 13px; font-weight: 500; }
+body.windows-app .setting-hint { margin: 6px 0 0; color: var(--desktop-muted); font-size: 11px; }
+body.windows-app :is(#choose-db-path-btn,#choose-path-btn,#add-custom-peer-btn) { width: auto; height: 42px; padding: 0 16px; border: 0; border-radius: 11px; background: var(--desktop-soft); color: var(--desktop-accent) !important; }
+body.windows-app .desktop-receive-settings { text-align: left; padding: 15px 18px; background: #fff; border: 1px solid var(--desktop-line); border-radius: 16px; color: var(--desktop-accent); }
+body.windows-app .desktop-receive-settings::after { content: "›"; float: right; color: var(--desktop-muted); }
+body.windows-app .android-save-bar { position: sticky; bottom: -26px; padding: 14px 0 4px; margin-top: 0; background: var(--desktop-bg); z-index: 2; }
+body.windows-app .button-group { display: flex; gap: 10px; margin: 0; }
+body.windows-app .button-group button { height: 42px; border-radius: 12px; border: 0; font-size: 13px; box-shadow: none; }
+body.windows-app :is(#save-settings-btn,#save-name-btn,#save-peer-btn,#apply-theme-btn) { color: #fff; background: var(--desktop-accent); }
+body.windows-app :is(#cancel-settings-btn,#cancel-name-btn,#cancel-peer-btn,#cancel-theme-btn) { color: var(--desktop-muted); background: #e9ebf3; }
+body.windows-app .ns-dialog { border: 1px solid var(--desktop-line); border-radius: 24px; max-width: calc(100vw - 40px); max-height: calc(100dvh - 48px); box-shadow: 0 24px 90px #24213830; }
+body.windows-app .ns-dialog::backdrop { background: #25223935; backdrop-filter: blur(3px); }
+body.windows-app .ns-dialog-header h2 { letter-spacing: 0; font-size: 19px; }
+body.windows-app .ns-cards { padding: 24px; }
+body.windows-app .ns-content-box { border-radius: 18px; border: 1px solid var(--desktop-line); box-shadow: 0 6px 20px #27204e04; }
+body.windows-app .ns-detail-title { font-size: 17px; }
+body.windows-app .ns-footer { color: var(--desktop-muted); background: #fff; border-top: 1px solid var(--desktop-line); }
+body.windows-app .theme-section { margin-bottom: 20px; }
+body.windows-app .theme-item { background: #fff; border: 1px solid var(--desktop-line); border-radius: 12px; color: var(--desktop-ink); }
+body.windows-app .theme-item label { color: var(--desktop-ink); }
+body.windows-app .theme-item:has(input:checked) { background: var(--desktop-soft); border-color: #cabbec; }
+body.windows-app .custom-peer-item { background: #fff; color: var(--desktop-ink); border-color: var(--desktop-line); }
+body.windows-app .message-action-toast { background: var(--desktop-ink); color: #fff; border: 0; }
+@media (max-width: 1000px) {
+  body.windows-app .main-content, body.windows-app.chat-open .main-content { padding: 14px; gap: 14px; }
+  body.windows-app .user-list-container, body.windows-app.chat-open .user-list-container { display: flex; flex: 0 0 258px; width: 258px; max-width: 258px; }
+  body.windows-app .ns-welcome { display: flex; padding: 28px; }
+  body.windows-app.chat-open .ns-welcome, body.windows-app.notification-open .ns-welcome { display: none; }
+  body.windows-app.notification-open .user-list-container { display: flex; }
+  body.windows-app .chat-messages { padding: 18px; }
+  body.windows-app .chat-input-container { padding: 12px; gap: 8px; }
+  body.windows-app .header { padding: 0 20px; }
+}
+@media (max-width: 699px) {
+  body.windows-app .header { height: 64px; min-height: 64px; padding: 0 14px; gap: 14px; }
+  body.windows-app .desktop-brand { font-size: 18px; }
+  body.windows-app .desktop-brand-mark { width: 34px; height: 34px; border-radius: 11px; }
+  body.windows-app .desktop-brand small { display: none; }
+  body.windows-app .header-buttons { gap: 5px; }
+  body.windows-app .header-buttons button { padding: 0 12px; }
+  body.windows-app .header h1 { font-size: 11px; }
+  body.windows-app .user-list-container { flex: 1; width: 100%; max-width: none; }
+  body.windows-app.chat-open .user-list-container, body.windows-app.notification-open .user-list-container { display: none; }
+  body.windows-app .ns-welcome { display: none; }
+  body.windows-app .chat-container, body.windows-app .ns-detail { border-radius: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.windows-app *, body.windows-app *::before, body.windows-app *::after { animation: none !important; transition: none !important; }
+}

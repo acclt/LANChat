@@ -18,7 +18,7 @@
 - Windows 支持关闭到托盘与开机静默自启。
 - Windows 首页与 Android 统一为浅色紫色视觉，同时保留桌面聊天布局。
 
-源码仓库不提交本地构建产物。请按下方步骤自行构建，或前往 [Releases](https://github.com/acclt/LANChat/releases) 获取发布版本。
+源码仓库不提交本地构建产物。请按下方步骤自行构建，或前往 [Releases](https://github.com/acclt/LQchat/releases) 获取发布版本。
 
 ## 特性
 
@@ -54,7 +54,7 @@ paru -S lanchat-bin
 
 ### Releases
 
-[https://github.com/acclt/LANChat/releases](https://github.com/acclt/LANChat/releases)
+[https://github.com/acclt/LQchat/releases](https://github.com/acclt/LQchat/releases)
 
 ### 编译
 

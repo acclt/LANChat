@@ -6,6 +6,7 @@
         <link rel="stylesheet" href="css/style.css">
         <link rel="stylesheet" href="css/notification-sync.css">
         <link rel="stylesheet" href="css/android-ui.css">
+        <link rel="stylesheet" href="css/desktop-ui.css" id="desktop-ui-stylesheet">
         <title>LQ Chat</title>
     </head>
     <body>
@@ -271,6 +272,12 @@
         <div class="container">
             <div class="main-content">
                 <div class="user-list-container">
+                    <div class="desktop-only desktop-sidebar-top">
+                        <div><h2>我的设备</h2><span id="desktop-local-address">正在连接局域网</span></div>
+                        <button id="desktop-refresh-btn" type="button" aria-label="刷新设备" title="刷新设备">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-15-3M4 4v5h5M4 13a8 8 0 0 0 15 3m1 4v-5h-5"/></svg>
+                        </button>
+                    </div>
                     <section id="android-home" class="android-home" aria-label="设备主页">
                         <header class="android-home-bar">
                             <div class="android-local-device">
@@ -348,7 +355,7 @@
                     <div class="chat-messages" id="chat-messages"></div>
                     <div class="chat-input-container">
                         <input type="file" id="file-input" style="display: none;" multiple />
-                        <button id="attach-file-btn" title="发送文件">📎</button>
+                        <button id="attach-file-btn" title="发送文件" aria-label="发送文件"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m20 11-8 8a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/></svg></button>
                         <div class="android-composer-main">
                             <textarea id="chat-input" placeholder="输入消息..." rows="1"></textarea>
                             <button id="send-btn">发送</button>
@@ -373,7 +380,8 @@
                 </div>
             </div>
             <div class="header">
-                <h1 id="my-name">正在加载...</h1>
+                <div class="desktop-only desktop-brand"><span class="desktop-brand-mark" aria-hidden="true">L</span><span>LQ Chat<small>局域网互联</small></span></div>
+                <h1 id="my-name" tabindex="0" role="button" title="修改设备名称">正在加载...</h1>
                 <div class="header-buttons">
                     <button id="add-peer-btn">添加</button>
                     <button id="settings-btn">设置</button>

@@ -31,6 +31,8 @@ Thumbs.db
 
 # Build artifacts
 dist-custom/
+*.apk
+*.idsig
 *.exe
 *.dll
 *.so

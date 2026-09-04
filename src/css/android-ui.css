@@ -1,5 +1,6 @@
 /* Android V2: approved compact home, direct settings, and one permission subpage. */
-.android-only {
+.android-only,
+.desktop-only {
   display: none;
 }
 

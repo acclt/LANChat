@@ -748,7 +748,7 @@ window.NotificationUI = (() => {
       const chatGroup = el("details", "ns-chat-group");
       chatGroup.open = true;
       chatGroup.append(el("summary", "", "局域网聊天设备"));
-      chatList.before(chatGroup);
+      sidebar.insertBefore(chatGroup, document.getElementById("android-listening"));
       chatGroup.append(chatList);
       const incoming = group("信息接收设备", false);
       receiveList = incoming.list;
@@ -852,11 +852,11 @@ window.NotificationUI = (() => {
       );
       dialog.querySelector(".ns-save-status").setAttribute("role", "status");
       document.body.append(dialog);
-      document
-        .querySelector(
-          "#settings-panel .settings-content, #settings-panel .panel-content",
-        )
-        ?.append(button("信息接收设置", openSettings));
+      const receiveSettingsButton = button("信息接收设置", openSettings);
+      receiveSettingsButton.classList.add("desktop-receive-settings");
+      const saveBar = document.querySelector("#settings-panel > .settings-content > .android-save-bar");
+      if (saveBar) saveBar.before(receiveSettingsButton);
+      else document.querySelector("#settings-panel .settings-content")?.append(receiveSettingsButton);
       if (!document.querySelector("#settings-panel .ns-button"))
         document
           .getElementById("settings-panel")
