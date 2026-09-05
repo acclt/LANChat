@@ -88,7 +88,7 @@
                     </header>
                     <section class="android-permissions-card">
                         <div class="setting-item android-permission-row" id="background-receive-setting" style="display: none;">
-                            <span class="android-permission-copy"><strong>后台运行</strong><small>离开应用后继续发现设备和接收信息</small></span>
+                            <span class="android-permission-copy"><strong>后台运行</strong></span>
                             <button id="background-receive-status" class="android-permission-status" type="button" disabled>正在检查…</button>
                             <div id="background-receive-error" class="setting-hint"></div>
                             <div class="background-receive-actions" hidden>
@@ -96,19 +96,19 @@
                             </div>
                         </div>
                         <div class="setting-item android-permission-row android-only">
-                            <span class="android-permission-copy"><strong>后台常驻</strong><small>划掉最近任务后继续收发；系统回收后允许恢复</small></span>
+                            <span class="android-permission-copy"><strong>后台常驻</strong></span>
                             <label class="toggle-switch"><input type="checkbox" id="background-keep-running-toggle"><span class="toggle-slider"></span></label>
                         </div>
                         <div class="setting-item android-permission-row android-only">
-                            <span class="android-permission-copy"><strong>开机自启</strong><small>手机重启并解锁后尝试恢复后台服务</small></span>
+                            <span class="android-permission-copy"><strong>开机自启</strong></span>
                             <label class="toggle-switch"><input type="checkbox" id="background-start-on-boot-toggle"><span class="toggle-slider"></span></label>
                         </div>
                         <div class="setting-item android-permission-row android-only">
-                            <span class="android-permission-copy"><strong>在最近任务中隐藏</strong><small>不隐藏桌面图标和常驻通知</small></span>
+                            <span class="android-permission-copy"><strong>在最近任务中隐藏</strong></span>
                             <label class="toggle-switch"><input type="checkbox" id="background-exclude-recents-toggle"><span class="toggle-slider"></span></label>
                         </div>
                         <div class="setting-item android-permission-row">
-                            <span class="android-permission-copy"><strong>通知权限</strong><small>显示接收信息和推送状态通知</small></span>
+                            <span class="android-permission-copy"><strong>通知权限</strong></span>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="notification-toggle" checked>
                                 <span class="toggle-slider"></span>
@@ -116,23 +116,27 @@
                             <div id="notification-permission-hint" class="setting-hint"></div>
                         </div>
                         <div class="setting-item android-permission-row android-only">
-                            <span class="android-permission-copy"><strong>通知访问权限</strong><small>读取并推送本机允许的应用通知</small></span>
+                            <span class="android-permission-copy"><strong>允许接收其他设备推送</strong></span>
+                            <label class="toggle-switch"><input type="checkbox" id="android-receive-toggle"><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="setting-item android-permission-row">
+                            <span class="android-permission-copy"><strong>自动下载</strong></span>
+                            <label class="toggle-switch"><input type="checkbox" id="auto-download-toggle" checked aria-label="自动下载"><span class="toggle-slider"></span></label>
+                        </div>
+                        <div class="setting-item android-permission-row android-only">
+                            <span class="android-permission-copy"><strong>通知访问权限</strong></span>
                             <button id="android-notification-access-btn" type="button" class="android-inline-action">检查</button>
                         </div>
                         <div class="setting-item android-permission-row android-only">
-                            <span class="android-permission-copy"><strong>局域网设备发现</strong><small>发现并连接同一网络中的设备</small></span>
+                            <span class="android-permission-copy"><strong>局域网设备发现</strong></span>
                             <span class="android-permission-status android-status-ok">已启用</span>
                         </div>
                         <div class="setting-item android-permission-row android-only">
-                            <span class="android-permission-copy"><strong>文件访问</strong><small>发送文件并保存接收到的内容</small></span>
+                            <span class="android-permission-copy"><strong>文件访问</strong></span>
                             <button id="android-permission-file-btn" type="button" class="android-inline-action">设置</button>
                         </div>
-                        <div class="setting-item android-permission-row">
-                            <span class="android-permission-copy"><strong data-i18n="auto_download_label">自动下载</strong><small class="android-only">自动保存接收到的文件</small></span>
-                            <input class="android-square-check" type="checkbox" id="auto-download-toggle" checked aria-label="自动下载">
-                        </div>
                         <div class="setting-item android-permission-row android-only" id="android-battery-row">
-                            <span class="android-permission-copy"><strong>电池优化限制</strong><small class="android-only">后台服务不受系统休眠限制</small></span>
+                            <span class="android-permission-copy"><strong>电池优化限制</strong></span>
                             <button id="open-battery-settings-btn" type="button" class="android-inline-action"><span id="battery-optimization-status">正在检查…</span></button>
                         </div>
                     </section>
@@ -327,10 +331,6 @@
                                 <div class="android-list-actions">
                                     <button id="android-refresh-receive-btn" class="android-icon-btn" type="button" aria-label="刷新信息接收设备">
                                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
-                                    </button>
-                                    <button id="android-receive-sources-btn" class="android-add-btn" type="button">
-                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
-                                        <span>推送设备</span>
                                     </button>
                                 </div>
                             </div>

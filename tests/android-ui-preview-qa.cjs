@@ -51,27 +51,18 @@ async function main() {
       const rect = node.getBoundingClientRect();
       return { left: rect.left, right: rect.right, width: rect.width };
     });
-    return { innerWidth, scrollWidth: document.documentElement.scrollWidth, cards };
+    return {
+      innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      cards,
+      hasPushSourcesButton: !!document.getElementById('android-receive-sources-btn')
+    };
   })()`);
   console.log("home", JSON.stringify(home));
   assert.equal(home.scrollWidth, home.innerWidth, "Home page has horizontal overflow");
   assert(home.cards.every((card) => card.left >= 0 && card.right <= home.innerWidth), "Home card is clipped");
+  assert.equal(home.hasPushSourcesButton, false, "Removed push-source button is still visible");
   await capture("android-home");
-
-  const pushSources = await evaluate(`(async () => {
-    document.getElementById('android-receive-sources-btn').click();
-    await new Promise(resolve => setTimeout(resolve, 80));
-    const panel = document.getElementById('android-push-sources-panel');
-    const names = [...panel.querySelectorAll('.ns-name')].map(node => node.textContent.trim());
-    return { visible: panel.style.display !== 'none', names };
-  })()`);
-  assert(pushSources.visible, "Push-source page did not open");
-  assert.deepEqual(pushSources.names, ['IQOO'], "Push-source page must show only devices targeting this device");
-  await capture("android-push-sources");
-  await evaluate(`(async () => {
-    document.getElementById('android-push-sources-back-btn').click();
-    await new Promise(resolve => setTimeout(resolve, 80));
-  })()`);
 
   const settings = await evaluate(`(async () => {
     document.getElementById('android-settings-btn').click();
@@ -93,6 +84,7 @@ async function main() {
       visible: getComputedStyle(panel).display !== 'none',
       targetCount: targets.length,
       selectedCount: targets.filter(input => input.checked).length,
+      pushUsesToggle: !!pushToggle.closest('.toggle-switch'),
       hasReceiveMenu: [...panel.querySelectorAll('*')].some(node => node.textContent?.trim() === '信息接收'),
       permissionEntry: !!document.getElementById('android-permissions-btn'),
       testStatus: panel.querySelector('.android-notification-settings .ns-save-status')?.textContent || ''
@@ -101,6 +93,7 @@ async function main() {
   assert(settings.visible, "Settings page did not open");
   assert(settings.targetCount >= 2, "Push targets were not rendered");
   assert(settings.selectedCount >= 2, "Push targets are not independently selectable");
+  assert(settings.pushUsesToggle, "Push setting must use a toggle switch");
   assert.equal(settings.hasReceiveMenu, false, "Unexpected receive settings menu");
   assert(settings.permissionEntry, "Permission entry is missing");
   assert.match(settings.testStatus, /测试通知已发送到 2 台设备/, "Test notification feedback is missing");
@@ -189,8 +182,12 @@ async function main() {
     return {
       visible: panel.classList.contains('is-open') && getComputedStyle(panel).display !== 'none',
       autoDownload: !!document.getElementById('auto-download-toggle'),
+      autoDownloadUsesToggle: !!document.getElementById('auto-download-toggle')?.closest('.toggle-switch'),
+      receive: !!document.getElementById('android-receive-toggle'),
+      receiveUsesToggle: !!document.getElementById('android-receive-toggle')?.closest('.toggle-switch'),
       notification: !!document.getElementById('notification-toggle'),
       background: !!document.getElementById('background-receive-status'),
+      descriptions: panel.querySelectorAll('.android-permission-copy small').length,
       scrollWidth: document.documentElement.scrollWidth,
       innerWidth,
       scrollTop: panel.scrollTop,
@@ -199,7 +196,9 @@ async function main() {
     };
   })()`);
   assert(permissions.visible, "Permission page did not open");
-  assert(permissions.autoDownload && permissions.notification && permissions.background, "Permission controls are incomplete");
+  assert(permissions.autoDownload && permissions.receive && permissions.notification && permissions.background, "Permission controls are incomplete");
+  assert(permissions.autoDownloadUsesToggle && permissions.receiveUsesToggle, "Permission switches must use toggle controls");
+  assert.equal(permissions.descriptions, 0, "Permission descriptions were not removed");
   assert.equal(permissions.scrollWidth, permissions.innerWidth, "Permission page has horizontal overflow");
   await capture("android-permissions");
   const saved = await evaluate(`(async () => {
@@ -211,7 +210,7 @@ async function main() {
   })()`);
   assert(saved, "Saving permissions did not return to settings");
   socket.close();
-  console.log(JSON.stringify({ home, pushSources, settings, appPicker, appSearch, appPickerSaved, permissions }, null, 2));
+  console.log(JSON.stringify({ home, settings, appPicker, appSearch, appPickerSaved, permissions }, null, 2));
 }
 
 main().catch((error) => {

@@ -424,6 +424,20 @@ window.NotificationUI = (() => {
     row.append(label, input);
     return row;
   }
+  function toggleRow(text, checked, action) {
+    const row = el("div", "ns-check-row ns-toggle-row"),
+      label = el("span", "", text),
+      control = el("label", "toggle-switch"),
+      input = el("input"),
+      slider = el("span", "toggle-slider");
+    input.type = "checkbox";
+    input.checked = checked;
+    input.setAttribute("aria-label", text);
+    input.addEventListener("change", () => action(input));
+    control.append(input, slider);
+    row.append(label, control);
+    return row;
+  }
   async function save(next, surface = dialog) {
     if (busy) return false;
     busy = true;
@@ -586,12 +600,18 @@ window.NotificationUI = (() => {
     }
   }
   function renderReceiveSettings(surface, showHeading = true) {
-    const content = surface.querySelector(".ns-settings-content");
+    let content = surface.querySelector(".ns-settings-content");
+    if (!content) {
+      content = el("div", "ns-settings-content");
+      const status = el("p", "ns-save-status");
+      status.setAttribute("role", "status");
+      surface.append(content, status);
+    }
     content.replaceChildren();
     if (showHeading) content.append(el("h3", "", "信息接收"));
     content.append(
       checkRow(
-        "允许接收其他设备的通知",
+        "允许接收其他设备推送",
         config.receive_enabled,
         async (input) => {
           if (!(await save({ ...config, receive_enabled: input.checked }, surface)))
@@ -621,7 +641,7 @@ window.NotificationUI = (() => {
       const heading = el("div", "ns-push-heading", "信息推送");
       const panel = el("section", "ns-push-panel");
       panel.append(
-        checkRow("启用信息推送", config.push_enabled, async (input) => {
+        toggleRow("启用信息推送", config.push_enabled, async (input) => {
           if (!(await save({ ...config, push_enabled: input.checked })))
             input.checked = !input.checked;
         }),
@@ -692,6 +712,8 @@ window.NotificationUI = (() => {
       );
       content.append(heading, panel);
       renderNotificationAccess();
+      const receiveToggle = document.getElementById("android-receive-toggle");
+      if (receiveToggle) receiveToggle.checked = config.receive_enabled;
       return;
     }
     renderReceiveSettings(dialog);
@@ -790,16 +812,10 @@ window.NotificationUI = (() => {
     const head = el("header", "ns-detail-header"),
       titles = el("div");
     titles.append(el("h2", "ns-detail-title"), el("p", "ns-detail-status"));
-    head.append(
-      button("‹ 返回", close, "ns-text-button"),
-      titles,
-      button(
-        "设置",
-        () => android && current?.kind === "notification_receive"
-          ? openReceiveSettings()
-          : openSettings(),
-      ),
-    );
+    head.append(button("‹ 返回", close, "ns-text-button"), titles);
+    if (!android) {
+      head.append(button("设置", openSettings));
+    }
     panel.append(
       head,
       el("div", "ns-cards"),
@@ -835,6 +851,13 @@ window.NotificationUI = (() => {
         el("p", "ns-save-status"),
       );
       dialog.querySelector(".ns-save-status").setAttribute("role", "status");
+      document
+        .getElementById("android-receive-toggle")
+        ?.addEventListener("change", async (event) => {
+          const input = event.currentTarget;
+          if (!(await save({ ...config, receive_enabled: input.checked })))
+            input.checked = !input.checked;
+        });
       document
         .getElementById("android-notification-access-btn")
         ?.addEventListener("click", () => systemAction("access"));

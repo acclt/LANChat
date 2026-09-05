@@ -114,37 +114,23 @@ async function main() {
     for (const width of [450, 360]) {
       await send('Emulation.setDeviceMetricsOverride', {width,height:800,deviceScaleFactor:2,mobile:true});
       const layout=await evaluate(`(() => {
-        const inspect=card=>{const count=card.querySelector('.android-count-label').getBoundingClientRect(),refresh=card.querySelector('.android-icon-btn').getBoundingClientRect(),add=card.querySelector('.android-add-btn').getBoundingClientRect();return{sameRow:Math.abs((count.top+count.height/2)-(refresh.top+refresh.height/2))<1,addBelow:add.top>=Math.min(count.bottom,refresh.bottom)-1};};
+        const inspect=card=>{const count=card.querySelector('.android-count-label').getBoundingClientRect(),refresh=card.querySelector('.android-icon-btn').getBoundingClientRect(),add=card.querySelector('.android-add-btn')?.getBoundingClientRect();return{sameRow:Math.abs((count.top+count.height/2)-(refresh.top+refresh.height/2))<1,addBelow:!add||add.top>=Math.min(count.bottom,refresh.bottom)-1,hasAdd:!!add};};
         return{width:innerWidth,scrollWidth:document.documentElement.scrollWidth,chat:inspect(document.querySelector('.android-chat-card')),receive:inspect(document.querySelector('.android-receive-card'))};
       })()`);
       assert.equal(layout.scrollWidth,width);
       assert(layout.chat.sameRow && layout.receive.sameRow);
-      if(width<=420) assert(layout.chat.addBelow && layout.receive.addBelow);
+      if(width<=420) assert(layout.chat.addBelow);
+      assert.equal(layout.receive.hasAdd, false);
       await screenshot('home-toolbar-'+width);
     }
     await send('Emulation.setDeviceMetricsOverride', {width:450,height:800,deviceScaleFactor:2,mobile:true});
     await click('#android-receive-list .ns-device');
     await poll(async()=>{const s=await state();return s.hash==='#notifications'&&s.notifications;});
-    await click('.ns-detail-header > button:last-child');
-    await poll(async()=>{const s=await state();return s.hash==='#receive-settings'&&s.receiveSettings;});
-    assert.equal((await state()).settings,false);
-    assert.equal(await evaluate(`document.querySelector('#android-receive-settings-panel .ns-check-row span').textContent`),'允许接收其他设备的通知');
-    assert.equal(await evaluate(`document.querySelector('#android-receive-settings-panel input').checked`),true);
-    await screenshot('receive-settings-open');
-    await click('#android-receive-settings-panel input');
-    await poll(()=>evaluate(`qa.notificationWrites===1&&document.querySelector('#android-receive-settings-panel .ns-save-status').textContent==='已保存'`));
-    await click('#android-receive-settings-back-btn');
-    await poll(async()=>{const s=await state();return s.hash==='#notifications'&&!s.receiveSettings&&s.notifications;});
-    await click('.ns-detail-header > button:last-child');
-    await poll(async()=>{const s=await state();return s.hash==='#receive-settings'&&s.receiveSettings;});
-    assert.equal(await evaluate(`document.querySelector('#android-receive-settings-panel input').checked`),false);
-    await click('#android-receive-settings-panel input');
-    await poll(()=>evaluate(`qa.notificationWrites===2`));
-    await click('#android-receive-settings-back-btn');
-    await poll(async()=>{const s=await state();return s.hash==='#notifications'&&!s.receiveSettings;});
+    assert.equal(await evaluate(`document.querySelectorAll('.ns-detail-header > button').length`),1);
+    assert.equal(await evaluate(`document.querySelector('.ns-detail-header').textContent.includes('设置')`),false);
     await click('.ns-detail-header > button:first-child');
     await expectPage('');
-    passed.push('Receive detail opens its dedicated receive switch, persists changes, and returns without opening general settings');
+    passed.push('Receive detail omits its former settings action and returns home');
     passed.push('Device counts stay aligned with refresh actions at regular and narrow Android widths');
     await openSettings();
     for (const width of [450, 360]) {
@@ -177,6 +163,10 @@ async function main() {
     await openSettings();
     await click('#android-permissions-btn');
     await expectPage('#permissions',true);
+    assert.equal(await evaluate(`document.querySelectorAll('#permissions-panel .android-permission-copy small').length`),0);
+    assert(await evaluate(`!!document.getElementById('android-receive-toggle').closest('.toggle-switch')`));
+    assert(await evaluate(`!!document.getElementById('auto-download-toggle').closest('.toggle-switch')`));
+    assert(await evaluate(`!!document.querySelector('.ns-push-panel > .ns-toggle-row .toggle-switch')`));
     await poll(()=>evaluate(`document.getElementById('android-notification-access-btn').textContent!=='检查'`));
     await evaluate(`(async()=>{qa.access=false;await NotificationUI.refreshSettings();qa.savedName=document.getElementById('settings-device-name-input').value;document.getElementById('settings-device-name-input').value='Unsaved QA name';qa.oldKeep=document.getElementById('background-keep-running-toggle').checked;document.getElementById('background-keep-running-toggle').checked=!qa.oldKeep;qa.pushNode=document.querySelector('#android-notification-settings input');qa.nameNode=document.getElementById('settings-device-name-input');})()`);
     const accessStyle=()=>evaluate(`(()=>{const n=document.getElementById('android-notification-access-btn'),s=getComputedStyle(n),peer=getComputedStyle(document.querySelector('.android-status-ok'));return {text:n.textContent,color:s.color,background:s.backgroundColor,peerColor:peer.color,font:s.fontSize,peerFont:peer.fontSize,authorized:n.classList.contains('is-authorized')};})()`);

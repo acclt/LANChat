@@ -2713,9 +2713,11 @@ function initSettings() {
       androidDownloadButton?.setAttribute("aria-label", `下载位置：${downloadPathInput.value}，选择下载目录`);
     }
     if (permissionFileBtn) {
-      permissionFileBtn.textContent = androidDownloadTarget.startsWith("content://")
+      const authorized = androidDownloadTarget.startsWith("content://");
+      permissionFileBtn.textContent = authorized
         ? "已授权"
         : "设置";
+      permissionFileBtn.classList.toggle("is-authorized", authorized);
     }
   }
 

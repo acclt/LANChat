@@ -545,6 +545,12 @@ body.android-app .android-row-copy small {
   font-size: 12px;
 }
 
+body.android-app .android-permission-entry .android-row-copy small,
+body.android-app .android-notification-settings .ns-hint,
+body.android-app .android-notification-settings .ns-target-copy small {
+  display: none;
+}
+
 body.android-app .android-chevron {
   color: var(--android-muted);
 }
@@ -584,9 +590,18 @@ body.android-app #settings-error-msg:not(:empty) {
   box-shadow: 0 8px 24px rgba(39, 31, 78, .12);
 }
 
-/* Android notification controls are mounted directly in the main settings page. */
+/* Android notification controls stay on the main settings page. */
 body.android-app .android-notification-settings.android-only {
   display: block;
+}
+
+body.android-app #android-permission-file-btn.is-authorized {
+  min-height: 38px;
+  padding: 0 10px;
+  color: var(--android-green);
+  background: transparent;
+  box-shadow: none;
+  font-weight: 400;
 }
 
 body.android-app .android-notification-settings .ns-settings-content {
@@ -653,8 +668,7 @@ body.android-app .android-notification-settings .ns-target-copy small {
   white-space: nowrap;
 }
 
-body.android-app .android-notification-settings .ns-check-row input,
-body.android-app .android-square-check {
+body.android-app .android-notification-settings .ns-check-row > input {
   width: 26px;
   height: 26px;
   flex: 0 0 26px;
