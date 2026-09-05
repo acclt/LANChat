@@ -65,6 +65,10 @@ async function main() {
           const result=await original(command,args);
           return {...result,access:qa.access??result.access};
         }
+        if (command === 'notification_settings' && args?.settings) {
+          qa.notificationWrites=(qa.notificationWrites||0)+1;
+          return original(command,args);
+        }
         if (command === 'request_storage_permission') {qa.directoryRequests=(qa.directoryRequests||0)+1;return;}
         if (command === 'stop_background_receive_and_exit') {qa.stopRequests=(qa.stopRequests||0)+1;if(qa.stopFail)throw Error('QA stop error');return;}
         if (command === 'get_background_receive_state') return {state:qa.runtimeState||'RUNNING',last_error_message:null};
@@ -88,6 +92,8 @@ async function main() {
     const state = () => evaluate(`({hash:location.hash, settings:document.getElementById('settings-panel').style.display === 'block',
       permissions:document.getElementById('permissions-panel').classList.contains('is-open'),
       apps:document.getElementById('android-push-apps-panel').classList.contains('is-open'),
+      notifications:!document.querySelector('.ns-detail').hidden,
+      receiveSettings:document.getElementById('android-receive-settings-panel').style.display === 'block',
       toast:document.querySelector('.message-action-toast')?.textContent || '', writes:qa.writes})`);
     const expectPage = async (hash, permissions = false, apps = false) => {
       const s = await poll(async () => { const s = await state(); return s.hash === hash && s.permissions === permissions && s.apps === apps && s; });
@@ -105,6 +111,41 @@ async function main() {
       fs.writeFileSync(path.join(artifacts, name + '.png'), Buffer.from(result.data, 'base64'));
     };
     const passed = [];
+    for (const width of [450, 360]) {
+      await send('Emulation.setDeviceMetricsOverride', {width,height:800,deviceScaleFactor:2,mobile:true});
+      const layout=await evaluate(`(() => {
+        const inspect=card=>{const count=card.querySelector('.android-count-label').getBoundingClientRect(),refresh=card.querySelector('.android-icon-btn').getBoundingClientRect(),add=card.querySelector('.android-add-btn').getBoundingClientRect();return{sameRow:Math.abs((count.top+count.height/2)-(refresh.top+refresh.height/2))<1,addBelow:add.top>=Math.min(count.bottom,refresh.bottom)-1};};
+        return{width:innerWidth,scrollWidth:document.documentElement.scrollWidth,chat:inspect(document.querySelector('.android-chat-card')),receive:inspect(document.querySelector('.android-receive-card'))};
+      })()`);
+      assert.equal(layout.scrollWidth,width);
+      assert(layout.chat.sameRow && layout.receive.sameRow);
+      if(width<=420) assert(layout.chat.addBelow && layout.receive.addBelow);
+      await screenshot('home-toolbar-'+width);
+    }
+    await send('Emulation.setDeviceMetricsOverride', {width:450,height:800,deviceScaleFactor:2,mobile:true});
+    await click('#android-receive-list .ns-device');
+    await poll(async()=>{const s=await state();return s.hash==='#notifications'&&s.notifications;});
+    await click('.ns-detail-header > button:last-child');
+    await poll(async()=>{const s=await state();return s.hash==='#receive-settings'&&s.receiveSettings;});
+    assert.equal((await state()).settings,false);
+    assert.equal(await evaluate(`document.querySelector('#android-receive-settings-panel .ns-check-row span').textContent`),'允许接收其他设备的通知');
+    assert.equal(await evaluate(`document.querySelector('#android-receive-settings-panel input').checked`),true);
+    await screenshot('receive-settings-open');
+    await click('#android-receive-settings-panel input');
+    await poll(()=>evaluate(`qa.notificationWrites===1&&document.querySelector('#android-receive-settings-panel .ns-save-status').textContent==='已保存'`));
+    await click('#android-receive-settings-back-btn');
+    await poll(async()=>{const s=await state();return s.hash==='#notifications'&&!s.receiveSettings&&s.notifications;});
+    await click('.ns-detail-header > button:last-child');
+    await poll(async()=>{const s=await state();return s.hash==='#receive-settings'&&s.receiveSettings;});
+    assert.equal(await evaluate(`document.querySelector('#android-receive-settings-panel input').checked`),false);
+    await click('#android-receive-settings-panel input');
+    await poll(()=>evaluate(`qa.notificationWrites===2`));
+    await click('#android-receive-settings-back-btn');
+    await poll(async()=>{const s=await state();return s.hash==='#notifications'&&!s.receiveSettings;});
+    await click('.ns-detail-header > button:first-child');
+    await expectPage('');
+    passed.push('Receive detail opens its dedicated receive switch, persists changes, and returns without opening general settings');
+    passed.push('Device counts stay aligned with refresh actions at regular and narrow Android widths');
     await openSettings();
     for (const width of [450, 360]) {
       await send('Emulation.setDeviceMetricsOverride', {width,height:800,deviceScaleFactor:2,mobile:true});

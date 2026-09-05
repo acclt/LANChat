@@ -132,6 +132,10 @@ body.android-app .android-receive-card {
   margin-top: 20px;
 }
 
+body.android-app .android-count-label {
+  justify-self: start;
+}
+
 body.android-app .android-list-toolbar {
   display: flex;
   align-items: center;
@@ -717,6 +721,66 @@ body.android-app .android-notification-settings .ns-save-status:empty {
   display: none;
 }
 
+body.android-app .android-receive-settings-panel .settings-content {
+  padding-top: 16px;
+}
+
+body.android-app .android-receive-settings-card {
+  overflow: hidden;
+  border: 1px solid var(--android-line);
+  border-radius: 20px;
+  background: var(--android-card);
+  box-shadow: 0 12px 34px rgba(39, 31, 78, .08);
+}
+
+body.android-app .android-receive-settings-panel .ns-settings-content {
+  display: block;
+  padding: 0;
+}
+
+body.android-app .android-receive-settings-panel .ns-check-row {
+  min-height: 68px;
+  margin: 0;
+  padding: 12px 18px;
+  color: var(--android-ink);
+}
+
+body.android-app .android-receive-settings-panel .ns-button {
+  width: 100%;
+  min-height: 58px;
+  padding: 12px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--android-line);
+  border-radius: 0;
+  color: var(--android-purple);
+  background: transparent;
+  text-align: left;
+  font-weight: 600;
+}
+
+body.android-app .android-receive-settings-panel .ns-hint {
+  margin: 0;
+  padding: 14px 18px 0;
+  color: var(--android-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+body.android-app .android-receive-settings-panel .ns-hint:last-child {
+  padding-bottom: 18px;
+}
+
+body.android-app .android-receive-settings-panel .ns-save-status {
+  min-height: 0;
+  margin: 0;
+  padding: 0 18px 14px;
+  color: var(--android-purple);
+}
+
+body.android-app .android-receive-settings-panel .ns-save-status:empty {
+  display: none;
+}
+
 /* Android push-app picker and incoming-push source pages. */
 body.android-app .android-overlay-panel {
   display: none;
@@ -1166,12 +1230,24 @@ body.android-app .android-save-bar .success-msg:not(.show) {
   }
 
   body.android-app .android-list-toolbar {
-    align-items: stretch;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 46px;
+    align-items: center;
   }
 
   body.android-app .android-list-actions {
-    justify-content: flex-end;
+    display: contents;
+  }
+
+  body.android-app .android-list-actions .android-icon-btn {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  body.android-app .android-list-actions .android-add-btn {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: end;
   }
 
   body.android-app .android-inline-setting {

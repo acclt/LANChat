@@ -17,6 +17,7 @@ window.NotificationUI = (() => {
     dialog,
     appDialog,
     pushSourcesPanel,
+    receiveDialog,
     panel,
     welcome,
     pushList,
@@ -423,14 +424,14 @@ window.NotificationUI = (() => {
     row.append(label, input);
     return row;
   }
-  async function save(next) {
+  async function save(next, surface = dialog) {
     if (busy) return false;
     busy = true;
-    dialog.querySelectorAll("input").forEach((n) => (n.disabled = true));
+    surface.querySelectorAll("input").forEach((n) => (n.disabled = true));
     appDialog
       ?.querySelectorAll("input[type=checkbox]")
       .forEach((n) => (n.disabled = true));
-    const hint = dialog.querySelector(".ns-save-status");
+    const hint = surface.querySelector(".ns-save-status");
     hint.textContent = "正在保存…";
     try {
       info = await invoke("notification_settings", { settings: next });
@@ -448,7 +449,7 @@ window.NotificationUI = (() => {
       return false;
     } finally {
       busy = false;
-      dialog.querySelectorAll("input").forEach((n) => (n.disabled = false));
+      surface.querySelectorAll("input").forEach((n) => (n.disabled = false));
       appDialog
         ?.querySelectorAll("input[type=checkbox]")
         .forEach((n) => (n.disabled = false));
@@ -459,11 +460,11 @@ window.NotificationUI = (() => {
     checked ? values.add(value) : values.delete(value);
     return { ...config, [field]: [...values] };
   }
-  async function systemAction(action) {
+  async function systemAction(action, surface = dialog) {
     try {
       await invoke("notification_action", { action });
     } catch (e) {
-      dialog.querySelector(".ns-save-status").textContent = getErrorMessage(e);
+      surface.querySelector(".ns-save-status").textContent = getErrorMessage(e);
     }
   }
   function filteredApps() {
@@ -584,6 +585,35 @@ window.NotificationUI = (() => {
       appDialog.querySelectorAll(".android-push-app-row input").forEach((input) => { input.disabled = false; });
     }
   }
+  function renderReceiveSettings(surface, showHeading = true) {
+    const content = surface.querySelector(".ns-settings-content");
+    content.replaceChildren();
+    if (showHeading) content.append(el("h3", "", "信息接收"));
+    content.append(
+      checkRow(
+        "允许接收其他设备的通知",
+        config.receive_enabled,
+        async (input) => {
+          if (!(await save({ ...config, receive_enabled: input.checked }, surface)))
+            input.checked = !input.checked;
+        },
+      ),
+      button(
+        `系统通知设置${info.permission === "blocked" ? " · 已受阻" : ""}`,
+        () => systemAction("permission", surface),
+      ),
+      el(
+        "p",
+        "ns-hint",
+        "双方需先手动启动 LQ Chat。在发送端的信息推送设置中勾选本机；目标离线时直接丢弃，不补发。",
+      ),
+      el(
+        "p",
+        "ns-hint",
+        "沿用局域网信任模型，请仅允许自有可信设备推送。通知查看记录保留七天，不用于重试或补发。",
+      ),
+    );
+  }
   function renderSettings() {
     const content = dialog.querySelector(".ns-settings-content");
     content.replaceChildren();
@@ -664,37 +694,26 @@ window.NotificationUI = (() => {
       renderNotificationAccess();
       return;
     }
-    content.append(
-      el("h3", "", "信息接收"),
-      checkRow(
-        "允许接收其他设备的通知",
-        config.receive_enabled,
-        async (input) => {
-          if (!(await save({ ...config, receive_enabled: input.checked })))
-            input.checked = !input.checked;
-        },
-      ),
-    );
-    content.append(
-      button(
-        `系统通知设置${info.permission === "blocked" ? " · 已受阻" : ""}`,
-        () => systemAction("permission"),
-      ),
-    );
-    content.append(
-      el(
-        "p",
-        "ns-hint",
-        "双方需先手动启动 LanChat。在手机推送设置中勾选本机；目标离线时直接丢弃，不补发。",
-      ),
-    );
-    content.append(
-      el(
-        "p",
-        "ns-hint",
-        "沿用局域网信任模型，请仅向自有可信设备推送。通知查看记录保留七天，不用于重试或补发。",
-      ),
-    );
+    renderReceiveSettings(dialog);
+  }
+  async function openReceiveSettings() {
+    if (!enabled || !android || !receiveDialog) return;
+    receiveDialog.style.display = "block";
+    if (location.hash !== "#receive-settings")
+      history.pushState({ receiveSettings: true }, "", "#receive-settings");
+    try {
+      info = await invoke("notification_settings");
+      config = info.settings;
+      renderReceiveSettings(receiveDialog, false);
+      renderDevices();
+      receiveDialog.querySelector(".ns-save-status").textContent = "";
+    } catch (e) {
+      receiveDialog.querySelector(".ns-save-status").textContent =
+        `读取设置失败：${getErrorMessage(e)}`;
+    }
+  }
+  function closeReceiveSettings() {
+    if (receiveDialog) receiveDialog.style.display = "none";
   }
   async function openSettings() {
     if (!enabled) return;
@@ -774,7 +793,12 @@ window.NotificationUI = (() => {
     head.append(
       button("‹ 返回", close, "ns-text-button"),
       titles,
-      button("设置", openSettings),
+      button(
+        "设置",
+        () => android && current?.kind === "notification_receive"
+          ? openReceiveSettings()
+          : openSettings(),
+      ),
     );
     panel.append(
       head,
@@ -805,6 +829,7 @@ window.NotificationUI = (() => {
       dialog = document.getElementById("android-notification-settings");
       appDialog = document.getElementById("android-push-apps-panel");
       pushSourcesPanel = document.getElementById("android-push-sources-panel");
+      receiveDialog = document.getElementById("android-receive-settings-panel");
       dialog.replaceChildren(
         el("div", "ns-settings-content"),
         el("p", "ns-save-status"),
@@ -837,6 +862,12 @@ window.NotificationUI = (() => {
           if (location.hash === "#push-sources") history.back();
           else closePushSources();
         });
+      document
+        .getElementById("android-receive-settings-back-btn")
+        ?.addEventListener("click", () => {
+          if (location.hash === "#receive-settings") history.back();
+          else closeReceiveSettings();
+        });
       renderSettings();
     } else {
       dialog = el("dialog", "ns-dialog");
@@ -864,9 +895,11 @@ window.NotificationUI = (() => {
     }
     window.addEventListener("popstate", () => {
       const inSettings = android && ["#settings", "#permissions", "#push-apps"].includes(location.hash);
-      if (!inSettings && location.hash !== "#notifications") leave();
+      const inReceiveSettings = android && location.hash === "#receive-settings";
+      if (!inSettings && !inReceiveSettings && location.hash !== "#notifications") leave();
       if (location.hash !== "#push-apps") closeAppPicker();
       if (location.hash !== "#push-sources") closePushSources();
+      if (!inReceiveSettings) closeReceiveSettings();
     });
     window.addEventListener("focus", () => {
       refreshSoon();
