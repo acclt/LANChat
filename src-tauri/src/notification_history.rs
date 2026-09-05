@@ -43,6 +43,7 @@ pub async fn initialize(pool: &sqlx::Pool<Sqlite>) -> Result<(), sqlx::Error> {
             title TEXT NOT NULL,
             text TEXT NOT NULL,
             notification_key TEXT NOT NULL,
+            identity_key TEXT NOT NULL,
             status TEXT NOT NULL,
             failure_reason TEXT,
             observed_at INTEGER NOT NULL,
@@ -50,11 +51,12 @@ pub async fn initialize(pool: &sqlx::Pool<Sqlite>) -> Result<(), sqlx::Error> {
             updated_at INTEGER NOT NULL,
             content_hash TEXT NOT NULL,
             post_time INTEGER NOT NULL,
-            UNIQUE(direction, source_device_id, target_device_id, package, notification_key)
+            UNIQUE(direction, source_device_id, target_device_id, package, identity_key)
         )",
     )
     .execute(pool)
     .await?;
+    migrate_identity_key(pool).await?;
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_notification_history_updated
          ON notification_history(updated_at DESC, id DESC)",
@@ -69,6 +71,71 @@ pub async fn initialize(pool: &sqlx::Pool<Sqlite>) -> Result<(), sqlx::Error> {
     .await?;
     prune(pool).await.map_err(sqlx::Error::Protocol)?;
     Ok(())
+}
+
+async fn migrate_identity_key(pool: &sqlx::Pool<Sqlite>) -> Result<(), sqlx::Error> {
+    let columns = sqlx::query("PRAGMA table_info(notification_history)")
+        .fetch_all(pool)
+        .await?;
+    if columns
+        .iter()
+        .any(|row| row.get::<String, _>("name") == "identity_key")
+    {
+        return Ok(());
+    }
+
+    let mut transaction = pool.begin().await?;
+    sqlx::query("DROP TABLE IF EXISTS notification_history_v2")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query(
+        "CREATE TABLE notification_history_v2 (
+            id TEXT PRIMARY KEY NOT NULL,
+            direction TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            source_device_id TEXT NOT NULL,
+            target_device_id TEXT NOT NULL,
+            device_name TEXT NOT NULL,
+            package TEXT NOT NULL,
+            app_name TEXT NOT NULL,
+            app_icon_ref TEXT,
+            title TEXT NOT NULL,
+            text TEXT NOT NULL,
+            notification_key TEXT NOT NULL,
+            identity_key TEXT NOT NULL,
+            status TEXT NOT NULL,
+            failure_reason TEXT,
+            observed_at INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            content_hash TEXT NOT NULL,
+            post_time INTEGER NOT NULL,
+            UNIQUE(direction, source_device_id, target_device_id, package, identity_key)
+        )",
+    )
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "INSERT INTO notification_history_v2 (
+            id,direction,event_id,source_device_id,target_device_id,device_name,
+            package,app_name,app_icon_ref,title,text,notification_key,identity_key,status,
+            failure_reason,observed_at,created_at,updated_at,content_hash,post_time
+         )
+         SELECT id,direction,event_id,source_device_id,target_device_id,device_name,
+            package,app_name,app_icon_ref,title,text,notification_key,
+            CASE WHEN direction='receive' THEN event_id ELSE notification_key END,
+            status,failure_reason,observed_at,created_at,updated_at,content_hash,post_time
+         FROM notification_history",
+    )
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query("DROP TABLE notification_history")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("ALTER TABLE notification_history_v2 RENAME TO notification_history")
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await
 }
 
 async fn icon_root(pool: &sqlx::Pool<Sqlite>) -> Option<PathBuf> {
@@ -156,13 +223,19 @@ pub async fn upsert(pool: &sqlx::Pool<Sqlite>, record: &Record) -> Result<String
     } else {
         "receive"
     };
+    // Receive history keeps every captured event; send history keeps tracking the OS notification.
+    let identity_key = if direction == "receive" {
+        &record.notification.event_id
+    } else {
+        &record.notification.notification_key
+    };
     sqlx::query(
         "INSERT INTO notification_history (
             id,direction,event_id,source_device_id,target_device_id,device_name,
-            package,app_name,app_icon_ref,title,text,notification_key,status,failure_reason,
-            observed_at,created_at,updated_at,content_hash,post_time
-         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(direction,source_device_id,target_device_id,package,notification_key)
+            package,app_name,app_icon_ref,title,text,notification_key,identity_key,status,
+            failure_reason,observed_at,created_at,updated_at,content_hash,post_time
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(direction,source_device_id,target_device_id,package,identity_key)
          DO UPDATE SET
             event_id=excluded.event_id,
             device_name=excluded.device_name,
@@ -189,6 +262,7 @@ pub async fn upsert(pool: &sqlx::Pool<Sqlite>, record: &Record) -> Result<String
     .bind(&record.notification.title)
     .bind(&record.notification.text)
     .bind(&record.notification.notification_key)
+    .bind(identity_key)
     .bind(&record.status)
     .bind(record.failure_reason.as_deref())
     .bind(now)
@@ -201,13 +275,13 @@ pub async fn upsert(pool: &sqlx::Pool<Sqlite>, record: &Record) -> Result<String
     .map_err(|error| error.to_string())?;
     sqlx::query_scalar::<_, String>(
         "SELECT id FROM notification_history
-         WHERE direction=? AND source_device_id=? AND target_device_id=? AND package=? AND notification_key=?",
+         WHERE direction=? AND source_device_id=? AND target_device_id=? AND package=? AND identity_key=?",
     )
     .bind(direction)
     .bind(&record.notification.source_device_id)
     .bind(&record.notification.target_device_id)
     .bind(&record.notification.package)
-    .bind(&record.notification.notification_key)
+    .bind(identity_key)
     .fetch_one(pool)
     .await
     .map_err(|error| error.to_string())
@@ -397,6 +471,16 @@ mod tests {
         }
     }
 
+    fn received(event_id: &str, text: &str, status: &str) -> Record {
+        let mut record = record("receiver", text, status);
+        record.peer_id = "phone".into();
+        record.peer_name = "Device phone".into();
+        record.view_kind = "notification_receive".into();
+        record.direction = "receive".into();
+        record.notification.event_id = event_id.into();
+        record
+    }
+
     #[tokio::test]
     async fn deduplicates_updates_and_keeps_targets_independent() {
         let pool = pool().await;
@@ -417,6 +501,42 @@ mod tests {
                 .notification
                 .text,
             "two"
+        );
+    }
+
+    #[tokio::test]
+    async fn receive_history_keeps_each_event_but_updates_its_status_in_place() {
+        let pool = pool().await;
+        let first = upsert(&pool, &received("event-1", "one", "receiving"))
+            .await
+            .unwrap();
+        let completed = upsert(&pool, &received("event-1", "one", "success"))
+            .await
+            .unwrap();
+        assert_eq!(first, completed);
+
+        let second = upsert(&pool, &received("event-2", "two", "success"))
+            .await
+            .unwrap();
+        assert_ne!(first, second);
+
+        let page = query(
+            &pool,
+            Query {
+                direction: Some("receive".into()),
+                ..Query::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(page.records.len(), 2);
+        assert_eq!(
+            page.records
+                .iter()
+                .find(|item| item.record_id == first)
+                .unwrap()
+                .status,
+            "success"
         );
     }
 
@@ -487,7 +607,68 @@ mod tests {
             .execute(&legacy)
             .await
             .unwrap();
+        sqlx::query(
+            "CREATE TABLE notification_history (
+                id TEXT PRIMARY KEY NOT NULL,
+                direction TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                source_device_id TEXT NOT NULL,
+                target_device_id TEXT NOT NULL,
+                device_name TEXT NOT NULL,
+                package TEXT NOT NULL,
+                app_name TEXT NOT NULL,
+                app_icon_ref TEXT,
+                title TEXT NOT NULL,
+                text TEXT NOT NULL,
+                notification_key TEXT NOT NULL,
+                status TEXT NOT NULL,
+                failure_reason TEXT,
+                observed_at INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                content_hash TEXT NOT NULL,
+                post_time INTEGER NOT NULL,
+                UNIQUE(direction, source_device_id, target_device_id, package, notification_key)
+            )",
+        )
+        .execute(&legacy)
+        .await
+        .unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            "INSERT INTO notification_history (
+                id,direction,event_id,source_device_id,target_device_id,device_name,
+                package,app_name,app_icon_ref,title,text,notification_key,status,failure_reason,
+                observed_at,created_at,updated_at,content_hash,post_time
+             ) VALUES (
+                'legacy-record','receive','legacy-event','phone','receiver','Device phone',
+                'example.app','Example',NULL,'Title','legacy','stable-key','success',NULL,
+                ?,?,?,'legacy-hash',?
+             )",
+        )
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .bind(now)
+        .execute(&legacy)
+        .await
+        .unwrap();
         initialize(&legacy).await.unwrap();
+        assert!(get(&legacy, "legacy-record").await.unwrap().is_some());
+        let additional = upsert(&legacy, &received("new-event", "new", "success"))
+            .await
+            .unwrap();
+        assert_ne!(additional, "legacy-record");
+        let received_page = query(
+            &legacy,
+            Query {
+                direction: Some("receive".into()),
+                ..Query::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(received_page.records.len(), 2);
         let id = upsert(&legacy, &record("a", "persisted", "success"))
             .await
             .unwrap();
